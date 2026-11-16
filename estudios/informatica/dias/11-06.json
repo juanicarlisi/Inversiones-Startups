@@ -1,0 +1,574 @@
+{
+ "id": "11-06",
+ "titulo": "Offline, archivos y dispositivos en escritorio",
+ "bajada": "Cortás la luz a mitad de un guardado, leés una balanza por un puerto serie virtual y ves por qué dos terminales sin red pueden perder stock si sincronizan mal.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar cómo decide un sistema qué archivos puede tocar una app y qué agrega un sandbox de escritorio.",
+  "Aplicar la receta del guardado atómico (temporal, fsync, rename) y justificar cada paso.",
+  "Distinguir los tres modos de conectar un lector o una balanza y leer una trama por un puerto serie.",
+  "Describir cómo trabaja una impresora con spooler y por qué importa la impresión sin driver.",
+  "Diseñar una bandeja de salida idempotente y elegir entre mandar estados o mandar operaciones."
+ ],
+ "venis_de": "En [@11-05] viste cómo una app llega a la computadora y se actualiza. Hoy mirás lo que pasa cuando ya está corriendo: archivos, aparatos conectados y una conexión que no siempre está.",
+ "se_apoya_en": [
+  "02-13",
+  "02-14",
+  "02-27",
+  "03-25",
+  "09-24",
+  "09-33",
+  "10-16",
+  "07-12",
+  "07-17"
+ ],
+ "gancho": [
+  "Una terminal de un depósito de Buenos Aires (escena inventada) registra salidas de bultos con un lector de código de barras y una balanza. A las tres de la tarde se cae el Wi-Fi del fondo, justo cuando se carga un camión. El operario sigue escaneando. ¿Qué tiene que pasar para que ninguno de esos movimientos se pierda, ni se cuente dos veces cuando vuelve la red?",
+  "En esta clase vas a abrir tres cajas negras: cómo una app de escritorio toca archivos sin romperlos, cómo habla con una impresora, un lector y una balanza, y cómo trabaja sin red y se pone al día."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Acceso a archivos: quién puede abrir qué"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo que sigue lo corrí en esta VM con programas míos y datos inventados (bultos, balanzas, terminales). Donde hace falta saber cómo es un estándar o un sistema operativo, cito su documentación oficial."
+  },
+  {
+   "t": "p",
+   "x": "El [[acceso a archivos]] es el conjunto de reglas con las que un sistema decide si un programa puede abrir, leer, escribir o borrar un archivo. En el escritorio clásico, la regla es sencilla y a la vez generosa: **la app corre con los permisos del usuario que la lanzó**, así que puede tocar todo lo que ese usuario podría tocar. En Linux eso se expresa con los [[permisos rwx]] que viste en [@02-13]. Lo comprobé con un archivo de root con permisos `600` y un proceso que corre como el usuario `nobody`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls -l reservado.txt",
+     "s": "-rw------- 1 root root 8 Nov 16 02:17 reservado.txt"
+    },
+    {
+     "c": "setpriv --reuid=65534 --regid=65534 --clear-groups python3 -c \"open('reservado.txt').read()\"",
+     "s": "PermissionError: [Errno 13] Permission denied: 'reservado.txt'"
+    }
+   ],
+   "cap": "Corrido en esta VM. El sistema le niega el acceso al proceso según su usuario, sin importar qué programa sea."
+  },
+  {
+   "t": "p",
+   "x": "Esto tiene una consecuencia incómoda: el sistema no distingue entre tu editor de etiquetas y un programa malicioso que abriste por error. Los dos son «el usuario». Por eso los sistemas modernos agregan una segunda capa, el sandbox, que veremos en un momento. Antes, una cuestión más cotidiana: **cómo guardar sin romper nada**."
+  },
+  {
+   "t": "h",
+   "x": "Guardar sin perder datos: el truco del archivo temporal"
+  },
+  {
+   "t": "p",
+   "x": "Si una app abre `stock.json` para escribir y se corta la luz a mitad de la escritura, el archivo queda truncado. En Python, `open(ruta, 'w')` vacía el archivo en el instante de abrirlo, y recién después escribe. Corté a propósito mi propio proceso con `os._exit` en medio de cada variante de guardado:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat stock.json   # antes del corte",
+     "s": "{\"B-0042\": 5, \"B-0043\": 10, \"B-0044\": 2}"
+    },
+    {
+     "c": "python3 guardar.py mal   # escribe sobre el mismo archivo y se corta a la mitad",
+     "s": ""
+    },
+    {
+     "c": "cat stock.json",
+     "s": "{\"B-0042\": 7, \"B-004"
+    },
+    {
+     "c": "python3 -c \"import json; json.load(open('stock.json'))\"",
+     "s": "json.decoder.JSONDecodeError: Unterminated string starting at: line 1 column 15 (char 14)"
+    },
+    {
+     "c": "python3 guardar.py bien   # escribe un temporal, fsync, y reemplaza con rename; se corta justo antes del rename",
+     "s": ""
+    },
+    {
+     "c": "cat stock.json",
+     "s": "{\"B-0042\": 5, \"B-0043\": 10, \"B-0044\": 2}"
+    }
+   ],
+   "cap": "Corrido en esta VM. Con el guardado ingenuo se perdió el contenido anterior y el nuevo quedó roto; con el guardado atómico quedó intacto el archivo viejo, más un temporal huérfano que se limpia al arrancar."
+  },
+  {
+   "t": "p",
+   "x": "La receta del guardado atómico tiene tres pasos: escribir el contenido nuevo en un **archivo temporal en la misma carpeta**, forzar que llegue al disco con `fsync` y **renombrarlo** sobre el original. La página de manual de `rename(2)` explica por qué funciona: si el nombre nuevo ya existe, se reemplaza de forma atómica, y ningún otro proceso encuentra el archivo ausente en ningún momento [#man7-rename-2]. O queda la versión vieja entera o queda la nueva entera."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "La misma página aclara que durante el reemplazo puede haber una ventana en que los dos nombres apunten al archivo [#man7-rename-2]. Eso no rompe la regla (nunca falta uno), pero la receta solo protege si el temporal está en el mismo sistema de archivos que el destino: `rename` no atraviesa dispositivos. Por eso el temporal se crea en la misma carpeta, no en `/tmp`.",
+   "titulo": "Dos detalles de la receta"
+  },
+  {
+   "t": "pensa",
+   "x": "En la receta, el `fsync` se hace sobre el temporal antes del `rename`. ¿Qué podría pasar si se hiciera el `rename` primero y el `fsync` después, y la luz se cortara entre los dos?",
+   "resp": "El sistema podría haber registrado el nombre nuevo en el directorio pero no haber bajado a disco los datos del archivo. Al volver la luz habría un `stock.json` con el nombre correcto y el contenido vacío o incompleto. El `fsync` previo asegura que, cuando el nombre cambia, el contenido ya está."
+  },
+  {
+   "t": "h",
+   "x": "El sandbox de escritorio: que la app solo toque lo que le tocó"
+  },
+  {
+   "t": "p",
+   "x": "Un [[sandbox de escritorio]] es un mecanismo del sistema que limita lo que una app puede hacer aunque corra con el usuario: qué carpetas ve, si usa la red, si habla con dispositivos. Ya conocés la idea de los teléfonos ([[App Sandbox]] en [@02-27], donde cada app tiene su espacio). En el escritorio llegó más tarde y de forma opcional, porque había décadas de programas que daban por hecho el acceso libre. Hoy hay tres versiones principales."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Sistema",
+    "Mecanismo",
+    "Qué hace por defecto",
+    "Cómo se le da más acceso"
+   ],
+   "filas": [
+    [
+     "macOS",
+     "App Sandbox",
+     "Cada app queda confinada a su contenedor y necesita permisos declarados (entitlements) para red, dispositivos o archivos [#apple-app-sandbox-docs]",
+     "El usuario elige un archivo en el diálogo de abrir o guardar; la app puede recordar ese permiso con un marcador de seguridad [#apple-app-sandbox-docs]"
+    ],
+    [
+     "Linux (Flatpak)",
+     "Sandbox con portales",
+     "Solo lee su runtime, sus propios archivos y su carpeta de datos; sin red, sin dispositivos y sin servicios del anfitrión [#flatpak-sandbox-2611]",
+     "Con `--filesystem` en el manifiesto, o mediante un portal cuando el usuario elige el archivo [#flatpak-sandbox-2611]"
+    ],
+    [
+     "Windows (MSIX)",
+     "Contenedor liviano con sistema de archivos y registro virtualizados",
+     "Las escrituras en ciertos lugares del sistema se redirigen a un espacio propio del paquete [#msix-overview-2611]",
+     "Se declaran capacidades en el manifiesto del paquete [#msix-overview-2611]"
+    ]
+   ],
+   "cap": "Tres sandboxes de escritorio. Cada uno nació en una época y con un fin distinto, y ninguno es obligatorio para toda app."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Revisado el 16-11-2026. Flatpak y MSIX salen de su documentación oficial, que pude leer. De la página de Apple sobre App Sandbox no pude leer el texto (carga con JavaScript), así que la fila de macOS está contada de memoria y conviene cotejarla antes de apoyarse en ella: los nombres de los permisos (entitlements) y los pasos de los marcadores de seguridad cambian entre versiones de macOS.",
+   "titulo": "vigencia"
+  },
+  {
+   "t": "p",
+   "x": "El caso de Flatpak muestra bien la idea de fondo, que es **cambiar el consentimiento permanente por el consentimiento puntual**. Su documentación explica que, cuando el usuario elige un archivo en un selector de archivos nativo, esa elección se interpreta como permiso implícito para esa app sobre ese archivo, y que la app evita pedir acceso amplio y permanente al disco [#flatpak-sandbox-2611]. El mecanismo se llama *portal*: un servicio fuera del sandbox que muestra el diálogo y le entrega a la app solo lo elegido; la especificación del portal de selección de archivos dice que los archivos elegidos «se hacen accesibles» a la app, lo que puede implicar registrarlos en el portal de documentos [#flatpak-portal-filechooser]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Es la diferencia entre darle a un transportista las llaves de todo el depósito y entregarle en el muelle el bulto que tiene que llevar. La analogía queda corta en un punto: el transportista no puede copiar la llave, mientras que una app que recibe un archivo sí puede copiarlo a otro lado si además tiene acceso a la red. Por eso los sandboxes combinan restricciones de archivos con restricciones de red.",
+   "titulo": "Las llaves o el bulto"
+  },
+  {
+   "t": "p",
+   "x": "Para quien arma software empresarial, lo práctico es esto: una app de escritorio dentro de un sandbox **no puede abrir por su cuenta una carpeta compartida de la red ni leer un archivo cualquiera del disco**. Si tu sistema espera que el usuario deje un Excel en una carpeta fija para importarlo, en un sandbox eso hay que rediseñarlo: el usuario elige el archivo con el selector, o se pide acceso a esa carpeta de forma explícita."
+  },
+  {
+   "t": "h",
+   "x": "Impresoras: spooler, drivers y etiquetas"
+  },
+  {
+   "t": "p",
+   "x": "Imprimir una etiqueta no es mandar bytes a un cable. Entre la app y el papel hay un **spooler** (de «SPOOL», colas de impresión): un servicio del sistema que recibe los trabajos, los pone en una cola, los convierte al formato que entiende la impresora y se los va pasando de a uno. La app no espera a que termine y varias apps pueden compartir la misma impresora. Es el patrón de las colas que viste en [@03-25] aplicado al mundo físico."
+  },
+  {
+   "t": "p",
+   "x": "Los [[drivers de impresora]] son los programas que traducen lo que la app quiere imprimir (un PDF, una imagen, texto) a los comandos de cada modelo de impresora. En Windows y macOS los provee casi siempre el fabricante o el propio sistema. En Linux y macOS, el sistema de impresión es **CUPS**: según su sitio, un sistema de impresión de código abierto y basado en estándares, desarrollado por OpenPrinting, que corre en Linux y otros sistemas de tipo Unix y que usa IPP Everywhere para imprimir en impresoras locales y de red [#openprinting-cups-home]. Se maneja con los comandos `lp` y `lpr` y una interfaz web local en el puerto 631 [#openprinting-cups-home]."
+  },
+  {
+   "t": "p",
+   "x": "Lo interesante es cómo cambió la idea de driver. El formato histórico es el PPD, un archivo que describe las capacidades de cada modelo, pero según la documentación de CUPS no alcanza a expresar todas las capacidades de una impresora moderna [#openprinting-cups-drivers]. La alternativa es la impresión **sin driver** ([[IPP Everywhere]]): la impresora misma le dice al sistema qué sabe hacer y el sistema le habla en un protocolo estándar. La documentación afirma que casi todas las impresoras fabricadas desde 2010 admiten IPP/2.0, pero que algunas impresoras industriales de etiquetas y de nichos específicos no lo hacen [#openprinting-cups-drivers]. Y justo esas son las que importan en logística."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Revisado el 16-11-2026 en la documentación de OpenPrinting [#openprinting-cups-drivers]: las colas «raw» (sin driver ni PPD) se declararon obsoletas desde CUPS 2.2 (2018), los drivers desde CUPS 2.3 (2019), y está previsto retirarlos en CUPS 3.0, con las «aplicaciones de impresora» como puente para equipos viejos. La fecha de CUPS 3.0 no está confirmada en lo que leí, y las distribuciones suelen mantener esos componentes unos años más. Windows y macOS tienen sus propios modelos de driver que no revisé para este día.",
+   "titulo": "vigencia"
+  },
+  {
+   "t": "p",
+   "x": "La moraleja para un depósito es de compras y de diseño. Si la impresora de etiquetas es de las que no hablan IPP, la app tendrá que mandarle los comandos propios del fabricante, y eso implica un driver o un canal «raw» que hay que mantener. Preguntarlo antes de comprar el equipo ahorra mucho más que cualquier optimización posterior."
+  },
+  {
+   "t": "pensa",
+   "x": "Una app de escritorio imprime etiquetas de bultos directo al puerto de una impresora, sin pasar por el spooler del sistema. ¿Qué ventajas y qué problemas trae?",
+   "resp": "Ventaja: control total y velocidad, sin conversiones intermedias. Problemas: la app tiene que gestionar sola las colas, los errores (sin papel, impresora apagada) y los reintentos; si dos usuarios imprimen a la vez, se pisan; y el sistema no puede mostrar el estado. El spooler resuelve justamente eso."
+  },
+  {
+   "t": "h",
+   "x": "Lectores de código de barras y balanzas"
+  },
+  {
+   "t": "p",
+   "x": "Un depósito vive de aparatos que no son ni teclado ni pantalla. Hay tres maneras típicas de conectarlos a una PC, y cada una cambia la programación."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Modo",
+    "Cómo le aparece a la PC",
+    "Ventaja",
+    "Costo"
+   ],
+   "filas": [
+    [
+     "Emulación de teclado",
+     "Como un teclado USB que «tipea» el código y un Enter",
+     "No necesita driver ni código especial: sirve cualquier programa",
+     "El código llega adonde esté el foco; depende de la distribución del teclado; la app no sabe quién tipea"
+    ],
+    [
+     "HID propio (clase POS)",
+     "Como un dispositivo HID con su propio tipo de reporte",
+     "La app recibe datos estructurados, no teclas",
+     "Hay que usar una API de dispositivos HID; menos común en equipos baratos"
+    ],
+    [
+     "Puerto serie (real o virtual)",
+     "Como un puerto COM; muchas balanzas y lectores se conectan así",
+     "Control de velocidad, tramas y confirmaciones",
+     "La app tiene que abrir el puerto, configurarlo y armar las líneas"
+    ]
+   ],
+   "cap": "Tres formas de conectar un lector o una balanza. Las que usa cada equipo concreto están en su manual."
+  },
+  {
+   "t": "p",
+   "x": "Sobre el HID propio: el documento de tablas de uso de HID de USB (versión de 2004 que leí) lista una «Bar Code Scanner page» con el código 8C y una «Scale page» con el 8D [#usb-hid-usage-tables-2004]. Es decir, el estándar USB definió desde hace años tipos de dispositivo específicos para lectores y balanzas. Eso no garantiza que cada fabricante los use: la emulación de teclado es lo más común porque funciona sin esfuerzo. La versión vigente del documento puede traer cambios que no revisé."
+  },
+  {
+   "t": "h3",
+   "x": "Emulación de teclado: ¿lo tipeó una persona o un lector?"
+  },
+  {
+   "t": "p",
+   "x": "Con la [[emulación de teclado]], la app recibe teclas. ¿Cómo distinguir un lector de una persona sin cambiar el equipo? Una técnica clásica es medir el tiempo entre teclas: un lector manda 13 caracteres en milisegundos, y una persona tarda una décima de segundo por tecla. Armé un emisor y un receptor que se hablan por una tubería (stdin), y probé tres casos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 emisor.py 0.002 7790001234567 | python3 receptor.py   # pausa de 2 ms por carácter",
+     "s": "texto='7790001234567'  caracteres=13  pausa_maxima=2.2 ms  -> LECTOR (cargar directo)"
+    },
+    {
+     "c": "python3 emisor.py 0.15 7790001234567 | python3 receptor.py   # persona: 150 ms por carácter",
+     "s": "texto='7790001234567'  caracteres=13  pausa_maxima=150.3 ms  -> PERSONA (dejar editar)"
+    },
+    {
+     "c": "… un lector, pero la computadora se cuelga 80 ms a la mitad",
+     "s": "texto='7790001234567'  caracteres=13  pausa_maxima=77.2 ms  -> PERSONA (dejar editar)"
+    }
+   ],
+   "cap": "Corrido en esta VM; los códigos son inventados. El umbral fue 30 ms entre bytes y un mínimo de 8 caracteres. Los tiempos dependen de esta máquina."
+  },
+  {
+   "t": "p",
+   "x": "El tercer caso es el que importa. El criterio de tiempo se equivoca cuando el equipo está cargado (un antivirus, un disco lento), porque la demora la causa la PC y no el lector. Por eso las apps robustas **no se fían solo del tiempo**: miran además el largo esperado, el prefijo del código (muchos lectores pueden configurarse para agregar uno), el dígito verificador del código de barras o directamente pasan al modo serie o HID, donde no hay ambigüedad."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "El problema más común en depósitos con lectores en emulación de teclado no es el tiempo, es el foco. Si el operario hace clic en otra ventana, las teclas del lector caen allí. Una app que necesita escaneo confiable suele tomar el control del foco, o usar un modo donde el lector no pase por el teclado.",
+   "titulo": "Dónde caen las teclas"
+  },
+  {
+   "t": "h",
+   "x": "Puerto serie: la balanza que habla por líneas"
+  },
+  {
+   "t": "p",
+   "x": "Una balanza conectada por puerto serie manda una **trama** (en el sentido de [@05-03]: una unidad de datos con un formato propio) cada tanto. El formato lo define cada fabricante y viene en su manual; el que sigue es inventado. En Linux, el puerto se abre como un archivo de dispositivo y se configura con la interfaz `termios`. Su página de manual explica los dos modos: el modo canónico entrega la entrada **línea por línea** y habilita la edición de línea; el no canónico entrega los datos tal como llegan y sin procesamiento [#man7-termios-3]. Para hablar con un aparato hace falta el segundo, que es lo que hace `cfmakeraw` (en Python, `tty.setraw`)."
+  },
+  {
+   "t": "p",
+   "x": "No tengo una balanza ni un puerto físico, así que usé un par de terminales virtuales (`pty`): lo que escribe una punta sale por la otra, y la app abre la punta esclava como si fuera un puerto serie. Una «balanza» inventada manda lecturas con un estado: `US` (inestable, la balanza todavía se mueve) o `ST` (estable). Cada línea se manda partida en dos pedazos, como pasa en un puerto real, y la app arma las líneas por su cuenta:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 balanza.py",
+     "s": "read #1: b'US,kg,'\nread #2: b'  12.31\\r\\n'\n  -> US 12.31 kg (inestable, no se guarda)\nread #3: b'US,kg,'\nread #4: b'  12.38\\r\\n'\n  -> US 12.38 kg (inestable, no se guarda)\nread #5: b'ST,kg,'\nread #6: b'  12.40\\r\\n'\n  -> ST 12.4 kg (estable: se registra)\npeso registrado: 12.4 kg"
+    }
+   ],
+   "cap": "Corrido en esta VM con el módulo `termios` de Python. El formato de trama y los pesos son inventados."
+  },
+  {
+   "t": "p",
+   "x": "Mirá qué hace el programa: acumula bytes en un búfer, corta solo cuando ve el fin de línea y **ignora las lecturas inestables**. Los dos errores clásicos son leer con `read` y asumir que cada llamada devuelve una línea entera (acá devolvió medias líneas), y registrar el peso mientras la balanza todavía oscila: en un depósito, un peso mal tomado es una diferencia de inventario."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "En una primera corrida la balanza empezó a escribir antes de que la app terminara de configurar el puerto, y la primera línea se leyó cortada y fue descartada por no coincidir con el formato. Mi explicación probable es que los datos llegaron cuando el puerto todavía estaba en modo de línea y se perdieron al cambiar de modo, pero no lo verifiqué a fondo. La lección práctica es la misma: configurá el puerto antes de que el aparato hable y tolerá líneas inválidas.",
+   "titulo": "Lo que me pasó"
+  },
+  {
+   "t": "pensa",
+   "x": "Una balanza manda 20 lecturas por segundo y la app solo guarda las marcadas como estables. El operario dice «a veces no registra nada». ¿Qué tres cosas revisarías?",
+   "resp": "1) Si la balanza llega a marcar `ST`: una balanza que vibra por el piso o por un camión cerca puede no estabilizarse nunca. 2) Si la app descarta líneas por un formato inesperado (unidad, espacios, decimales con coma). 3) Si el puerto está bien configurado (velocidad, paridad), porque un baudaje distinto produce basura que el parser ignora sin avisar."
+  },
+  {
+   "t": "h",
+   "x": "Bases locales y sincronización: seguir trabajando sin red"
+  },
+  {
+   "t": "p",
+   "x": "Para que una terminal funcione cuando se cae el Wi-Fi, la app necesita guardar los movimientos en local y mandarlos después. En el escritorio, la herramienta típica es una base [[SQLite embebida]] (la viste en [@09-33]), un motor que vive dentro de la app y guarda todo en un solo archivo. La documentación del propio proyecto cuenta que se usa como formato de archivo de aplicaciones de escritorio y que con ella la opción de «Guardar» se vuelve superflua, porque los cambios se escriben solos [#bd0901-sqlite-whentouse]."
+  },
+  {
+   "t": "p",
+   "x": "Lo que la hace apta para esto es la [[transacción]] atómica. Según SQLite, una transacción parece atómica incluso si un corte de luz o una caída del sistema la interrumpe [#bd0901-sqlite-atomiccommit]. Lo probé a mi manera: una terminal inventada tiene 20 unidades del bulto B-0042, anota una salida de 3 y la confirma; después empieza a anotar una salida de 5 y el proceso muere antes del `COMMIT`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 offline.py crash   # anota -3 (COMMIT), anota -5 (sin COMMIT) y corta",
+     "s": ""
+    },
+    {
+     "c": "python3 offline.py ver",
+     "s": "stock local: [('B-0042', 17)]\nsalidas: [('B-0042', -3)]"
+    }
+   ],
+   "cap": "Corrido en esta VM con SQLite en modo WAL. Al reabrir, solo existe el movimiento confirmado y el stock local coincide con la lista de movimientos."
+  },
+  {
+   "t": "p",
+   "x": "El estado local quedó consistente: 20 menos 3 da 17, y el movimiento no confirmado no existe. La clave de diseño es que el movimiento y el stock local cambian **en la misma transacción**. Si hubieran sido dos escrituras separadas, un corte entre ambas dejaría un stock que no cuadra con su historial. En el modo WAL que usé, el `COMMIT` se produce cuando se agrega un registro especial al archivo de log, y los lectores no bloquean a los escritores [#bd0933-sqlite-wal]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Hay un límite que importa mucho en una empresa. SQLite funciona sobre un sistema de archivos de red, pero su documentación advierte que el bloqueo de archivos es defectuoso en muchas implementaciones y que, si falla, dos clientes podrían modificar la misma parte de la base y corromperla; recomienda evitar el acceso directo y simultáneo desde muchas computadoras a una misma base [#bd0901-sqlite-whentouse]. El modo WAL, además, exige que todos los procesos estén en la misma máquina [#bd0933-sqlite-wal]. La idea de «una base SQLite en la carpeta compartida del depósito, usada por 10 terminales» es una receta de corrupción.",
+   "titulo": "La carpeta compartida"
+  },
+  {
+   "t": "h",
+   "x": "Ponerse al día: la bandeja de salida y el conflicto"
+  },
+  {
+   "t": "p",
+   "x": "Los movimientos guardados en local se envían al servidor cuando vuelve la red. El patrón se llama **bandeja de salida** (en inglés, *outbox*): una tabla local con lo pendiente, un proceso que intenta enviar de a lotes y marca como enviado lo que el servidor confirmó. Dos reglas lo hacen seguro. La primera es la [[idempotencia]] ([@07-12]): cada movimiento lleva un identificador creado en la terminal, y si el servidor ya lo vio, lo ignora, de modo que reintentar nunca duplica. La segunda es el [[reintento con espera]] ([@07-17]): si el envío falla, se espera cada vez más antes de volver a intentar, para no saturar al servidor cuando vuelven todas las terminales a la vez."
+  },
+  {
+   "t": "p",
+   "x": "Lo difícil aparece cuando dos terminales cambian lo mismo sin verse. Es el [[conflicto de sincronización]] que viste en [@10-16], y en logística tiene cara de stock. Armé un mini servidor con SQLite en memoria y dos terminales que partieron de 20 unidades: una saca 3 y otra saca 5, ambas sin red."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 sync.py",
+     "s": "Las dos terminales vieron 20 y trabajaron sin red: A saca 3, B saca 5.\n\n-- Estrategia 1: cada terminal manda su STOCK final (último en llegar gana)\n  llega A: stock = 17\n  llega B: stock = 15\n  stock real tendría que ser 12; queda 15\n\n-- Estrategia 2: cada terminal manda sus MOVIMIENTOS con id\n  stock = 12\n  la terminal A reintenta (no recibió la confirmación): duplicado ignorado\n  stock = 12"
+    }
+   ],
+   "cap": "Corrido en esta VM, con datos inventados. La estrategia 1 pierde la salida de 3; la 2 suma las dos y no duplica el reintento."
+  },
+  {
+   "t": "p",
+   "x": "La diferencia lo dice todo. Cuando mandás **estados**, el último en llegar pisa al anterior y el servidor pierde información. Cuando mandás **operaciones** (movimientos con un identificador), las dos se aplican y el orden no cambia el resultado. Por eso los sistemas de inventario guardan movimientos y calculan el stock, en vez de guardar solo el saldo. Pero ojo: las operaciones no resuelven todo. Si ambas terminales sacaran 15 de las 20 unidades, el resultado sumado sería −10, y ahí hace falta una **regla de negocio** (rechazar, avisar, dejar el stock en observación). Eso no lo decide la base de datos: lo decide la operación."
+  },
+  {
+   "t": "pensa",
+   "x": "Una terminal modifica la dirección de un cliente sin red y otra, también sin red, modifica el teléfono del mismo cliente. Al sincronizar, ¿conviene mandar estados o diferencias por campo?",
+   "resp": "Conviene mandar diferencias por campo (o por operación). Así las dos modificaciones se conservan porque tocan campos distintos. Si cada terminal manda el registro completo, la que llega última pisa el cambio de la otra, aunque no hayan tocado el mismo dato."
+  },
+  {
+   "t": "senda",
+   "titulo": "La misma bandeja de salida, en un teléfono",
+   "x": [
+    "Senda no es una app de escritorio, pero resuelve este mismo problema y es un ejemplo real que se puede leer. Esto corresponde al commit 25e08fa del código; el código cambia y la forma permanece.",
+    "En `src/util/nube.ts`, las respuestas del Espadeo van a una cola persistente guardada en el teléfono (con AsyncStorage, no con SQLite), con tope de 500 filas y lotes de 50. Cada fila lleva un `cliente_id` generado en el teléfono, y el envío usa `on_conflict=cliente_id` con `resolution=ignore-duplicates`, de modo que el servidor descarta los repetidos. Si el envío falla, el reintento espera `5000 * 2**(fallos-1)` milisegundos, con tope de 10 minutos y un factor de azar entre 0,5 y 1,5. En `src/util/juntos.ts`, los turnos de duelo pendientes se guardan aparte y se mandan al abrir la app.",
+    "Un dato honesto: según el mapa técnico, no todo en Senda tiene cola. Si no hay señal al unirse a un grupo o aceptar un amigo, la acción falla y se muestra el error."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "src/util/juntos.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Lo que te llevás para diseñar una app de escritorio de depósito"
+  },
+  {
+   "t": "p",
+   "x": "Con todo lo de hoy se puede armar una lista de preguntas para cualquier herramienta de escritorio que vaya a un depósito, un puerto o una oficina: ¿cómo guarda (atómico o ingenuo)? ¿Qué carpetas necesita y funcionaría dentro de un sandbox? ¿Qué impresora usa y si habla IPP? ¿Cómo recibe el lector (teclado, HID o serie) y qué pasa si el foco cambia? ¿Qué pasa si se corta la luz? ¿Qué hace cuando vuelve la red, y qué regla de negocio resuelve los conflictos? Si el equipo de desarrollo no tiene respuesta a la mayoría, la app todavía no está lista para el uso real."
+  }
+ ],
+ "recap": [
+  "El escritorio clásico le da a la app los permisos del usuario; el sandbox los recorta y cambia el consentimiento permanente por el puntual (el selector de archivos).",
+  "Guardar sin perder datos es escribir un temporal en la misma carpeta, hacer fsync y renombrar sobre el original.",
+  "Imprimir pasa por un spooler; los drivers están dando paso a la impresión sin driver por IPP, salvo en parte de las impresoras industriales de etiquetas.",
+  "Los lectores se conectan como teclado, como HID o por puerto serie; distinguir lector de persona solo por tiempo es frágil.",
+  "En un puerto serie las lecturas llegan partidas: se arma un búfer, se corta por fin de línea y se descartan las lecturas inestables.",
+  "SQLite local da transacciones atómicas, pero no sirve para compartir un mismo archivo entre varias PC por la red.",
+  "Una bandeja de salida con identificadores es idempotente; mandar operaciones en vez de estados evita pisar cambios, y los conflictos de negocio los decide una regla."
+ ],
+ "repaso": [
+  {
+   "p": "Una app guarda un archivo con `open(ruta, 'w')` y escribe el contenido nuevo. Se corta la luz a mitad. ¿Qué queda en disco?",
+   "o": [
+    "El archivo viejo completo, porque el sistema deshace las escrituras incompletas",
+    "El archivo nuevo completo, porque el sistema termina de escribir al volver la luz",
+    "Un archivo cortado con parte del contenido nuevo y nada del viejo",
+    "Dos archivos, el viejo y el nuevo, con el mismo nombre en la misma carpeta"
+   ],
+   "c": 2,
+   "e": "`open(..., 'w')` vacía el archivo al abrirlo y escribe después. Si el proceso muere a mitad, queda parte del contenido nuevo y nada del viejo. Los sistemas de archivos comunes no deshacen escrituras de una app ni las completan solos; el guardado atómico con temporal y rename evita ese estado."
+  },
+  {
+   "p": "¿Por qué el archivo temporal del guardado atómico se crea en la misma carpeta que el original?",
+   "o": [
+    "Porque rename solo es atómico dentro del mismo sistema de archivos y no cruza dispositivos",
+    "Porque el sistema borra los temporales de /tmp apenas se cierra el programa que los creó",
+    "Porque las carpetas compartidas son más rápidas para escribir que las del sistema",
+    "Porque el fsync solo funciona en la carpeta de usuario y falla en las del sistema"
+   ],
+   "c": 0,
+   "e": "`rename` reemplaza de forma atómica un nombre por otro solo dentro de un mismo sistema de archivos; entre dispositivos habría que copiar. Las otras opciones inventan comportamientos del sistema que no existen."
+  },
+  {
+   "p": "Un lector de código de barras en emulación de teclado manda 13 caracteres; la PC está cargada y hay una pausa de 80 ms a mitad. Una app decide «lector» si ninguna pausa pasa de 30 ms. ¿Qué pasa?",
+   "o": [
+    "La clasifica como lector igual, porque el promedio de las pausas queda por debajo del umbral",
+    "Descarta el código porque tiene demasiados caracteres para ser una entrada válida",
+    "Lo ignora, porque el sistema operativo corta los lectores que se atrasan más de 50 ms",
+    "La clasifica como persona porque la demora de la PC supera el umbral aunque el origen sea el lector"
+   ],
+   "c": 3,
+   "e": "El criterio mira la pausa máxima. Una demora causada por la PC (no por el lector) rompe la regla y produce un falso «persona», como en la prueba corrida. Por eso conviene sumar largo esperado, prefijo y dígito verificador, o usar un modo sin ambigüedad."
+  },
+  {
+   "p": "Dos terminales sin red parten de 20 unidades. A saca 3 y B saca 5. Cada una manda al servidor su stock final, y el servidor se queda con el último que llega. ¿Qué stock queda si llega primero A y después B?",
+   "o": [
+    "12, porque el servidor suma las dos salidas sin importar el orden de llegada",
+    "15, porque el último en llegar pisa al anterior y se pierde la salida de 3",
+    "17, porque el servidor se queda con el primero que llegó e ignora al segundo",
+    "20, porque al detectar dos cambios el servidor los descarta y vuelve al estado inicial"
+   ],
+   "c": 1,
+   "e": "Con «último gana» sobre estados, B (que vio 20 y restó 5) deja 15 y borra lo de A. Con operaciones identificadas el resultado sería 12. Las otras opciones describen reglas que ese servidor no tiene."
+  },
+  {
+   "p": "En un sandbox de escritorio como Flatpak, una app necesita importar un Excel que el usuario deja en cualquier carpeta. ¿Cuál es el camino recomendado?",
+   "o": [
+    "Pedir acceso permanente a toda la carpeta personal del usuario en el manifiesto de la app",
+    "Desactivar el sandbox de la app con un permiso especial cada vez que se importe un archivo",
+    "Copiar el archivo desde otra app con permisos amplios y pasarlo por una carpeta de red",
+    "Que el usuario lo elija con el selector de archivos del sistema, que le da acceso solo a ese archivo"
+   ],
+   "c": 3,
+   "e": "La documentación de Flatpak recomienda estrechar el acceso y usar portales; la elección del usuario en el selector equivale a un permiso puntual. Pedir toda la carpeta personal es lo que se intenta evitar, y las demás opciones esquivan el modelo."
+  },
+  {
+   "p": "Diez terminales de un depósito usan a la vez un mismo archivo de base SQLite en una carpeta compartida de la red. ¿Cuál es el riesgo principal según la documentación de SQLite?",
+   "o": [
+    "Que el bloqueo de archivos de la red falle y dos clientes modifiquen lo mismo y corrompan la base",
+    "Que SQLite rechace de entrada más de cinco conexiones simultáneas y devuelva un error claro",
+    "Que las consultas se vuelvan más lentas pero la base siga siempre consistente y sin pérdidas",
+    "Que el modo WAL cifre los datos de forma que ninguna otra terminal logre leerlos"
+   ],
+   "c": 0,
+   "e": "SQLite advierte que el bloqueo de archivos suele estar roto en sistemas de archivos de red y que sin bloqueo correcto puede corromperse. La lentitud es otro costo; WAL no cifra y exige estar en la misma máquina."
+  }
+ ],
+ "feynman": "Explicale a un jefe de depósito, sin tecnicismos, qué hace una terminal con lo que escanea mientras no hay Wi-Fi, y qué tiene que pasar para que nada se pierda ni se cuente dos veces cuando vuelve la red.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0901-sqlite-whentouse",
+   "nota": "Cuándo conviene SQLite y cuándo no: leé la parte de «formato de archivo de aplicación» y la de sistemas de archivos de red, que respaldan lo que viste hoy."
+  },
+  {
+   "fuente": "flatpak-sandbox-2611",
+   "nota": "Los permisos por defecto de una app Flatpak y cómo se amplían; muestra con ejemplos qué significa un sandbox de escritorio."
+  },
+  {
+   "fuente": "man7-termios-3",
+   "nota": "La interfaz de terminales y puertos serie en Linux; sirve para entender modo canónico, modo crudo y qué pasa con una lectura parcial."
+  },
+  {
+   "fuente": "openprinting-cups-drivers",
+   "nota": "Por qué CUPS deja atrás los drivers y qué pasa con los equipos que no hablan IPP; útil antes de comprar una impresora de etiquetas."
+  }
+ ],
+ "videos": [],
+ "terminos": [
+  {
+   "t": "acceso a archivos",
+   "d": "Reglas con las que el sistema operativo decide si un programa puede abrir, leer, escribir o borrar un archivo: permisos del usuario en el escritorio clásico y, en un sandbox, solo lo que se le concede o el usuario elige."
+  },
+  {
+   "t": "sandbox de escritorio",
+   "d": "Mecanismo del sistema que confina una app de escritorio a sus propios recursos (carpetas, red, dispositivos) aunque corra con el usuario; macOS, Flatpak y los contenedores MSIX lo implementan."
+  },
+  {
+   "t": "drivers de impresora",
+   "d": "Programas que traducen lo que una app quiere imprimir a los comandos de un modelo de impresora; con la impresión sin driver, la impresora declara sus capacidades por un protocolo estándar."
+  },
+  {
+   "t": "IPP Everywhere",
+   "d": "Estándar de impresión sin driver: la impresora informa al sistema lo que sabe hacer y recibe los trabajos por el protocolo IPP; CUPS lo usa para imprimir en equipos locales y de red."
+  },
+  {
+   "t": "emulación de teclado",
+   "d": "Modo en que un lector u otro aparato se presenta como un teclado y «tipea» los datos; funciona sin programar nada especial, pero las teclas caen adonde esté el foco."
+  }
+ ],
+ "siguiente": "El panorama del software empresarial: qué es un sistema de registro, qué es uno de compromiso y cómo se ordena el mapa de siglas (ERP, CRM, WMS, TMS).",
+ "fuentes_nuevas": [
+  {
+   "id": "msix-overview-2611",
+   "t": "What is MSIX? (Microsoft Learn)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://learn.microsoft.com/en-us/windows/msix/overview"
+  },
+  {
+   "id": "usb-hid-usage-tables-2004",
+   "t": "HID Usage Tables (versión 1.12, 2004)",
+   "a": "USB Implementers Forum",
+   "tipo": "doc",
+   "anio": 2004,
+   "url": "https://www.usb.org/sites/default/files/documents/hut1_12v2.pdf"
+  },
+  {
+   "id": "openprinting-cups-home",
+   "t": "CUPS (OpenPrinting)",
+   "a": "OpenPrinting",
+   "tipo": "doc",
+   "url": "https://openprinting.github.io/cups/"
+  },
+  {
+   "id": "openprinting-cups-drivers",
+   "t": "Printer Applications and Printer Drivers (OpenPrinting)",
+   "a": "OpenPrinting",
+   "tipo": "doc",
+   "url": "https://openprinting.github.io/cups/drivers.html"
+  },
+  {
+   "id": "man7-termios-3",
+   "t": "termios(3): get and set terminal attributes, line control, get and set baud rate",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man3/termios.3.html"
+  },
+  {
+   "id": "flatpak-portal-filechooser",
+   "t": "org.freedesktop.portal.FileChooser",
+   "a": "xdg-desktop-portal",
+   "tipo": "doc",
+   "url": "https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.FileChooser.html"
+  }
+ ]
+}

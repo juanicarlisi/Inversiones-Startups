@@ -1,0 +1,486 @@
+{
+ "id": "12-19",
+ "titulo": "Serverless como arquitectura",
+ "bajada": "Calculás cuánto cuesta una función por uso, encontrás el punto en que un servidor fijo sale más barato y ves por qué Senda funciona sin servidor propio.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué es una arquitectura serverless: funciones más servicios gestionados, sin máquinas que operes vos.",
+  "Escribir una función como unidad: entra un evento, sale una respuesta, y el estado que importa vive afuera.",
+  "Calcular el costo mensual de una función con la lista de precios oficial y hallar el punto de cruce contra un servidor fijo.",
+  "Reconocer cuándo serverless sale más caro o se rompe: tráfico parejo, esperas largas, memoria ociosa, conexiones y límites.",
+  "Ubicar a Senda en el mapa: qué hace con funciones, qué hace con la base y qué decisiones dejó sin tomar."
+ ],
+ "venis_de": "En [@07-26] viste qué es una función serverless, qué pasa en un arranque en frío y qué límites ponen las plataformas, y en [@07-29] cómo Senda hace de backend sin servidor propio. En [@12-15] y [@12-17] viste microservicios y eventos. Falta la pregunta de arquitectura: cuándo conviene que la unidad de despliegue sea una función y qué cuenta te llega.",
+ "se_apoya_en": [
+  "07-26",
+  "07-29",
+  "12-11",
+  "12-15",
+  "12-17"
+ ],
+ "gancho": [
+  "Imaginá que tenés un cotizador de envíos que se usa casi todo el mes veinte veces por día y, el día que una tienda grande lanza una promoción, recibe cuarenta mil pedidos en una hora. Con un servidor propio tenés dos malas opciones: pagar una máquina enorme todo el mes para ese día, o tener una chica y que se caiga justo cuando más gente quiere comprar.",
+  "La arquitectura serverless propone otra cosa: no tenés máquina. Tenés una función que la plataforma ejecuta tantas veces como pedidos lleguen, y la factura cuenta solo lo que corrió. Hoy vas a ver la idea, la cuenta con precios oficiales (calculada con código que corrí) y el momento en que la cuenta se da vuelta y el servidor fijo gana."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué significa «sin servidor» y qué no significa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Servidores hay, y muchos. «Sin servidor» quiere decir que **no los operás vos**: no elegís el tamaño de la máquina, no instalás el sistema operativo, no decidís cuántas copias prender. Eso lo hace el proveedor, y a cambio te cobra por lo que usás. Es la misma idea de contratar un flete por viaje en lugar de comprar un camión: dejás de ser dueño del vehículo y también de tener que manejarlo.",
+    "Martin Fowler publicó en 2016 un artículo de Mike Roberts que ordena el tema. Define una [[arquitectura serverless]] como un diseño que mezcla dos ingredientes: servicios de terceros que cumplen el rol de backend (bases de datos, autenticación, almacenamiento: lo que llama «Backend as a Service») y código propio que corre en contenedores efímeros administrados por una plataforma («Functions as a Service») [#arq1219-roberts-serverless]. Lo importante es la suma. Una función sola no es una arquitectura; una app que casi no tiene código propio de servidor y delega en servicios gestionados, sí.",
+    "Esto ya lo viste desde otro ángulo. En [@07-26] tomaste una función aislada y le mediste el arranque. Hoy subimos un piso: ¿qué pasa con todo el sistema cuando la pieza de cómputo es una función y el resto son servicios que alquilás?"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Taxi contra auto propio",
+   "x": [
+    "Un auto propio te cuesta cochera, seguro y patente aunque lo dejes quieto, pero cada viaje extra sale casi gratis. Un taxi no te cobra nada si no viajás y cada viaje sale caro. Quien viaja poco gana con el taxi; quien viaja todo el día gana con el auto. Casi toda la discusión de hoy es esa cuenta.",
+    "La analogía deja de valer en un punto: el auto lo manejás vos y lo conocés; en serverless además aceptás reglas ajenas sobre cuánto puede durar un viaje, cuánta carga llevás y qué pasa si el taxi llega tarde."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "App o navegador",
+       "s": "quien pide",
+       "k": "cliente"
+      },
+      {
+       "t": "Puerta de entrada",
+       "s": "recibe el pedido HTTP",
+       "k": "red",
+       "e": "pedido"
+      },
+      {
+       "t": "Función",
+       "s": "tu código, sin estado",
+       "k": "servidor",
+       "e": "evento"
+      }
+     ],
+     "baja": "la función delega todo lo que tiene que durar"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Base gestionada",
+       "s": "estado y reglas",
+       "k": "datos"
+      },
+      {
+       "t": "Cola o tareas",
+       "s": "trabajo diferido",
+       "k": "datos"
+      },
+      {
+       "t": "Almacenamiento",
+       "s": "archivos",
+       "k": "datos"
+      }
+     ]
+    }
+   ],
+   "cap": "Esquema genérico de una arquitectura serverless para el cotizador inventado. Las cajas de abajo son servicios que alquilás; la función del medio es lo único que escribís."
+  },
+  {
+   "t": "h",
+   "x": "La función como unidad"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En una app clásica la unidad es el proceso: un programa que arranca, se queda prendido, guarda cosas en memoria y atiende miles de pedidos durante días. En serverless la [[función como unidad]] es otra cosa: un fragmento de código que recibe **un evento** (un pedido HTTP, un mensaje en una cola, una hora del reloj), devuelve **una respuesta** y se olvida de todo. La plataforma decide en qué máquina corre, cuántas copias hay y cuándo se apagan.",
+    "Esa última frase tiene una consecuencia que rompe el hábito de muchos programadores: **no podés confiar en la memoria**. Dos pedidos seguidos pueden caer en copias distintas, y una copia puede desaparecer entre uno y otro. Roberts lo dice así: no asumas que el estado de una invocación estará disponible en la siguiente, porque no controlás cuándo arrancan y paran los contenedores; lo que tiene que persistir va a un servicio externo [#arq1219-roberts-serverless]. Es el factor seis de la metodología Twelve-Factor: procesos sin estado y sin compartir nada [#twelve-factor].",
+    "Lo vemos con una simulación. Tres «entornos de ejecución» (así llama AWS a cada copia de tu función [#svl-aws-lambda-lifecycle]) atienden doce pedidos que reparte una plataforma con un generador de números al azar de semilla fija. Cada entorno cuenta en su memoria cuántos pedidos atendió; en paralelo, un almacén externo cuenta el total. A veces la plataforma recicla un entorno, que vuelve a cero."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Dos formas de contar cotizaciones: en la memoria de la instancia o en un almacén externo.\nfunction azar(semilla) { let a = semilla; return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }\n\nconst almacen = { cotizaciones: 0 };            // la base de datos: vive afuera de las funciones\nfunction crearInstancia() { return { local: 0 }; } // la memoria de un entorno de ejecución\n\nfunction handler(instancia, evento, deps) {\n  instancia.local += 1;                        // mal: parece un contador, es una variable de este entorno\n  deps.almacen.cotizaciones += 1;              // bien: el estado que importa va afuera\n  return { cp: evento.cp, local: instancia.local, total: deps.almacen.cotizaciones };\n}\n\nconst r = azar(7);\nlet instancias = [crearInstancia(), crearInstancia(), crearInstancia()];\nconsole.log('pedido  instancia  contador-local  contador-almacén');\nfor (let i = 1; i <= 12; i++) {\n  if (r() < 0.25) instancias[Math.floor(r() * 3)] = crearInstancia(); // la plataforma recicla un entorno cuando quiere\n  const k = Math.floor(r() * 3);                                       // y reparte los pedidos como quiere\n  const out = handler(instancias[k], { cp: 1000 + i }, { almacen });\n  console.log(String(i).padStart(6), String(k).padStart(10), String(out.local).padStart(15), String(out.total).padStart(17));\n}\n",
+   "cap": "Simulación en un solo proceso (semilla fija, datos inventados). Lo corrí en node 22 y da esta salida."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la columna del medio: en el pedido 10 la instancia 0 dice «5» y en el 11 dice «1» porque la plataforma la reemplazó. Esa variable nunca fue un contador, era un recuerdo de esa copia. La columna del almacén sube sin saltos porque vive afuera. Mismo código, mismo evento, otra ubicación del estado.",
+    "Fijate también en la forma del `handler`: recibe la instancia, el evento y las dependencias (`deps`), igual que los casos de uso de la arquitectura hexagonal de [@12-11], donde el núcleo recibía sus puertos desde afuera. No es casualidad. Una función serverless prolija es un caso de uso con un adaptador de entrada (el evento de la plataforma) y adaptadores de salida (la base, la cola). Si mezclás el evento de la plataforma con la lógica del negocio, probar localmente se vuelve un trámite y cambiar de proveedor, una reescritura."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Tu función guarda en una variable global «la tarifa vigente» que leyó de la base la primera vez. Un día cambiás la tarifa en la base. ¿Qué tarifa ven los clientes en la hora siguiente?",
+   "resp": "Depende de cuál copia los atienda: las que arrancaron antes del cambio siguen con la tarifa vieja hasta que la plataforma las recicle (no podés saber cuándo), y las nuevas leen la nueva. Hay clientes viendo precios distintos al mismo tiempo. Si es una caché, tiene que tener vencimiento; si es un dato de negocio, va a la base."
+  },
+  {
+   "t": "h",
+   "x": "Facturación por uso: la cuenta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[facturación por uso]] tiene dos patas en el caso de AWS Lambda, el servicio de funciones más conocido. Una se cobra por **cada pedido**. La otra, por el **tiempo que corre multiplicado por la memoria** que configuraste, medida en gigabytes por segundo (GB-s). Con la lista de precios oficial de AWS publicada el 11 de noviembre de 2026, para la región de Virginia del Norte y procesadores x86, el pedido cuesta USD 0,20 por millón y el cómputo USD 0,0000166667 por GB-s en el primer escalón; la lista incluye además un millón de pedidos y 400.000 GB-s sin cargo [#arq1219-aws-price-list].",
+    "Un ejemplo con números de logística inventados: cotizar un envío tarda 120 milisegundos y configurás 256 MB (un cuarto de gigabyte). Cada pedido consume 0,12 s × 0,25 GB = 0,03 GB-s. Un millón de pedidos al mes son 30.000 GB-s, que entran enteros en el tramo gratuito. Diez millones son 300.000 GB-s, también gratis, y solo pagás los pedidos: nueve millones por encima del millón gratuito, USD 1,80. La cuenta, hecha con código:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Costo mensual de una función por uso, con la lista de precios de AWS Lambda (x86, us-east-1, publicada el 2026-11-11)\nconst P = { porMillon: 0.20, gbSeg: 0.0000166667, gratisReq: 1_000_000, gratisGbSeg: 400_000 };\nfunction costoFuncion({ req, ms, mb }) {\n  const gbSeg = req * (ms / 1000) * (mb / 1024);\n  const compute = Math.max(0, gbSeg - P.gratisGbSeg) * P.gbSeg;   // sin los escalones de descuento: los primeros 6.000 millones de GB-s\n  const pedidos = Math.max(0, req - P.gratisReq) * P.porMillon / 1e6;\n  return { gbSeg, usd: compute + pedidos };\n}\nconst SERVIDOR = 15; // USD/mes: SUPUESTO de ejemplo para una máquina chica, no un precio de lista\nconsole.log('pedidos/mes      GB-s      función USD   servidor USD');\nfor (const req of [100_000, 1_000_000, 10_000_000, 30_000_000, 100_000_000]) {\n  const c = costoFuncion({ req, ms: 120, mb: 256 });\n  console.log(String(req).padStart(11), c.gbSeg.toFixed(0).padStart(10), c.usd.toFixed(2).padStart(14), String(SERVIDOR).padStart(14));\n}\n// punto de cruce: pedidos por mes donde la función iguala al servidor (cada tramo, con 120 ms y 256 MB)\nlet lo = 1e6, hi = 1e10;\nfor (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; (costoFuncion({ req: m, ms: 120, mb: 256 }).usd < SERVIDOR ? lo = m : hi = m); }\nconsole.log('cruce a los', Math.round(lo).toLocaleString('es-AR'), 'pedidos por mes =', (lo / (30 * 86400)).toFixed(1), 'por segundo promedio');\n// lo mismo con 3 s por pedido (esperando una API externa) y 512 MB\nlet l2 = 1e5, h2 = 1e10;\nfor (let i = 0; i < 60; i++) { const m = (l2 + h2) / 2; (costoFuncion({ req: m, ms: 3000, mb: 512 }).usd < SERVIDOR ? l2 = m : h2 = m); }\nconsole.log('con 3000 ms y 512 MB el cruce baja a', Math.round(l2).toLocaleString('es-AR'), 'pedidos por mes =', (l2 / (30 * 86400)).toFixed(2), 'por segundo');\n",
+   "cap": "Precios de AWS Lambda (lista oficial del 2026-11-11, x86, Virginia del Norte, primer escalón de descuento). El servidor de USD 15 es un supuesto mío, no un precio de lista."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos cosas de esa salida valen más que la cuenta en sí. Primera: para tráfico bajo, la factura es **cero o centavos**, y eso es lo que hizo popular el modelo en startups. Segunda: la función iguala al servidor de USD 15 recién a los 31 millones de pedidos por mes, unos 12 por segundo promedio. Y 12 por segundo promedio es un número muy chico: una sola máquina modesta atiende eso sin pestañear. Si tu tráfico es parejo y alto, el servidor fijo gana.",
+    "El cruce se mueve mucho según lo que hace la función. Con 3 segundos por pedido y 512 MB (por ejemplo, una función que espera a otra API) el cruce baja a unos 870.000 pedidos por mes, 0,33 por segundo. Pagás por cada segundo que la función está viva, aunque no haga nada más que esperar."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que el cálculo no incluye",
+   "x": [
+    "Es solo el cómputo de una función. Faltan la puerta de entrada (la API que recibe el pedido HTTP suele facturarse aparte), la transferencia de datos, los registros, la base y todo lo que la función llame. En muchos sistemas reales, esas partidas pesan más que la función. Además, el servidor de comparación tampoco es gratis de operar: alguien lo actualiza, lo vigila y lo reinicia. Esa persona cuesta, y no aparece en ninguna de las dos columnas."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cuándo sale más caro (y cuándo se rompe)"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La cuenta anterior ya anticipa el patrón. Serverless premia el tráfico **irregular** (picos y silencios) y castiga el tráfico **parejo**, porque en ese caso la ventaja principal, no pagar cuando no se usa, no aparece. Pero el costo no es lo único que se da vuelta. Hay cinco límites que conviene conocer antes de apostar:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Tiempo máximo.** Una función de Lambda puede correr hasta 900 segundos, 15 minutos [#svl-aws-lambda-limits]. Un proceso de conciliación que dura una hora no entra: hay que partirlo.",
+    "**Memoria y CPU atadas.** Lambda ofrece de 128 a 10.240 MB y reparte la CPU en proporción a la memoria; con 1.769 MB una función equivale a un procesador virtual [#svl-aws-lambda-limits]. No pedís CPU aparte.",
+    "**Tamaño de los mensajes.** El pedido y la respuesta de una invocación sincrónica tienen un tope de 6 MB cada uno [#svl-aws-lambda-limits]. Subir un archivo grande por la función no es buena idea: se sube directo al almacenamiento.",
+    "**Concurrencia.** Por defecto, 1.000 ejecuciones simultáneas por región, ampliable [#svl-aws-lambda-limits]. Roberts llama «DoS yourself» al accidente típico: una prueba de carga o un proceso por lotes consume el cupo y deja sin respuesta a tu API de producción [#arq1219-roberts-serverless].",
+    "**Estado y conexiones.** Sin memoria confiable, todo estado va afuera. Y si cada copia concurrente abre su propia conexión a una base clásica, mil copias son mil conexiones, y la mayoría de las bases tiene un tope mucho menor. Por eso este modelo se lleva mejor con bases que se hablan por HTTP o con un intermediario que junta conexiones."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay una sexta que se paga en tiempo de espera, no en plata: el arranque en frío que midiste en [@07-26]. Un pedido que llega cuando no hay copia lista espera a que se prepare el entorno. La documentación de AWS describe las fases del ciclo de vida de un entorno (inicio, invocación, apagado) y avisa que hay latencia variable en la primera invocación [#svl-aws-lambda-lifecycle]. Si una pantalla necesita responder en menos de 200 ms siempre, ese comportamiento hay que medirlo, no suponerlo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Memoria: más cara por segundo, a veces más barata por pedido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un detalle contraintuitivo: subir la memoria de una función puede **bajar** la factura. Como la CPU crece con la memoria, un trabajo que gasta CPU termina antes y los GB-s que paga son los mismos. Pero si la función solo espera, más memoria es dinero tirado. Con duraciones inventadas para el ejemplo:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Cuánto cuesta UN pedido según la memoria elegida, para dos tipos de trabajo (duraciones inventadas para el ejemplo)\nconst GB_SEG = 0.0000166667, POR_PEDIDO = 0.20 / 1e6;\nconst costo = (ms, mb) => (ms / 1000) * (mb / 1024) * GB_SEG + POR_PEDIDO;\nconst filas = [\n  // memoria, ms si el trabajo es de CPU (se reparte con la CPU), ms si espera a otra API (no cambia)\n  [128, 800, 3000], [256, 400, 3000], [512, 200, 3000], [1024, 100, 3000],\n];\nconsole.log('memoria   CPU: ms   CPU: µUSD/pedido   espera: ms   espera: µUSD/pedido');\nfor (const [mb, msCpu, msEspera] of filas)\n  console.log(String(mb).padStart(6), String(msCpu).padStart(9), (costo(msCpu, mb) * 1e6).toFixed(2).padStart(18), String(msEspera).padStart(12), (costo(msEspera, mb) * 1e6).toFixed(2).padStart(20));\n",
+   "cap": "Las duraciones son supuestos didácticos (suponen que el trabajo de CPU se acelera en proporción exacta a la memoria, lo cual en la práctica es un ideal). El precio es el de lista citado arriba."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lectura: cuando el trabajo es de CPU, cuadruplicar la memoria no cambia el costo por pedido (1,87 microdólares en todas las filas) y la respuesta llega ocho veces más rápido. Cuando el trabajo es esperar una API externa, cuadruplicar la memoria cuadruplica el costo. La regla práctica es medir cada función con tres o cuatro tamaños y elegir el menor costo que cumpla la latencia que necesitás. Es una decisión que en un servidor fijo no existía."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Una función espera 2,5 segundos la respuesta de un proveedor de pagos y después tarda 20 ms en guardar el resultado. ¿Qué tamaño de memoria elegirías y por qué?",
+   "resp": "El más chico que no se quede corto: casi todo el tiempo facturado es espera, que no usa CPU, y la memoria extra solo multiplica el costo de esa espera. Medís con 128 y 256 MB y comprobás que los 20 ms de trabajo real no se estiran demasiado."
+  },
+  {
+   "t": "h",
+   "x": "La dependencia que no se ve: el proveedor"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Roberts incluye entre las desventajas inherentes la dependencia del proveedor: las funciones, los disparadores y los servicios que las rodean se implementan distinto en cada nube, y migrar casi seguro obliga a tocar herramientas, código e incluso el diseño [#arq1219-roberts-serverless]. Es la misma exposición que viste en [@08-15] con un servicio de terceros, pero más profunda: acá no es una API puntual que podés envolver con un adaptador, es el entorno donde corre tu programa.",
+    "La defensa razonable no es evitar el modelo sino **mantener el núcleo portable**: el negocio en funciones puras (como el `handler` de arriba) y los detalles de cada plataforma en una capa fina de entrada y de salida. Cambiar de proveedor sigue siendo trabajo, pero se limita a esa capa y no a todo el código.",
+    "El Berkeley View de 2019, un informe de investigadores de esa universidad, defiende que este modelo va a dominar la computación en la nube porque simplifica la programación, aunque lista obstáculos pendientes [#arq1219-berkeley-serverless]. Es una apuesta de especialistas, no un hecho: lo que sí se puede medir hoy es tu propia factura y tu propia latencia."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Serverless es siempre más barato»",
+   "x": [
+    "No. Es más barato **cuando el uso es bajo o irregular** y cuando el costo de operar servidores propios es alto. Con tráfico alto y parejo, o con funciones que esperan mucho, la cuenta de arriba se da vuelta. La decisión correcta sale de multiplicar tus números reales, no de una consigna."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: una app casi sin servidor propio"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@07-29] viste que Senda no tiene un servidor propio: ni Express ni carpeta `server/`. Eso es serverless en el sentido de Roberts, y de la rama más fuerte, la de servicios gestionados. El grueso de las reglas vive en 93 funciones SQL dentro de la base y en tareas programadas con `pg_cron`, no en funciones de cómputo. Las funciones de borde (edge functions) son apenas tres y están reservadas para lo que la base no puede hacer."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Tres funciones, una invocada con espera larga",
+   "x": [
+    "Los tres archivos de `supabase/functions/` suman 270 líneas. `borrar-cuenta` (41 líneas) y `trivia-sermon` (134) las llama la app (`src/util/cuenta.ts` y `src/util/sermon.ts`); `compras` (95) está desplegada pero ninguna pantalla la invoca todavía, ya que busqué `functions/v1` en `src/` y solo aparecen las otras dos.",
+    "`trivia-sermon` es el caso más instructivo para este día. Recibe el PDF de un sermón, reserva el cupo de la persona en la base **antes** de gastar, llama a Claude por streaming con hasta 16.000 tokens de salida y guarda las preguntas. Si Claude falla antes de responder, devuelve el cupo. Es una función serverless que espera casi todo el tiempo a otra API, justo el perfil caro de la tabla de arriba, pero con una diferencia: el costo grande no es el cómputo de la función sino los tokens de la API de Claude, que son una partida aparte.",
+    "Además, es **síncrona**: el teléfono espera en la misma petición mientras Claude responde y, en `src/util/cuenta.ts`, la petición no define un plazo propio. Esto corresponde al commit 25e08fa del 9-11-2026; el código cambia, la forma permanece. Una alternativa de diseño sería la asíncrona: la función anota un trabajo, responde «en proceso» y el teléfono consulta el estado. Cuesta más código y agrega un estado intermedio, y la app ya tiene en la fila de `trivias_sermon` el estado `generando`, así que la base para eso existe."
+   ],
+   "archivos": [
+    "supabase/functions/trivia-sermon/index.ts",
+    "supabase/functions/borrar-cuenta/index.ts",
+    "supabase/functions/compras/index.ts",
+    "src/util/sermon.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que Senda hace en lugar de un cron propio",
+   "x": [
+    "Un sistema clásico tendría un servidor con tareas programadas. Senda las deja dentro de la base con `pg_cron`: `senda_cerrar_vencidas` cada 15 minutos, `senda_enviar_avisos` cada minuto y `senda_limpiar_viejo` todos los días a las 7:17 UTC. Los avisos push no salen de una función edge: los envía la base con `pg_net`, una extensión que hace pedidos HTTP asíncronos desde SQL. Tampoco hay `supabase-js` en el teléfono: el cliente habla por `fetch` con la API que Supabase genera sobre las tablas.",
+    "El efecto en esta discusión es que casi no hay cómputo por invocación que facturar a mano. Y un riesgo ya anotado en la ficha técnica: las reglas están repetidas en TypeScript y en SQL en algunos lugares, y el esquema vive en 42 migraciones. Elegir «sin servidor» movió la complejidad a la base, no la hizo desaparecer."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261109000000_limpieza.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "src/util/cuenta.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo decidir"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una regla práctica (es criterio mío, no una ley) es mirar tres variables de cada carga de trabajo: cuánto varía el tráfico, cuánto dura cada pedido y cuánto estado necesita. La tabla resume el resultado:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Carga",
+    "¿Serverless?",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "Cotizar un envío con tráfico de picos (lanzamientos, fin de mes)",
+     "Sí, buen candidato",
+     "Pagás por pedido y la plataforma absorbe el pico sin que dimensiones nada."
+    ],
+    [
+     "Avisar cada vez que un despacho cambia de estado",
+     "Sí",
+     "Es un evento corto y aislado, sin estado propio."
+    ],
+    [
+     "Procesar un archivo de 2 GB de remitos en una pasada",
+     "No tal cual",
+     "Excede el tope de duración y de tamaño; se parte en trabajos chicos o se usa otro servicio."
+    ],
+    [
+     "API con 100 pedidos por segundo todo el día",
+     "Probablemente no",
+     "El tráfico parejo y alto favorece al servidor fijo, según la cuenta del cruce."
+    ],
+    [
+     "Latencia máxima de 50 ms siempre, sin excepciones",
+     "Con cuidado",
+     "El arranque en frío es variable; hay que medirlo o pagar capacidad prendida."
+    ],
+    [
+     "Un tablero que guarda sesiones en memoria",
+     "No sin rediseño",
+     "La memoria no es confiable: el estado se muda a un servicio externo."
+    ]
+   ],
+   "cap": "Guía de criterio, no un reglamento. Cada fila se decide con los números propios."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Cambiá los números del segundo bloque de código: una función que dura 400 ms con 1.024 MB y recibe 5 millones de pedidos por mes. Calculá el costo y el punto de cruce contra el servidor de USD 15. Después decidí: ¿con ese perfil elegirías serverless?",
+   "pista": "Reemplazá `ms: 120, mb: 256` por `ms: 400, mb: 1024` en las dos llamadas de `costoFuncion` y en la búsqueda del cruce. Los GB-s por pedido son 0,4 × 1 = 0,4.",
+   "solucion": "Cada pedido consume 0,4 GB-s: 5 millones son 2.000.000 GB-s; menos los 400.000 gratuitos quedan 1.600.000 × 0,0000166667 = USD 26,67, más 4 millones de pedidos por encima del millón gratuito × USD 0,20 por millón = USD 0,80, total unos USD 27,5 por mes. Contra USD 15 del servidor supuesto, ya sale más caro. El cruce está cerca de 3,2 millones de pedidos por mes (lo corrí: 3.184.462). Con ese perfil, y si el servidor aguanta la carga, no elegirías serverless por costo; lo elegirías por otras razones (no operar, absorber picos) si valen la diferencia."
+  }
+ ],
+ "recap": [
+  "Serverless no quiere decir «sin servidores» sino «sin servidores que operes vos». Una arquitectura serverless combina servicios gestionados (base, autenticación, almacenamiento) con funciones que la plataforma ejecuta ante eventos.",
+  "La función como unidad recibe un evento, devuelve una respuesta y se olvida de todo. Dos pedidos pueden caer en copias distintas: el estado que importa vive afuera, en una base o un almacén. La simulación mostró un contador local que saltaba de 5 a 1 mientras el almacén subía sin saltos.",
+  "La facturación por uso cobra por pedido y por GB-s. Con la lista de AWS del 11-11-2026, 10 millones de pedidos de 120 ms y 256 MB cuestan USD 1,80 al mes, porque los GB-s entran en el tramo gratuito.",
+  "El punto de cruce depende de lo que hace la función: con 120 ms y 256 MB, el servidor fijo de USD 15 (supuesto) gana a partir de 31 millones de pedidos al mes; con 3 s de espera y 512 MB, a partir de unos 870.000. Una función que espera paga por esperar.",
+  "Los límites que se rompen primero son el tiempo (900 s), el tamaño de mensajes (6 MB), la concurrencia (1.000 por región, por defecto) y las conexiones a bases clásicas. Más memoria abarata el trabajo de CPU y encarece el de espera.",
+  "La dependencia del proveedor es profunda: el entorno entero es ajeno. Se mitiga con un núcleo de negocio portable y adaptadores finos de entrada y salida.",
+  "Senda es serverless de la rama de servicios gestionados: tres funciones edge, 93 funciones SQL y tareas con `pg_cron`. `trivia-sermon` espera a Claude dentro de la petición, y la complejidad se movió a la base."
+ ],
+ "repaso": [
+  {
+   "p": "Una función serverless de cotizaciones guarda en una variable global cuántos pedidos atendió y, a veces, muestra números que bajan. ¿Cuál es la causa más probable?",
+   "o": [
+    "La plataforma reparte pedidos entre copias y recicla entornos",
+    "Hay un error de redondeo en la suma que se acumula con el uso",
+    "La función corre en un solo hilo y se bloquea por momentos",
+    "La variable global se pisa por culpa de la memoria compartida"
+   ],
+   "c": 0,
+   "e": "Cada entorno de ejecución tiene su propia memoria y la plataforma lo puede crear o destruir cuando quiere, así que la variable refleja a esa copia y no al sistema. No hay redondeo en una suma de enteros, el hilo único no explica que el número baje, y la memoria no se comparte entre copias: ese es justo el problema."
+  },
+  {
+   "p": "Una función dura 200 ms con 512 MB. ¿Cuántos GB-s consume por pedido?",
+   "o": [
+    "0,1 GB-s, porque 200 ms por 0,5 GB dan una décima",
+    "0,2 GB-s, porque solo cuenta el tiempo de ejecución",
+    "100 GB-s, porque 512 MB por 200 ms se multiplican",
+    "0,4 GB-s, porque la memoria se redondea hacia arriba"
+   ],
+   "c": 0,
+   "e": "0,2 segundos por 0,5 gigabytes son 0,1 GB-s. Contar solo el tiempo olvida que el precio depende también de la memoria configurada. Multiplicar 512 por 200 sin convertir unidades da un número absurdo, y no hay redondeo de memoria hacia 1 GB: se pagan los MB que configuraste."
+  },
+  {
+   "p": "Una función pasa casi todo su tiempo esperando la respuesta de una API externa y casi nada calculando. ¿Qué pasa con el costo por pedido si cuadruplicás su memoria?",
+   "o": [
+    "Baja, porque la CPU extra acorta la espera de la API",
+    "No cambia, porque la memoria no entra en la factura",
+    "Se cuadruplica, porque la espera sigue igual y la paga más cara",
+    "Baja a la mitad, porque la plataforma la optimiza sola"
+   ],
+   "c": 2,
+   "e": "La espera a otro servicio dura lo mismo sin importar cuánta CPU tengas, y los GB-s se calculan multiplicando por la memoria, así que el costo sube en proporción. Solo mejora el trabajo que consume CPU. La memoria sí integra la factura, y la plataforma no ajusta nada sola."
+  },
+  {
+   "p": "Un equipo mide que su proceso de conciliación nocturna dura 50 minutos y quiere hacerlo una función. ¿Cuál es el obstáculo de diseño más directo en Lambda?",
+   "o": [
+    "La función no puede leer una base de datos",
+    "El tope de 900 segundos por invocación",
+    "La falta de arranque en caliente",
+    "El límite de 6 MB en los mensajes de salida"
+   ],
+   "c": 1,
+   "e": "Una invocación de Lambda termina como máximo a los 15 minutos, y 50 minutos no caben: hay que partir el trabajo en tandas o usar otro servicio. Leer bases es posible, el arranque en caliente no es un requisito, y el tope de 6 MB aplica a pedido y respuesta, no a lo que la función procesa por dentro."
+  },
+  {
+   "p": "Mil copias de una función se activan a la vez y cada una abre su conexión a una base PostgreSQL con 100 conexiones máximas. ¿Qué se espera que pase?",
+   "o": [
+    "La base crece sola para atenderlas a todas",
+    "Las conexiones sobrantes quedan rechazadas o en espera",
+    "Las funciones comparten una conexión sin problema",
+    "La plataforma las ejecuta de a cien automáticamente"
+   ],
+   "c": 1,
+   "e": "Cada copia es un proceso aparte con su propia conexión, y la base tiene un tope: lo que pase de ahí falla o espera. Por eso conviene una base por HTTP o un intermediario que junte conexiones. Ni las bases crecen solas ni las copias comparten conexión, y la plataforma no mide cuántas conexiones aguanta tu base."
+  },
+  {
+   "p": "¿Cuál de estas decisiones reduce mejor la dependencia del proveedor en una app serverless?",
+   "o": [
+    "Repetir el mismo código en dos nubes, siempre idéntico",
+    "Poner la lógica de negocio en funciones puras y los detalles de la plataforma en adaptadores finos",
+    "Evitar cualquier servicio gestionado y programar todo desde cero",
+    "Dejar la lógica dentro del evento de la plataforma para que sea simple"
+   ],
+   "c": 1,
+   "e": "Un núcleo portable más adaptadores finos limita el cambio a una capa, igual que en la arquitectura hexagonal. Duplicar todo en dos nubes cuesta mucho y rara vez se justifica. Evitar servicios gestionados tira la ventaja del modelo, y mezclar la lógica con el evento es lo que vuelve la migración una reescritura."
+  },
+  {
+   "p": "En Senda, `trivia-sermon` espera a Claude dentro de la misma petición del teléfono. ¿Qué compromiso de diseño tiene esa decisión?",
+   "o": [
+    "Es simple de programar pero la petición queda abierta mientras la respuesta tarda",
+    "Es más barata porque el teléfono hace el trabajo de la IA",
+    "Es más segura porque nunca puede fallar a mitad del camino",
+    "Es obligatoria porque Supabase no permite funciones asíncronas"
+   ],
+   "c": 0,
+   "e": "Una función síncrona es la más fácil de escribir y de seguir, pero deja al teléfono esperando una respuesta que puede tardar y sin plazo propio en el cliente. No es más barata para el teléfono, no está a salvo de fallas (por eso la función devuelve el cupo si Claude falla) y nada obliga a ese diseño: la base ya guarda un estado `generando`."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística por qué una app puede costar casi nada con poca gente y mucho más con mucha gente, usando el taxi y el auto propio pero con tus palabras, y decí en qué parte la comparación deja de valer y qué cosas, además de la plata, cambian cuando le entregás el cómputo a una plataforma.",
+ "para_profundizar": [
+  {
+   "fuente": "arq1219-roberts-serverless",
+   "nota": "El artículo de referencia sobre qué es serverless y sus ventajas y desventajas. Leé «Unpacking Function as a Service» y «Drawbacks»."
+  },
+  {
+   "fuente": "svl-aws-lambda-limits",
+   "nota": "La tabla oficial de límites de Lambda (tiempo, memoria, tamaño, concurrencia). Verificá los valores actuales antes de diseñar."
+  },
+  {
+   "fuente": "arq1219-aws-price-list",
+   "nota": "La lista de precios de Lambda en formato JSON, la misma que usé para la cuenta. Buscá los grupos «Requests» y «Duration»."
+  },
+  {
+   "fuente": "arq1219-berkeley-serverless",
+   "nota": "El informe de Berkeley de 2019: resumen de por qué creen que el modelo va a dominar y qué obstáculos ven. Alcanza con el resumen y la introducción."
+  }
+ ],
+ "videos": [
+  {
+   "q": "serverless architecture explained when not to use it",
+   "por_que": "Para escuchar los mismos argumentos de costo y de límites con otro ejemplo y comparar las conclusiones."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "arquitectura serverless",
+   "d": "Diseño que combina servicios gestionados de terceros (base de datos, autenticación, almacenamiento) con funciones de código propio que una plataforma ejecuta ante eventos. No hay servidores que operes vos, aunque sí existen."
+  },
+  {
+   "t": "función como unidad",
+   "d": "Forma de organizar un sistema donde la pieza que se despliega y se ejecuta es una función que recibe un evento y devuelve una respuesta. No guarda estado entre invocaciones: lo que importa vive afuera."
+  },
+  {
+   "t": "facturación por uso",
+   "d": "Modelo de cobro donde pagás por lo que se ejecuta (pedidos y tiempo por memoria) y no por máquinas prendidas. Si no hay uso, el costo es casi cero; con tráfico alto y parejo suele salir más caro que un servidor fijo."
+  }
+ ],
+ "siguiente": "Sistemas distribuidos I: por qué son difíciles. Hoy dejaste que una plataforma reparta tu código entre máquinas; mañana vemos qué se rompe cuando varias máquinas tienen que ponerse de acuerdo a través de una red que falla.",
+ "fuentes_nuevas": [
+  {
+   "id": "arq1219-roberts-serverless",
+   "t": "Serverless Architectures (Mike Roberts)",
+   "a": "Mike Roberts, martinfowler.com",
+   "tipo": "articulo",
+   "anio": 2016,
+   "url": "https://martinfowler.com/articles/serverless.html"
+  },
+  {
+   "id": "arq1219-aws-price-list",
+   "t": "AWS Lambda price list, us-east-1 (archivo JSON oficial, publicado el 2026-11-11)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSLambda/current/us-east-1/index.json"
+  },
+  {
+   "id": "arq1219-berkeley-serverless",
+   "t": "Cloud Programming Simplified: A Berkeley View on Serverless Computing",
+   "a": "Jonas et al.",
+   "tipo": "paper",
+   "anio": 2019,
+   "url": "https://arxiv.org/abs/1902.03383"
+  }
+ ]
+}

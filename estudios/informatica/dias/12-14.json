@@ -1,0 +1,456 @@
+{
+ "id": "12-14",
+ "titulo": "Domain-Driven Design II: agregados y eventos de dominio",
+ "bajada": "Dos pedidos simultáneos llenan un camión por encima de su capacidad aunque cada uno chequeó la regla; vas a ver cómo un agregado lo evita, qué es un objeto de valor y para qué sirve un evento de dominio.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué es una invariante de negocio y por qué chequearla fuera de una frontera de consistencia falla cuando hay dos pedidos a la vez.",
+  "Distinguir una entidad de un objeto de valor y escribir un objeto de valor inmutable con igualdad por contenido.",
+  "Escribir un agregado con una raíz que protege su invariante y un repositorio que usa un número de versión para detectar escrituras simultáneas.",
+  "Definir un evento de dominio, nombrarlo en pasado y mostrar cómo otros se enteran sin que el agregado los conozca.",
+  "Reconocer en el SQL de Senda un agregado sin clases (`jugar_turno`) y decir cuándo todo esto es más de lo que un proyecto necesita."
+ ],
+ "venis_de": "En [@12-13] separaste el vocabulario por contextos delimitados y dibujaste el mapa. Hoy entrás a uno de esos contextos, Transporte, y miras cómo se modelan por dentro las reglas que nunca pueden romperse.",
+ "se_apoya_en": [
+  "12-13",
+  "12-12",
+  "12-07",
+  "07-06"
+ ],
+ "gancho": [
+  "Un camión de la distribuidora inventada aguanta 1.000 kilos. Ya tiene asignada una parada de 700. A las siete de la mañana dos despachantes, cada uno en su pantalla, le suman una parada: uno de 200 kilos, otro de 250. Cada pantalla calcula 700 + 200 = 900 y 700 + 250 = 950, ve que entra y guarda. A las ocho el chofer llega al muelle con 1.150 kilos.",
+  "Nadie escribió un bug visible. Cada pedido, por separado, hizo bien la cuenta. Lo que falló es **dónde vive la regla** «lo cargado no supera la capacidad»: estaba en el código de cada pantalla, y no en un único lugar que la proteja cuando dos intentan a la vez.",
+  "Hoy vas a ver las tres piezas con las que DDD modela el interior de un contexto: el objeto de valor, el agregado y el evento de dominio. Todo el código está corrido en Node para esta lección y es de una distribuidora inventada."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La regla que no se puede romper"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **invariante** es una regla de negocio que tiene que ser verdadera siempre, en cada instante en que alguien mire los datos. «La suma de los pesos de las paradas no supera la capacidad del camión» es una invariante. «El cliente prefiere que le entreguen por la mañana» no lo es: es una preferencia que puede incumplirse sin que el sistema esté roto.",
+    "Vaughn Vernon, que escribió una guía muy leída sobre cómo diseñar agregados, lo plantea con un ejemplo mínimo: si `c = a + b`, entonces cuando `a` es 2 y `b` es 3, `c` tiene que ser 5; si es otra cosa, se violó una invariante, y para asegurarla se dibuja una frontera alrededor de esos tres atributos [#ddd1214-vernon-effective-aggregate-1]. Eso es todo el concepto. La parte difícil es decidir qué entra dentro de la frontera."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Veamos el choque de las siete de la mañana. Simulé la «base» con un objeto en memoria y intercalé a mano los pasos de los dos pedidos (leer, chequear, escribir), tal como pasa cuando dos requests llegan a la vez a un servidor:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Una \"base\" en memoria. Cada pedido de asignación hace: leer, chequear, escribir.\nconst base = { hoja: { id: 'HR-1', capacidadG: 1000000, paradas: [{ id: 'A', pesoG: 700000 }] } };\nconst leer = () => JSON.parse(JSON.stringify(base.hoja));\n\nconst sumaG = (h) => h.paradas.reduce((s, p) => s + p.pesoG, 0);\n\n// Servicio que chequea la regla ANTES de escribir, pero fuera de toda frontera de consistencia.\nfunction pasoLeer(parada) { return { parada, vista: leer() }; }\nfunction pasoChequear(t) {\n  if (sumaG(t.vista) + t.parada.pesoG > t.vista.capacidadG) throw new Error('No entra: ' + t.parada.id);\n  return t;\n}\n// Escribir es un INSERT de la fila de la parada: cada pedido agrega la suya.\nfunction pasoEscribir(t) { base.hoja.paradas.push(t.parada); }\n\n// Dos pedidos llegan a la vez: se intercalan los pasos.\nconst t1 = pasoLeer({ id: 'B', pesoG: 200000 });\nconst t2 = pasoLeer({ id: 'C', pesoG: 250000 });\npasoChequear(t1);   // 700 + 200 = 900 <= 1000: pasa\npasoChequear(t2);   // 700 + 250 = 950 <= 1000: pasa (todavía ve el estado viejo)\npasoEscribir(t1);\npasoEscribir(t2);   // las dos filas quedan: 700 + 200 + 250\nconsole.log('Paradas guardadas:', base.hoja.paradas.map((p) => p.id).join(', '));\nconsole.log('Peso total:', sumaG(base.hoja) / 1000, 'kg de', base.hoja.capacidadG / 1000);\n",
+   "cap": "La regla se chequea en cada pedido, pero ninguno ve lo que está haciendo el otro. Salida real corrida en Node 22.",
+   "ejecutable": true
+  },
+  {
+   "t": "p",
+   "x": [
+    "El resultado es 1.150 kilos en un camión de 1.000. Fijate en el patrón, porque es muy general: **leer, decidir, escribir** son tres pasos separados, y entre el primero y el tercero el mundo puede cambiar. Si la decisión depende de algo que otro puede modificar mientras tanto, la regla tiene un hueco.",
+    "Hay dos maneras ingenuas de taparlo. Una es bloquear toda la tabla mientras alguien asigna, y entonces los despachantes de todos los camiones se pisan para nada. La otra es repetir el chequeo en más lugares, que no resuelve el hueco entre chequear y escribir. La salida de DDD no es un truco de base de datos sino una decisión de modelado: **definir qué cosas tienen que ser consistentes juntas y protegerlas como una unidad**."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "¿Qué dos cosas tienen que ser consistentes entre sí en el camión de arriba, y cuáles no? Pensá en el camión, sus paradas y el cliente de cada parada.",
+   "resp": "El camión y sus paradas: el peso total depende de todas las paradas asignadas y tiene que respetar la capacidad. En cambio, el cliente de una parada (su dirección, su teléfono) no entra en esa regla: si cambia, el peso del camión no se entera. Esa diferencia es la que marca la frontera: paradas y camión juntos, cliente aparte."
+  },
+  {
+   "t": "h",
+   "x": "Objeto de valor: cosas que valen por lo que contienen"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Antes de armar la frontera conviene separar dos clases de objetos del modelo. Una **entidad** (viste el término en [@12-12]) es algo que tiene identidad: el camión `HR-1` sigue siendo ese camión aunque cambie su carga, su conductor y hasta su patente. Un [[objeto de valor|objeto de valor]] no tiene identidad: vale por lo que contiene. Dos pesos de 2 kilos son intercambiables. Fowler lo explica con un punto de coordenadas (2, 3): si dos objetos representan lo mismo, tiene sentido tratarlos como iguales [#ddd1214-fowler-value-object].",
+    "Eso parece obvio hasta que lo programás. En JavaScript, dos objetos `{kg: 2}` **no son iguales** con `===`, porque el lenguaje compara referencias y no contenido. Fowler dice que hay que programar el objeto de valor para que se comporte como uno [#ddd1214-fowler-value-object], y agrega una regla que evita una familia entera de errores: los objetos de valor tienen que ser **inmutables**. Si cambiás el valor, creás un objeto nuevo en lugar de modificar el que ya existía [#ddd1214-fowler-value-object]."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Objeto de valor: el peso se guarda en gramos enteros y no se modifica nunca.\nclass Peso {\n  #g;\n  constructor(gramos) {\n    if (!Number.isInteger(gramos) || gramos < 0) throw new Error('Peso inválido: ' + gramos);\n    this.#g = gramos;\n    Object.freeze(this);\n  }\n  static deKg(kg) { return new Peso(Math.round(kg * 1000)); }\n  get gramos() { return this.#g; }\n  mas(otro) { return new Peso(this.#g + otro.gramos); }\n  noSuperaA(otro) { return this.#g <= otro.gramos; }\n  igualA(otro) { return this.#g === otro.gramos; }\n  toString() { return (this.#g / 1000).toFixed(3) + ' kg'; }\n}\n\n// El problema que evita: decimales flotantes.\nconsole.log('Con flotantes: 0.1 + 0.2 =', 0.1 + 0.2, '| 1.1 + 2.2 =', 1.1 + 2.2);\nconst suma = Peso.deKg(1.1).mas(Peso.deKg(2.2));\nconsole.log('Con Peso: 1,1 kg + 2,2 kg =', String(suma), '(' + suma.gramos + ' g)');\n\n// Igualdad por valor, no por identidad.\nconsole.log('Dos pesos de 2 kg, ¿iguales?', Peso.deKg(2).igualA(Peso.deKg(2)), '| con {kg:2} === {kg:2}:', ({ kg: 2 }) === ({ kg: 2 }));\n\ntry { new Peso(-5); } catch (e) { console.log('Error:', e.message); }\n",
+   "cap": "Un `Peso` en gramos enteros: inmutable, con igualdad por contenido y con la validación adentro. Salida real corrida en Node 22.",
+   "ejecutable": true
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá qué compró este objeto tan chico. Primero, el peso se guarda en gramos como **entero**, y por eso `1,1 kg + 2,2 kg` da exactamente 3.300 gramos; con decimales flotantes das `3.3000000000000003`, el mismo problema que viste con el dinero en [@07-06]. Segundo, `new Peso(-5)` falla en el momento de crearlo: un peso negativo no puede existir en ninguna parte del sistema, porque no hay forma de construirlo. Tercero, `mas()` devuelve un `Peso` nuevo en lugar de modificar el actual, así que nadie puede cambiar un peso «por el costado».",
+    "Lo mismo vale para el dinero (centavos enteros más moneda), una dirección, un rango de fechas o una ventana horaria. Son pequeños, no tienen identidad y llevan sus reglas adentro: una ventana horaria se rehúsa a crearse si el fin es anterior al comienzo."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Entidad",
+    "Objeto de valor"
+   ],
+   "filas": [
+    [
+     "Identidad",
+     "Tiene una: `HR-1` es ese camión",
+     "No tiene: 2 kg es 2 kg"
+    ],
+    [
+     "Igualdad",
+     "Por identidad (mismo id)",
+     "Por contenido (mismos datos)"
+    ],
+    [
+     "Cambia",
+     "Sí, a lo largo de su vida",
+     "No: se reemplaza por otro"
+    ],
+    [
+     "Ejemplos de logística",
+     "Camión, hoja de ruta, orden de picking",
+     "Peso, dinero, dirección, ventana horaria"
+    ]
+   ],
+   "cap": "Dos clases de objeto en un modelo de dominio. En una base relacional, un objeto de valor suele ser una columna o un grupo de columnas, y una entidad, una fila con clave."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "No hace falta un objeto de valor para cada texto",
+   "x": "Envolver todo en clases tiene costo de lectura. Una regla práctica: creá el objeto de valor cuando el concepto tenga **reglas propias** (un peso no es negativo, una moneda no se suma con otra) o cuando se mezclen unidades que podrían confundirse (kilos y gramos). Un apodo que solo se guarda y se muestra puede seguir siendo un texto."
+  },
+  {
+   "t": "h",
+   "x": "Agregado: una frontera de consistencia"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora la pieza principal. Un [[agregado|agregado]] es un grupo de objetos del dominio que se trata como una sola unidad. Fowler lo ilustra con un pedido y sus líneas: son objetos separados, pero conviene tratar al pedido, con sus líneas, como un conjunto. Uno de los objetos es la **raíz del agregado**, y toda referencia desde afuera apunta solo a la raíz, de modo que la raíz puede asegurar la integridad del conjunto [#ddd1214-fowler-ddd-aggregate]. Evans lo define con una regla de dos partes: dentro de la frontera las reglas de consistencia se aplican en forma sincrónica, y entre fronteras las actualizaciones se manejan de forma asincrónica [#ddd1214-evans-reference].",
+    "La frase corta de Fowler es la que importa para el diseño: las transacciones no deberían cruzar los límites de un agregado [#ddd1214-fowler-ddd-aggregate]. Si una operación necesita cambiar dos agregados, son dos transacciones, y lo que pasa entre ambas se resuelve con eventos (más abajo).",
+    "Apliquemos esto al camión. La **hoja de ruta** es la raíz; sus paradas viven adentro y no se tocan desde afuera. La invariante de la capacidad está en **un solo método**, `asignarParada`. Y para el caso de las siete de la mañana, el repositorio guarda un número de versión: si alguien más guardó mientras yo trabajaba, mi guardado se rechaza. Es el **control optimista de versión** que Vernon usa en su ejemplo: los objetos llevan un número que se incrementa con cada cambio y se verifica antes de guardar, para evitar bloqueos de base de datos [#ddd1214-vernon-effective-aggregate-1]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "Agregado «Hoja de ruta»",
+    "s": "frontera de consistencia",
+    "k": "servidor",
+    "h": [
+     {
+      "t": "HojaDeRuta (raíz)",
+      "s": "entidad: id HR-1, versión",
+      "k": "cliente",
+      "h": [
+       {
+        "t": "Paradas",
+        "s": "se tocan solo por la raíz",
+        "k": "red"
+       },
+       {
+        "t": "Capacidad",
+        "s": "objeto de valor: Peso",
+        "k": "datos"
+       }
+      ]
+     },
+     {
+      "t": "Eventos pendientes",
+      "s": "ParadaAsignada, en pasado",
+      "k": "ok"
+     }
+    ]
+   },
+   "cap": "Qué hay dentro de la frontera. El cliente de cada parada es otro agregado, fuera de la hoja: la hoja solo guarda su identificador."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El encargado de la balanza",
+   "x": [
+    "Es como un muelle donde un único encargado pesa y firma el manifiesto antes de que el camión salga: nadie carga por su cuenta, todo pasa por su mesa, y por eso nadie puede pasarse de los 1.000 kilos sin que él lo vea.",
+    "La analogía falla en dos cosas. El encargado atiende a un camión por vez y se vuelve cuello de botella; en el modelo, la frontera es una por camión, así que dos camiones distintos se cargan a la vez sin esperarse. Y el encargado puede equivocarse o distraerse; el método `asignarParada` aplica la regla siempre igual."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// ── Objetos de valor ──\nclass Peso {\n  constructor(g) { if (!Number.isInteger(g) || g < 0) throw new Error('peso_invalido'); this.g = g; Object.freeze(this); }\n  static deKg(kg) { return new Peso(Math.round(kg * 1000)); }\n  mas(o) { return new Peso(this.g + o.g); }\n  noSuperaA(o) { return this.g <= o.g; }\n  toString() { return (this.g / 1000).toFixed(1) + ' kg'; }\n}\n\n// ── Agregado: HojaDeRuta es la raíz; las paradas solo se tocan a través de ella ──\nclass HojaDeRuta {\n  #paradas; #eventos = [];\n  constructor(id, capacidad, paradas = [], version = 0) {\n    this.id = id; this.capacidad = capacidad; this.#paradas = paradas; this.version = version;\n  }\n  get pesoCargado() { return this.#paradas.reduce((s, p) => s.mas(p.peso), new Peso(0)); }\n  get paradas() { return this.#paradas.map((p) => ({ ...p })); }\n  // La invariante vive acá y solo acá: lo cargado nunca supera la capacidad.\n  asignarParada(id, peso) {\n    if (this.#paradas.some((p) => p.id === id)) throw new Error('parada_repetida');\n    if (!this.pesoCargado.mas(peso).noSuperaA(this.capacidad)) throw new Error('no_entra');\n    this.#paradas.push({ id, peso });\n    this.#eventos.push({ tipo: 'ParadaAsignada', hoja: this.id, parada: id, pesoG: peso.g });\n  }\n  sacarEventos() { const e = this.#eventos; this.#eventos = []; return e; }\n}\n\n// ── Repositorio con control optimista de versión (como en Vernon 2011) ──\nconst tabla = new Map();\ntabla.set('HR-1', { capG: 1000000, paradas: [{ id: 'A', g: 700000 }], version: 1 });\nconst repo = {\n  cargar(id) {\n    const r = tabla.get(id);\n    return new HojaDeRuta(id, new Peso(r.capG), r.paradas.map((p) => ({ id: p.id, peso: new Peso(p.g) })), r.version);\n  },\n  guardar(h) {\n    const r = tabla.get(h.id);\n    if (r.version !== h.version) throw new Error('version_vieja');\n    tabla.set(h.id, { capG: h.capacidad.g, paradas: h.paradas.map((p) => ({ id: p.id, g: p.peso.g })), version: r.version + 1 });\n  },\n};\n\nconst eventosPublicados = [];\nfunction asignar(hoja, id, kg) {\n  hoja.asignarParada(id, Peso.deKg(kg));\n  repo.guardar(hoja);\n  eventosPublicados.push(...hoja.sacarEventos());\n}\n\n// Los mismos dos pedidos simultáneos de antes: ambos leen la versión 1.\nconst h1 = repo.cargar('HR-1');\nconst h2 = repo.cargar('HR-1');\nasignar(h1, 'B', 200);\nconsole.log('B asignada. Cargado:', String(repo.cargar('HR-1').pesoCargado), '| versión', tabla.get('HR-1').version);\ntry { asignar(h2, 'C', 250); } catch (e) { console.log('C rechazada por:', e.message); }\n// Se reintenta con una lectura nueva: ahora la regla del agregado decide.\nconst h3 = repo.cargar('HR-1');\ntry { asignar(h3, 'C', 250); } catch (e) { console.log('C reintentada, rechazada por:', e.message); }\nasignar(repo.cargar('HR-1'), 'D', 50);\nconsole.log('Cargado final:', String(repo.cargar('HR-1').pesoCargado), 'de 1000.0 kg');\nconsole.log('Eventos:', JSON.stringify(eventosPublicados));\n\n// Los eventos son hechos en pasado. Quien quiera enterarse, se suscribe; la hoja no sabe quién.\nconst oyentes = {\n  ParadaAsignada: [\n    (e) => console.log('→ avisar al cliente de la parada ' + e.parada),\n    (e) => console.log('→ recalcular el recorrido de ' + e.hoja),\n  ],\n};\nfor (const e of eventosPublicados) for (const f of oyentes[e.tipo] ?? []) f(e);\n",
+   "cap": "Un agregado (`HojaDeRuta`), un objeto de valor (`Peso`), un repositorio con versión y eventos de dominio. Los dos pedidos de antes, ahora contra el agregado. Salida real corrida en Node 22.",
+   "ejecutable": true
+  },
+  {
+   "t": "p",
+   "x": [
+    "Seguí la salida línea por línea. La parada `B` (200 kilos) se asigna y la hoja pasa a la versión 2. La parada `C` (250 kilos) venía de una lectura vieja, la versión 1: dentro de su copia en memoria la cuenta daba 950 y el agregado la aceptó, pero al guardar el repositorio vio que la versión ya no era la 1 y **la rechazó** (`version_vieja`). Es el hueco entre «chequear» y «escribir», cerrado.",
+    "Después se reintenta con una lectura nueva. Ahora la hoja ya tiene 900 kilos cargados y el agregado dice `no_entra`: la regla de negocio hace su trabajo con datos actuales. Por último, una parada chica de 50 kilos sí entra y el total queda en 950. **La invariante nunca se rompió, ni siquiera por un instante visible para otro.**",
+    "Fijate también en lo que no pasó: ningún código de afuera calculó pesos. Las paradas se leen con `paradas` (una copia) y se modifican solo con `asignarParada`. Eso es lo que significa que la raíz protege al conjunto."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Alguien propone hacer un solo agregado `Deposito` que contenga todos los camiones, todas las hojas de ruta y todas las paradas, «así todo queda consistente». ¿Qué problema tiene?",
+   "resp": "Cada asignación, de cualquier camión, compite con todas las demás por el mismo agregado: con el control de versión, la mitad de los despachantes recibirían rechazos por cambios que no tienen nada que ver con su camión. Y la regla de capacidad de un camión no depende de lo que haga otro camión, así que esa consistencia es innecesaria. Una invariante real, la del camión, justifica la frontera; el resto no."
+  },
+  {
+   "t": "h3",
+   "x": "Agregados chicos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Vernon dedicó un ensayo a este punto y lo resume en dos reglas. La primera: **modelá invariantes verdaderas dentro de las fronteras de consistencia**. Para descubrir los agregados de un contexto hay que entender sus invariantes reales, y solo entonces se decide qué objetos agrupar [#ddd1214-vernon-effective-aggregate-1]. La segunda: **diseñá agregados pequeños**. En su ejemplo, una herramienta de gestión de proyectos ágiles, un agregado que agrupaba el producto con todos sus pendientes, lanzamientos y etapas habría cargado colecciones enormes en operaciones básicas, y él lo califica de agregado que nunca va a rendir ni a escalar bien. Lo atribuye a invariantes falsas y a un deseo de comodidad de composición [#ddd1214-vernon-effective-aggregate-1].",
+    "Hay un matiz que conviene guardar. Vernon marca dos extremos a evitar: agregados demasiado grandes por comodidad, y agregados despojados que no protegen las invariantes verdaderas [#ddd1214-vernon-effective-aggregate-1]. El criterio no es «lo más chico posible», sino «lo justo para proteger una invariante real»."
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "Just because you are given a use case that calls for maintaining consistency in a single transaction doesn't mean you should do that.",
+   "autor": "Vaughn Vernon, Effective Aggregate Design, Part I",
+   "fuente": "ddd1214-vernon-effective-aggregate-1"
+  },
+  {
+   "t": "p",
+   "x": "Traducido a logística: que el jefe pida «cuando se asigna una parada, el cliente tiene que enterarse al instante y el camión recalcular su ruta» no obliga a que todo ocurra en una sola transacción. Muchas veces el negocio acepta un retraso de segundos o minutos. Y ese puente entre agregados es el tercer concepto de hoy."
+  },
+  {
+   "t": "h",
+   "x": "Evento de dominio: lo que ya pasó"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[evento de dominio|evento de dominio]] representa algo que pasó en el negocio y que a los expertos les importa. Evans lo incluye en su guía de referencia como un patrón agregado después del libro original, y lo describe como un objeto del dominio que representa algo ocurrido, con la fecha del suceso y la identidad de las entidades involucradas, que normalmente es inmutable porque es el registro de algo pasado [#ddd1214-evans-reference]. Fowler, en un borrador de 2005, lo resume como la captura de la memoria de algo interesante que afecta al dominio [#ddd1214-fowler-domain-event].",
+    "Se nombran **en pasado**: `ParadaAsignada`, no `AsignarParada`. Un comando pide algo («asigná esta parada») y puede ser rechazado; un evento afirma algo («se asignó») y ya no se discute. Es la misma idea del [[observador|observador]] de [@12-07], pero con una diferencia: el evento es un dato con significado de negocio, que se puede guardar, auditar y reenviar, y no solo una llamada a una función."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "En el código de arriba, `asignarParada` acumula el evento dentro de la hoja y recién cuando el repositorio guardó con éxito se publica. Eso importa: si el guardado fallara, el evento no sale, y nadie avisa al cliente de una parada que no se asignó. Al final del programa, dos oyentes reaccionan a cada evento sin que la hoja sepa que existen: uno avisa al cliente y otro recalcula el recorrido. Mirá que `C` no tiene evento, porque nunca se asignó."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Dentro de la frontera, sincrónico; entre fronteras, por eventos",
+   "x": "Es la regla de Evans: mientras el agregado se mantiene internamente consistente en todo momento, los otros cambios se hacen de forma asincrónica [#ddd1214-evans-reference]. Cuando el aviso al cliente llega unos segundos después de la asignación, esos segundos son la **consistencia eventual** entre dos agregados. Es un costo asumido a conciencia, y lo vas a ver en detalle en [@12-17]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Evento de dominio no es lo mismo que Event Sourcing ni que una cola de mensajes",
+   "x": "Un evento de dominio es un concepto de modelado. Se puede publicar dentro del mismo proceso, como en el ejemplo, o enviar por una cola entre servicios. Guardar *todos* los eventos como única fuente de verdad es otra técnica, el *event sourcing*, que viene en [@12-18]. Hoy solo se trata del evento como hecho con significado de negocio."
+  },
+  {
+   "t": "h",
+   "x": "Cuándo esto es demasiado, y un agregado en Senda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo lo de hoy tiene un costo concreto: más clases, más código de repositorio, más cuidado para decidir qué va adentro de cada agregado. Si el sistema es sobre todo guardar y mostrar datos, con pocas reglas (un formulario, un listado, un reporte), eso sobra y un modelo simple con tablas alcanza. DDD paga cuando hay **reglas de negocio ricas y concurrentes**: cupos, capacidades, turnos, saldos. Una pregunta práctica para decidir: ¿existe alguna regla que, si dos personas actúan a la vez, se pueda romper? Si la respuesta es no, probablemente no necesites un agregado.",
+    "Senda tiene un caso real que muestra la idea con otra tecnología. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Un duelo de Espadeo es un agregado, escrito en SQL",
+   "x": [
+    "Cuando alguien juega su turno en un duelo, la app llama a una función de la base, `jugar_turno`, que recibe la partida, un identificador del pedido y las respuestas. La versión vigente está en `supabase/migrations/20261127000000_seguridad.sql`. Lo que hace es lo que hace un agregado, aunque no haya una sola clase:",
+    "**Raíz y frontera.** La fila de `partidas` es la raíz; las filas de `jugadas` cuelgan de ella (`on delete cascade`, definida en `20261101000000_juntos.sql`). Toda modificación pasa por `jugar_turno`.",
+    "**Concurrencia.** Lo primero que hace es `select ... for update` sobre la fila de la partida: una **traba pesimista** que hace esperar a quien llegue a la vez, en lugar del número de versión de nuestro ejemplo. Son dos estrategias distintas para el mismo problema.",
+    "**Invariantes.** Rechaza con un error propio si la partida no existe, si está cerrada (`partida_cerrada`) o si no es tu turno (`no_es_tu_turno`). Cierra la partida cuando alguien completa seis piezas, o a la ronda 25 compara piezas. Todo en la misma transacción.",
+    "**Reintentos.** Cada turno trae un `cliente_id` y si ya existe una jugada con ese id la función devuelve la partida tal cual: reenviar el mismo turno no lo cuenta dos veces. El comentario de la migración lo explica como una decisión de la prueba 38.",
+    "**Algo parecido a un evento.** Al terminar o pasar el turno, inserta una fila en `avisos` («Te toca jugar»). No hay objetos de evento ni un bus: es una tabla que otro proceso, programado cada 5 minutos con `pg_cron`, recorre para mandar la notificación. Cumple el papel del puente entre agregados, con un retraso asumido.",
+    "Lo que **no** hay: clases de dominio ni objetos de valor en SQL (las piezas son un arreglo de texto) ni un historial de eventos reutilizable. Para este alcance, una función chica en la base es una decisión razonable; si el juego creciera, valdría la pena revisar dónde viven las reglas."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261108000000_juntos_listo.sql",
+    "src/util/juntos.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con el tiempo",
+   "x": "Los conceptos (invariante, objeto de valor, agregado, evento de dominio) llevan más de veinte años y no cambian. Lo que sí cambia son las herramientas y el código de Senda: lo de `jugar_turno` se leyó el 16 de noviembre de 2026 en el commit 25e08fa y puede moverse. El ensayo de Vernon es de 2011 y sigue siendo una referencia habitual."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Al agregado `HojaDeRuta` agregale una segunda invariante: una hoja no puede tener más de 8 paradas. ¿En qué método la escribís, y qué pasa con las asignaciones simultáneas que intentan la parada número 9?",
+   "pista": "Mirá dónde está hoy la regla de capacidad y copiá su forma. Pensá también en qué error tiene que devolver.",
+   "solucion": "Va en `asignarParada`, junto a la regla de capacidad: `if (this.#paradas.length >= 8) throw new Error('hoja_llena')`. Como las dos asignaciones simultáneas parten de la misma versión, la segunda en guardar recibe `version_vieja`; al reintentar con una lectura nueva, el agregado ve 8 paradas y responde `hoja_llena`. Ninguna de las dos reglas necesita cambiar el repositorio."
+  }
+ ],
+ "recap": [
+  "Una invariante es una regla que tiene que cumplirse siempre. Si el chequeo vive repartido en cada pantalla, dos pedidos simultáneos la rompen por el hueco entre leer, decidir y escribir.",
+  "Un objeto de valor no tiene identidad, vale por su contenido, es inmutable y lleva sus propias reglas (peso en gramos enteros, no negativo). Una entidad tiene identidad y cambia con el tiempo.",
+  "Un agregado agrupa los objetos que tienen que ser consistentes juntos, con una raíz que es la única puerta de entrada. Dentro de la frontera las reglas se aplican de forma sincrónica; entre fronteras, por eventos.",
+  "El agregado se dibuja alrededor de invariantes reales y se mantiene chico: uno grande por comodidad pierde rendimiento y provoca rechazos por cambios sin relación. Un control de versión (optimista) o una traba (pesimista) cierran el hueco de la concurrencia.",
+  "Un evento de dominio es un hecho en pasado con significado de negocio (`ParadaAsignada`), inmutable. Se publica después de guardar y permite que otros reaccionen sin que el agregado los conozca.",
+  "En Senda, `jugar_turno` es un agregado escrito en SQL: raíz en `partidas`, traba con `for update`, invariantes con errores propios, reintentos por `cliente_id` y una tabla `avisos` que cumple un papel parecido al de un evento. Todo esto es demasiado si no hay reglas concurrentes."
+ ],
+ "repaso": [
+  {
+   "p": "Un camión admite 1.000 kg y lleva 700. Dos despachantes, a la vez, le suman 200 y 250 kg. Cada uno calcula 900 y 950 y guarda. ¿Cuál es la causa de fondo de que se pase del límite?",
+   "o": [
+    "La regla se chequea fuera de una frontera de consistencia",
+    "Los despachantes no usaron la misma versión del sistema",
+    "La base de datos no guardó las dos paradas a tiempo",
+    "Falta validar que los pesos sean números positivos"
+   ],
+   "c": 0,
+   "e": "Leer, decidir y escribir son pasos separados, y entre ellos otro puede cambiar los datos; la regla necesita una unidad que la proteja. Que ambos hayan usado la misma versión es justamente el síntoma, no la causa; la base sí guardó las dos filas; y validar positivos no evita que la suma se pase."
+  },
+  {
+   "p": "¿Cuál de estos conceptos es un objeto de valor y cuál una entidad en el modelo de una distribuidora?",
+   "o": [
+    "Ambos son valores porque tienen datos simples",
+    "Ambos son entidades porque se guardan en la base",
+    "El peso es un valor y el camión es una entidad",
+    "El camión es un valor y el peso es una entidad"
+   ],
+   "c": 2,
+   "e": "Dos pesos de 2 kg son intercambiables (valen por su contenido), mientras que cada camión tiene identidad propia y cambia con el tiempo. Guardarse en una base o tener datos simples no define el tipo: lo que cuenta es si importa la identidad."
+  },
+  {
+   "p": "Un `Peso` tiene un método que suma otro peso. ¿Cuál de estas implementaciones respeta que un objeto de valor es inmutable?",
+   "o": [
+    "Cambia el peso del otro objeto para que quede igual",
+    "Devuelve un `Peso` nuevo con la suma, sin tocar el original",
+    "Suma los gramos dentro del mismo objeto y lo devuelve",
+    "Guarda la suma en una variable global para no perderla"
+   ],
+   "c": 1,
+   "e": "Si el valor cambia, se crea un objeto nuevo; así nadie que tenga una referencia al original ve un cambio inesperado (el error de aliasing que describe Fowler). Las otras tres opciones modifican algo que ya existía."
+  },
+  {
+   "p": "En el agregado `HojaDeRuta`, ¿por qué es mejor que `asignarParada` sea el único camino para agregar una parada?",
+   "o": [
+    "Porque así el código queda más corto en todos los casos",
+    "Porque la base de datos obliga a usar un solo método",
+    "Porque las paradas dejan de tener que tener identidad",
+    "Porque ahí vive la regla y no se puede esquivar desde afuera"
+   ],
+   "c": 3,
+   "e": "La raíz es la puerta de entrada que asegura la invariante; si otro código pudiera agregar paradas por su cuenta, la regla se esquivaría. No es cuestión de brevedad, ninguna base obliga a eso, y las paradas pueden seguir teniendo identidad."
+  },
+  {
+   "p": "Una propuesta: un único agregado `Deposito` con todos los camiones y sus paradas, «para que todo sea consistente». ¿Cuál es el principal problema?",
+   "o": [
+    "El agregado no puede publicar eventos de dominio",
+    "Las asignaciones de camiones distintos se rechazarían entre sí",
+    "Un agregado no puede contener más de un camión",
+    "Ya no se podría usar un objeto de valor dentro"
+   ],
+   "c": 1,
+   "e": "Con un control de versión sobre un agregado enorme, cualquier cambio invalida a los demás aunque no tengan relación, y la regla de capacidad de un camión no depende de otros. Nada impide que un agregado contenga varias entidades, objetos de valor o eventos: el problema es el tamaño sin invariante que lo justifique."
+  },
+  {
+   "p": "¿Cuál de estos nombres corresponde a un evento de dominio bien formado?",
+   "o": [
+    "`ParadaAsignandose`, algo en proceso",
+    "`AsignacionDeParada`, un proceso general",
+    "`ParadaAsignada`, un hecho ya ocurrido",
+    "`AsignarParada`, una orden que se da"
+   ],
+   "c": 2,
+   "e": "Un evento afirma algo que ya pasó, por eso va en pasado y no se discute; `AsignarParada` es un comando, que puede ser rechazado. Las otras formas describen un proceso en curso o un concepto vago y no registran un hecho concreto."
+  }
+ ],
+ "feynman": "Explicale a alguien que trabaja en un depósito por qué no alcanza con «chequear antes de guardar» para que un camión no se pase de peso cuando dos personas cargan a la vez, y qué cambia cuando existe una única puerta de entrada que guarda con número de versión. Usá un ejemplo de tu propio trabajo, sin mencionar la palabra «agregado».",
+ "para_profundizar": [
+  {
+   "fuente": "ddd1214-vernon-effective-aggregate-1",
+   "nota": "La primera parte del ensayo de Vernon sobre diseño de agregados. Leé las secciones «Model True Invariants in Consistency Boundaries» y «Design Small Aggregates» para ver el ejemplo del producto y sus pendientes."
+  },
+  {
+   "fuente": "ddd1214-fowler-ddd-aggregate",
+   "nota": "Una página corta de Fowler que define el agregado y su raíz y aclara que no es lo mismo que una colección."
+  },
+  {
+   "fuente": "ddd1214-fowler-value-object",
+   "nota": "El artículo de Fowler sobre objetos de valor, con el error de aliasing de las fechas en Java y por qué conviene que sean inmutables."
+  },
+  {
+   "fuente": "ddd1214-evans-reference",
+   "nota": "La guía de referencia de Evans, de uso libre. Para hoy, las páginas sobre agregados y eventos de dominio (este último es una sección agregada después del libro original)."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Vaughn Vernon Effective Aggregate Design charla",
+   "por_que": "Para escuchar al autor del ensayo explicar por qué los agregados chicos funcionan mejor, con ejemplos distintos de los de la lección."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "agregado",
+   "d": "Grupo de objetos del dominio que se trata como una unidad de consistencia, con una raíz por la que entra todo cambio. Protege sus invariantes y suele guardarse en una sola transacción."
+  },
+  {
+   "t": "objeto de valor",
+   "d": "Objeto del dominio sin identidad propia: vale por su contenido, se compara por sus datos y es inmutable. Ejemplos: peso, dinero, dirección, ventana horaria."
+  },
+  {
+   "t": "evento de dominio",
+   "d": "Hecho ya ocurrido que importa al negocio, nombrado en pasado e inmutable, como «ParadaAsignada». Permite que otras partes reaccionen sin que quien lo origina las conozca."
+  },
+  {
+   "t": "invariante",
+   "d": "Regla de negocio que tiene que cumplirse siempre, en cada instante en que se miran los datos, como «el peso cargado no supera la capacidad»."
+  },
+  {
+   "t": "raíz del agregado",
+   "d": "La entidad del agregado por la que pasan todas las referencias y todos los cambios desde afuera; es la responsable de asegurar las invariantes del conjunto."
+  }
+ ],
+ "siguiente": "Con el modelo ordenado por dentro, ¿qué pasa cuando cada contexto crece lo suficiente como para vivir en su propio programa y su propio equipo? Mañana: microservicios.",
+ "fuentes_nuevas": [
+  {
+   "id": "ddd1214-evans-reference",
+   "t": "Domain-Driven Design Reference: Definitions and Pattern Summaries",
+   "a": "Eric Evans (Domain Language, Inc.)",
+   "tipo": "libro",
+   "anio": 2015,
+   "url": "https://www.domainlanguage.com/ddd/reference/"
+  },
+  {
+   "id": "ddd1214-fowler-ddd-aggregate",
+   "t": "DDD_Aggregate",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": 2013,
+   "url": "https://martinfowler.com/bliki/DDD_Aggregate.html"
+  },
+  {
+   "id": "ddd1214-fowler-value-object",
+   "t": "Value Object",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": 2016,
+   "url": "https://martinfowler.com/bliki/ValueObject.html"
+  },
+  {
+   "id": "ddd1214-fowler-domain-event",
+   "t": "Domain Event",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": 2005,
+   "url": "https://martinfowler.com/eaaDev/DomainEvent.html"
+  },
+  {
+   "id": "ddd1214-vernon-effective-aggregate-1",
+   "t": "Effective Aggregate Design, Part I: Modeling a Single Aggregate",
+   "a": "Vaughn Vernon",
+   "tipo": "articulo",
+   "anio": 2011,
+   "url": "https://www.dddcommunity.org/wp-content/uploads/files/pdf_articles/Vernon_2011_1.pdf"
+  }
+ ]
+}

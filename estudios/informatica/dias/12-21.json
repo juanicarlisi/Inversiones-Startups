@@ -1,0 +1,533 @@
+{
+ "id": "12-21",
+ "titulo": "Sistemas distribuidos II: tiempo, relojes y orden",
+ "bajada": "Aprendés por qué dos máquinas no pueden ponerse de acuerdo en qué pasó primero, y ordenás eventos con relojes de Lamport y vectoriales que corrés vos mismo.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar por qué no existe un «ahora» global en un sistema distribuido y calcular cuánto deriva un reloj con una tolerancia dada.",
+  "Distinguir el reloj de pared del monotónico y elegir el correcto para medir una duración o para fechar un dato.",
+  "Calcular el desfase y la demora con las cuatro marcas de NTP y señalar dónde la asimetría de la red introduce error.",
+  "Aplicar las reglas del reloj de Lamport a mano y explicar qué garantiza y qué no.",
+  "Usar relojes vectoriales para decidir si dos eventos fueron concurrentes y reconocer cuándo conviene cada herramienta."
+ ],
+ "venis_de": "Ayer ([@12-20]) viste que los sistemas distribuidos se rompen de forma parcial y que la red puede partirse. Hoy aparece el siguiente problema: aun sin fallas, las máquinas no comparten reloj, y hay que aprender a ordenar sin él.",
+ "se_apoya_en": [
+  "12-20",
+  "12-17",
+  "09-34"
+ ],
+ "gancho": [
+  "Lunes por la mañana. Tres sistemas de una empresa de reparto anotan el mismo despacho: el del depósito, el del camión y el de la oficina. Al cierre del día, el panel de gestión muestra el despacho D-7 como «recién cargado», cuando el cliente ya lo recibió. Nadie tocó el dato después; el sistema se quedó, por regla, con el registro de la hora más nueva, y el reloj de la oficina estaba dos segundos y medio atrasado.",
+  "Hoy entendés por qué pasa, cuánto puede valer ese error, cómo se acota con NTP y, sobre todo, cómo se puede ordenar bien sin confiar en ninguna hora. Lo vas a hacer con tres programas cortos que corrés en el propio navegador."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "No existe un «ahora» compartido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ayer viste que en un sistema distribuido cada máquina puede fallar sola y que la red puede partirse en islas ([@12-20]). Hoy atacamos una consecuencia que parece menor y no lo es: **las máquinas no coinciden en qué hora es**. Y sin una hora común, la pregunta más simple de un sistema, «¿qué pasó primero?», deja de tener respuesta fácil.",
+    "Cada computadora lleva un reloj propio: un cristal de cuarzo que vibra a una frecuencia casi fija y un contador que cuenta esas vibraciones. «Casi» es la palabra clave. Un cristal común de computadora se desvía del orden de decenas de partes por millón según la temperatura y el envejecimiento (ESTIMACIÓN: es un orden de magnitud típico de cristales baratos, no un dato de un modelo puntual). El RFC del protocolo de hora de internet usa una tolerancia de frecuencia de 15 partes por millón como constante de diseño [#rfc5905-ntpv4]. Hacé la cuenta: **15 ppm son 15 microsegundos de error por cada segundo**, o sea 15 × 86.400 = 1,3 segundos por día. Dos máquinas que arrancaron perfectamente sincronizadas pueden estar a más de un segundo una de otra a las 24 horas. Esa separación se llama deriva.",
+    "Para que un reloj no se aleje, hay que corregirlo mirando a otro. Eso es la [[sincronización NTP]], que vemos en un rato. Pero antes conviene entender por qué la corrección nunca es perfecta, y qué hacer cuando necesitás ordenar eventos sin confiar en ninguna hora."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: los relojes de las sucursales",
+   "x": [
+    "Imaginá un depósito con tres puertas y un reloj de pared en cada una. Cada reloj lo puso alguien en hora un día distinto y ninguno está conectado a los demás. Si el vigilante de la puerta 1 anota «12:03 salió el camión» y el de la puerta 3 anota «12:01 llegó el remito», ¿cuál pasó primero? Mirando las anotaciones, el remito. En la realidad, quizás el reloj 3 adelantaba cinco minutos.",
+    "Donde la analogía deja de valer: en un depósito podés caminar hasta la puerta y mirar. En una red, lo único que tenés son mensajes que tardan un tiempo variable y pueden perderse, y esa es la diferencia con la que vive todo el día."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Dos relojes que tiene tu computadora, y para qué sirve cada uno"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un sistema operativo ofrece dos relojes, y confundirlos es una fuente clásica de errores. El **reloj de pared** (en Linux, `CLOCK_REALTIME`) dice qué fecha y hora es, y es el que se corrige cuando NTP lo ajusta. Por eso puede **saltar**: hacia adelante o incluso hacia atrás. El **reloj monotónico** (`CLOCK_MONOTONIC`) solo cuenta tiempo transcurrido desde un punto arbitrario (por ejemplo, el arranque) y nunca retrocede; no sirve para saber qué día es, pero sí para medir cuánto tardó algo.",
+    "Regla práctica, que es criterio y no ley: para **medir una duración** (timeouts, reintentos, cronómetros) usá el monotónico; para **poner una fecha en un dato** usá el de pared, sabiendo que esa fecha es una opinión de esa máquina. Corrí esto en la máquina del estudio, que es una máquina virtual sin systemd, y salió lo siguiente."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "date -u +\"%Y-%m-%d %H:%M:%S %Z\"",
+     "s": "2026-11-16 02:21:02 UTC"
+    },
+    {
+     "c": "cat /sys/devices/system/clocksource/clocksource0/current_clocksource",
+     "s": "tsc"
+    },
+    {
+     "c": "command -v chronyc ntpq || echo \"(sin chronyc ni ntpq)\"",
+     "s": "(sin chronyc ni ntpq)"
+    },
+    {
+     "c": "timedatectl",
+     "s": "System has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to bus: Host is down"
+    },
+    {
+     "c": "python3 -c 'medir resolución y dormir 0,2 s con CLOCK_REALTIME y CLOCK_MONOTONIC'",
+     "s": "monotonic  1e-09 s de resolución\ndormí 0,2 s -> realtime avanzó 0.2003, monotónico avanzó 0.2003"
+    }
+   ],
+   "cap": "Corrido en una sola VM (Linux 6.18, Firecracker) el 2026-11-16. Las dos resoluciones son de 1 nanosegundo en lo que reporta la API, lo que no significa que el reloj sea exacto a un nanosegundo. En esta VM no hay cliente NTP instalado ni systemd: la hora de la VM la fija el hipervisor, y por eso no puedo mostrarte `chronyc` real."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Qué dice la documentación del kernel",
+   "x": "La documentación del núcleo de Linux describe estas interfaces de hora (reloj de pared, monotónico y otros) en su capítulo de *timekeeping* [#kernel-timekeeping]. Lo que importa acá es la distinción: una hora que se puede ajustar frente a una que solo avanza."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu app mide cuánto tarda un reintento con `fin - inicio` usando el reloj de pared. En el medio, NTP corrige el reloj 2 segundos hacia atrás. ¿Qué duración calcula la app?",
+   "resp": "Una duración 2 segundos menor que la real, e incluso negativa si el intervalo medido era corto. Midiendo con el reloj monotónico no pasa, porque ese reloj no se corrige hacia atrás."
+  },
+  {
+   "t": "h",
+   "x": "Cuando la hora arruina el orden: «gana la última escritura»"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mucha gente resuelve conflictos entre réplicas con una regla simple: si dos máquinas escribieron el mismo dato, **gana la que tiene la hora más nueva**. Se la llama «última escritura gana» (en inglés, *last write wins*, LWW). Suena razonable hasta que los relojes difieren. Lo siguiente es una simulación (de un solo proceso, con los desfases inventados a propósito): tres sistemas anotan el estado del despacho D-7, y cada uno pone la hora de su propio reloj."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Tres servidores con relojes de pared desfasados. Cada uno registra un cambio de estado del despacho D-7.\nconst relojes = { deposito: +0, camion: -1800, oficina: -2500 }; // desfase en milisegundos respecto de la hora real\nconst horaReal = (t) => t; // el \"tiempo verdadero\" lo conocemos solo porque simulamos\nconst escrituras = [\n  { quien: \"deposito\", real: 10000, valor: \"cargado\" },\n  { quien: \"camion\",   real: 11000, valor: \"en_ruta\" },\n  { quien: \"oficina\",  real: 12000, valor: \"entregado\" },\n];\nfor (const e of escrituras) e.sello = e.real + relojes[e.quien];\nconsole.log(\"Orden verdadero:   \", escrituras.map((e) => e.valor).join(\" -> \"));\nconst porSello = [...escrituras].sort((a, b) => a.sello - b.sello);\nconsole.log(\"Orden por sello:   \", porSello.map((e) => `${e.valor}(${e.sello})`).join(\" -> \"));\nconsole.log(\"Gana 'ultima escritura' (LWW):\", porSello[porSello.length - 1].valor);",
+   "cap": "Simulación determinista. Los desfases (0, −1,8 s y −2,5 s) son inventados, pero de un tamaño que una máquina sin sincronizar puede tener."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La verdad fue «cargado, en ruta, entregado», pero al ordenar por sello el orden queda «en ruta, entregado, cargado» y la regla elige **cargado** como valor final. El despacho entregado vuelve a figurar como recién cargado. Nadie hizo nada mal en el código de la regla: el dato en que se apoyó, la hora, es lo que falló. Esto no es un caso rebuscado: Kleppmann dedica parte del capítulo sobre problemas de los sistemas distribuidos de su libro a que LWW con relojes de pared puede perder escrituras en silencio [#ddia] (lo cito como lo recuerdo del libro, sin releer el capítulo hoy)."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Más precisión no arregla el problema de fondo",
+   "x": "Se puede sincronizar mejor (lo vemos enseguida) y achicar el error, pero nunca a cero. Con dos eventos separados por menos que el error de los relojes, el orden por hora es azar. Por eso la ingeniería tiene dos caminos: **acotar** el error de reloj y esperar a que pase (lo que hace Google con TrueTime en Spanner [#spanner]) o **no usar la hora para ordenar** y construir un orden con mensajes. El segundo camino es el de Lamport."
+  },
+  {
+   "t": "h",
+   "x": "Sincronización NTP: cómo se corrige un reloj mirando a otro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El Network Time Protocol (NTP) está descripto en el RFC 5905 (versión 4, junio de 2010) [#rfc5905-ntpv4]. Su idea central cabe en cuatro marcas de tiempo. El cliente le manda un mensaje al servidor y anota la hora en que **salió** (T1). El servidor anota cuándo **llegó** (T2) y cuándo **respondió** (T3). El cliente anota cuándo **volvió** la respuesta (T4). Con esas cuatro horas, el RFC da dos fórmulas:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Cliente",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor de hora",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Consulta: sale en T1, llega en T2",
+     "d": "El cliente anota T1 con su reloj al enviar; el servidor anota T2 con el suyo al recibir."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "Respuesta: sale en T3, llega en T4",
+     "d": "El servidor anota T3 al responder y manda T1, T2 y T3 en el mensaje; el cliente anota T4 al recibirlo y ya puede calcular delta y theta.",
+     "resp": true
+    }
+   ],
+   "cap": "Las cuatro marcas del RFC 5905. T1 y T4 son del reloj del cliente; T2 y T3, del reloj del servidor."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Demora de ida y vuelta:** `delta = (T4 − T1) − (T3 − T2)`. Es el tiempo total menos lo que el servidor tardó en contestar: lo que gastó la red.",
+    "**Desfase:** `theta = ((T2 − T1) + (T3 − T4)) / 2`. Es cuánto hay que sumarle al reloj del cliente para igualar al del servidor."
+   ],
+   "ord": false
+  },
+  {
+   "t": "p",
+   "x": [
+    "La fórmula del desfase supone algo que no podés comprobar: que **la ida y la vuelta tardan lo mismo**. Si no es así, el error en `theta` es la mitad de la diferencia entre ida y vuelta. Lo corrí con números inventados: un cliente con el reloj 500 ms atrasado y una red de 20 ms de ida y 20 de vuelta, y después la misma situación con 80 ms de ida y 10 de vuelta."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Cálculo NTP (RFC 5905): T1 sale del cliente, T2 llega al servidor, T3 sale del servidor, T4 llega al cliente.\nfunction ntp(T1, T2, T3, T4) {\n  const theta = ((T2 - T1) + (T3 - T4)) / 2; // offset del servidor respecto del cliente\n  const delta = (T4 - T1) - (T3 - T2);       // demora de ida y vuelta\n  return { theta, delta };\n}\n// Caso 1: el cliente tiene el reloj 500 ms atrasado; camino simétrico de 20 ms de ida y 20 de vuelta; el servidor tarda 1 ms.\n// Tiempo verdadero: sale a 1000, llega a 1020, el servidor responde a 1021, vuelve a 1041.\nconst atraso = -500;\nlet r = ntp(1000 + atraso, 1020, 1021, 1041 + atraso);\nconsole.log(\"simétrico        \", r, \"(el reloj del cliente está 500 ms atrasado: theta debe dar +500)\");\n// Caso 2: la ida tarda 80 ms y la vuelta 10 ms (ruta asimétrica). Mismo atraso.\nr = ntp(1000 + atraso, 1080, 1081, 1091 + atraso);\nconsole.log(\"asimétrico 80/10 \", r, \"(error de theta = (ida - vuelta)/2 =\", (80 - 10) / 2, \"ms)\");",
+   "cap": "Cálculo con las fórmulas del RFC 5905. Con el camino simétrico el desfase sale exacto (500 ms); con el asimétrico queda un error de 35 ms que ninguna de las cuatro marcas permite detectar."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ese error de 35 ms es el piso de lo que NTP puede garantizar en ese camino, y por eso el propio RFC dice que, en internet pública, un cliente queda a **algunas decenas de milisegundos** de la hora de referencia, mientras que en una red local rápida llega a unos pocos cientos de microsegundos [#rfc5905-ntpv4]. NTP organiza los servidores en niveles llamados *stratum*: el nivel 0 son los relojes de referencia (atómicos o GPS), el 1 son los servidores conectados directo a ellos, y cada escalón hacia abajo se sincroniza con el de arriba.",
+    "Dos detalles del RFC que explican por qué NTP casi nunca te da un salto de hora. Si el desfase es chico, el cliente **acelera o frena un poco su reloj** hasta alcanzar la hora correcta, y el reloj sigue avanzando de forma continua. Solo si el desfase supera 125 ms el algoritmo de referencia da un salto directo (*step*), y si supera 1.000 segundos recomienda abortar con un mensaje al registro del sistema, porque algo muy raro está pasando [#rfc5905-ntpv4]. El intervalo entre consultas va de 16 segundos como mínimo (exponente 4) hasta 36 horas (exponente 17)."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que depende de tu sistema y de la fecha",
+   "x": "Los valores del párrafo anterior (125 ms, 1.000 s, 16 s a 36 h) son las constantes del RFC 5905, escritas para el algoritmo de referencia; cada programa real (chrony, ntpd, systemd-timesyncd) los elige y los ajusta a su manera. Verificado en el texto del RFC el 2026-11-16. En esta máquina no pude mostrar un cliente real porque no hay ninguno instalado: lo que ves en tu computadora de uso diario (Windows, macOS, Linux) lo decide su sistema operativo y su documentación oficial."
+  },
+  {
+   "t": "h",
+   "x": "Dejar de mirar el reloj: lo que importa es qué pudo causar qué"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En 1978 Leslie Lamport publicó un artículo, «Time, Clocks, and the Ordering of Events in a Distributed System», con una idea que cambió la disciplina [#lamport-time]. Su punto de partida es una observación que los logísticos entienden de inmediato: **un evento puede haber influido en otro solamente si hubo un camino de mensajes entre los dos**. Si el depósito despachó un bulto y después le avisó al chofer, lo primero pudo causar lo segundo. Si el depósito y una oficina de otra ciudad hicieron cada uno su tarea sin cruzarse una sola señal, ninguna pudo causar a la otra, y preguntar cuál fue «primero» no tiene sentido físico: son **concurrentes**.",
+    "Lamport formaliza eso con una relación, «ocurrió antes que», que cumple tres cosas. Dentro de un mismo proceso, un evento ocurre antes que los siguientes. Enviar un mensaje ocurre antes que recibirlo. Y si A ocurrió antes que B y B antes que C, entonces A antes que C. Todo lo que no queda ordenado por esas reglas es concurrente. El resultado es un orden **parcial**: algunos pares se pueden ordenar y otros no, y está bien que sea así [#lamport-time]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Reloj lógico de Lamport: un contador y dos reglas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[reloj lógico]] no mide tiempo: es un **contador** que cada proceso lleva consigo para etiquetar sus eventos de forma que las etiquetas respeten la causalidad. Las reglas del artículo son dos [#lamport-time]. La primera: cada proceso **incrementa su contador entre dos eventos sucesivos**. La segunda: todo mensaje lleva la marca del emisor, y al recibirlo, el receptor pone su contador en un valor **mayor o igual al que tenía y mayor que el de la marca**. En código es una línea: `c = max(c, marca) + 1`. Esa es toda la máquina.",
+    "Lo corrí con tres nodos de una operación inventada: el depósito carga un bulto, imprime el remito y avisa al camión; el camión sale a ruta y avisa a la oficina; la oficina avisa al cliente. Mientras tanto, el camión prende su GPS y la oficina abre su planilla sin hablar con nadie."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Relojes de Lamport en tres nodos. Mensajes con demora fija; ejecución determinista.\nclass Nodo {\n  constructor(n) { this.n = n; this.c = 0; this.log = []; }\n  evento(que) { this.c += 1; this.log.push({ c: this.c, n: this.n, que }); return this.c; }\n  enviar(que) { const t = this.evento(\"envía \" + que); return { t, de: this.n }; }\n  recibir(msg, que) { this.c = Math.max(this.c, msg.t) + 1; this.log.push({ c: this.c, n: this.n, que: \"recibe \" + que + \" (traía \" + msg.t + \")\" }); }\n}\nconst dep = new Nodo(\"deposito\"), cam = new Nodo(\"camion\"), ofi = new Nodo(\"oficina\");\ndep.evento(\"carga el bulto\");\ndep.evento(\"imprime remito\");\nconst m1 = dep.enviar(\"salida confirmada\");       // deposito -> camion\ncam.evento(\"arranca el GPS\");                      // concurrente con lo del depósito\ncam.recibir(m1, \"salida confirmada\");\ncam.evento(\"sale a ruta\");\nconst m2 = cam.enviar(\"en camino\");                // camion -> oficina\nofi.evento(\"abre la planilla del día\");            // concurrente\nofi.recibir(m2, \"en camino\");\nofi.evento(\"avisa al cliente\");\nconst todo = [...dep.log, ...cam.log, ...ofi.log].sort((a, b) => a.c - b.c || (a.n < b.n ? -1 : 1));\nfor (const e of todo) console.log(String(e.c).padStart(2), e.n.padEnd(9), e.que);",
+   "cap": "Tres nodos, mensajes en un solo sentido. Para ordenar todo se usa (contador, nombre del nodo) como desempate, que es el orden total que propone Lamport."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá el resultado. La cadena que de verdad tiene causalidad (cargar, remito, aviso, el camión recibe, sale, avisa, la oficina recibe, avisa al cliente) quedó con contadores **estrictamente crecientes**: 1, 2, 3, 4, 5, 6, 7, 8. Eso es lo que garantiza el reloj de Lamport: **si A pudo causar a B, entonces el contador de A es menor que el de B**.",
+    "Ahora la trampa, y es importante: **el recíproco no vale**. El reloj del camión marca 1 en «arranca el GPS» y el depósito marca 2 en «imprime remito». 1 es menor que 2, y sin embargo esos dos eventos son concurrentes: no hubo mensaje entre ellos. Con un solo número por nodo no podés distinguir «A causó a B» de «A y B no tuvieron nada que ver y el contador de A salió menor». Los empates (los tres 1) se rompen con el nombre del nodo, lo que da un **orden total** consistente en todas las máquinas, pero ese orden en los pares concurrentes es arbitrario y no refleja nada real [#lamport-time]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Para qué sirve un orden arbitrario pero acordado",
+   "x": "Parece inútil ordenar de forma caprichosa eventos que no se relacionan. Sirve porque **todos los nodos llegan al mismo orden** sin consultar un reloj, y eso alcanza para cosas como decidir quién entra primero a un recurso compartido (el uso que Lamport desarrolla en el mismo artículo) o para numerar entradas de un registro de forma que no se contradigan."
+  },
+  {
+   "t": "pensa",
+   "x": "El nodo X tiene su contador en 40 y recibe un mensaje con marca 12. ¿En cuánto queda su contador? ¿Y si la marca hubiera sido 75?",
+   "resp": "Con marca 12 queda en max(40, 12) + 1 = 41. Con marca 75 queda en max(40, 75) + 1 = 76: el contador salta para quedar por delante de todo lo que el emisor ya hizo."
+  },
+  {
+   "t": "h",
+   "x": "Reloj vectorial: ahora sí, saber si dos cosas fueron concurrentes"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para distinguir «causa» de «concurrente» hace falta más información que un número. Un [[reloj vectorial]] guarda **un contador por cada nodo**: una lista como [A:2, B:1, C:2]. Es una idea que se formalizó a fines de los años 80 (por separado, Colin Fidge y Friedemann Mattern; lo cito de memoria, no lo verifiqué en el artículo original). Las reglas son las de Lamport aplicadas a cada posición: antes de un evento propio, el nodo suma 1 **a su casilla**; al recibir un mensaje, toma el máximo casilla por casilla y después suma 1 a la suya.",
+    "Para comparar dos vectores se mira casilla por casilla. Si **todas** las casillas de uno son menores o iguales a las del otro, y alguna es estrictamente menor, el primero ocurrió antes. Si ninguno cumple eso (uno gana en una casilla y el otro en otra), son **concurrentes**. Veámoslo con un caso de despachos: dos despachadores, A y B, asignan el despacho D-7 a camiones distintos sin hablarse, y después un tercero, C, recibe las dos novedades."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Relojes vectoriales: cada nodo lleva un contador por nodo.\nconst NODOS = [\"A\", \"B\", \"C\"];\nconst nuevo = () => ({ A: 0, B: 0, C: 0 });\nconst tic = (v, yo) => ({ ...v, [yo]: v[yo] + 1 });\nconst fusion = (a, b, yo) => { const r = {}; for (const k of NODOS) r[k] = Math.max(a[k], b[k]); return tic(r, yo); };\nfunction comparar(a, b) {\n  let menor = false, mayor = false;\n  for (const k of NODOS) { if (a[k] < b[k]) menor = true; if (a[k] > b[k]) mayor = true; }\n  if (!menor && !mayor) return \"iguales\";\n  if (menor && !mayor) return \"a → b (a pasó antes)\";\n  if (mayor && !menor) return \"b → a (b pasó antes)\";\n  return \"CONCURRENTES\";\n}\nconst f = (v) => `[${NODOS.map((k) => v[k]).join(\",\")}]`;\n// A y B asignan el despacho D-7 a camiones distintos sin hablarse; C solo mira.\nlet A = nuevo(), B = nuevo(), C = nuevo();\nA = tic(A, \"A\"); const asigA = A;           // A: \"D-7 al camión 1\"\nB = tic(B, \"B\"); const asigB = B;           // B: \"D-7 al camión 2\"\nconsole.log(\"A asigna:\", f(asigA), \" B asigna:\", f(asigB), \"=>\", comparar(asigA, asigB));\n// C recibe lo de A y después lo de B\nC = fusion(C, asigA, \"C\"); console.log(\"C tras recibir A:\", f(C));\nC = fusion(C, asigB, \"C\"); console.log(\"C tras recibir B:\", f(C));\n// Ahora una versión posterior: A lee todo (por C) y corrige\nlet A2 = fusion(A, C, \"A\"); console.log(\"A corrige:\", f(A2), \"vs la de B:\", comparar(asigB, A2));",
+   "cap": "Tres nodos y dos asignaciones conflictivas. El vector [1,0,0] contra [0,1,0] no es comparable: ninguno es mayor en todas las casillas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El programa detecta lo que Lamport solo no podía: **A y B actuaron sin saber uno del otro**. Y mientras tanto el vector de C ([1,1,2]) resume que ya vio lo de los dos. Cuando A lee todo y corrige, su vector [2,1,2] es mayor casilla por casilla que el de B, así que la corrección **supersede** a la asignación de B de forma limpia, sin conflicto.",
+    "Este mecanismo no es teoría de pizarrón. El sistema de almacenamiento Dynamo de Amazon usa relojes vectoriales para capturar la causalidad entre versiones de un mismo objeto: cuando dos versiones no se pueden ordenar, el sistema se las entrega **las dos** al cliente para que las reconcilie [#dynamo]. Además, el paper reconoce el costo: el vector crece con la cantidad de nodos que escriben, y por eso Dynamo trunca el reloj cuando supera un umbral, a cambio de perder algo de precisión causal [#dynamo]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Hora de pared + NTP",
+    "Reloj de Lamport",
+    "Reloj vectorial"
+   ],
+   "filas": [
+    [
+     "Qué guarda",
+     "Un instante físico estimado",
+     "Un entero por mensaje",
+     "Un entero por nodo"
+    ],
+    [
+     "Respeta la causalidad",
+     "No siempre (error de decenas de ms o más)",
+     "Sí: si A causó a B, C(A) < C(B)",
+     "Sí, en las dos direcciones"
+    ],
+    [
+     "Detecta concurrencia",
+     "No",
+     "No",
+     "Sí"
+    ],
+    [
+     "Costo de metadatos",
+     "Pocos bytes",
+     "Pocos bytes",
+     "Crece con la cantidad de nodos"
+    ],
+    [
+     "Sirve para mostrarle una fecha a una persona",
+     "Sí",
+     "No",
+     "No"
+    ],
+    [
+     "Uso típico",
+     "Registros, vencimientos, auditoría",
+     "Orden total acordado entre nodos",
+     "Detectar conflictos entre réplicas"
+    ]
+   ],
+   "cap": "Las tres herramientas no compiten: responden preguntas distintas. La hora es para las personas; los relojes lógicos son para que las máquinas se pongan de acuerdo."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Con relojes sincronizados no hace falta nada de esto»",
+   "x": "Falso. NTP achica el error pero no lo elimina, y dos eventos separados por menos que ese error quedan en orden dudoso. Además, un reloj bien sincronizado no te dice **causalidad**: te dice la hora, y dos cosas pueden ocurrir a la misma hora sin relación. Los sistemas que sí se apoyan en hora, como Spanner, lo hacen con hardware dedicado (relojes atómicos y GPS) y esperando de forma explícita el margen de error antes de confirmar [#spanner]. Eso lo recuerdo del paper; no lo releí hoy."
+  },
+  {
+   "t": "h",
+   "x": "Dónde se ve en Senda: la hora del teléfono y la hora de la base"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda es una app que corre en el teléfono de cada persona y habla con una base en Supabase, así que tiene exactamente este problema: **hay dos relojes y hay que decidir en cuál se confía**. Lo que sigue corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Dos relojes, dos usos distintos",
+   "x": [
+    "**La base manda cuando importa.** En las salas en vivo, la función SQL que registra una respuesta calcula el tiempo que tardó la persona como `now() - pregunta_desde`, es decir, con el reloj de la base, y descarta la respuesta si superó el límite. El instante `pregunta_desde` también lo fija la base con `now()` al abrir la pregunta. Así, el puntaje (500 a 1.000 según rapidez) no depende de la hora del teléfono de nadie. En los duelos, el vencimiento `vence_en` se fija en la base como `now() + interval '72 hours'`.",
+    "**El teléfono manda donde no hay trampa posible o no importa.** La cuenta regresiva que se dibuja en pantalla (`quedan`) usa `Date.now()` contra `pregunta_desde`, y el comentario del propio código aclara que es el reloj del teléfono y que la base igual controla el tiempo. Los reintentos de la bandeja de salida esperan según `Date.now()`. Y la recarga de una vida por hora se calcula en el teléfono con `Date.now()` contra el instante guardado.",
+    "**Qué se podría inferir** (INFERENCIA mía, no probada): como la recarga de vidas se calcula con el reloj local, quien adelante la hora de su teléfono probablemente las recupera antes. Si eso importa o no es una decisión de producto: las vidas son una regla del juego individual y no una puntuación competitiva."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "src/util/salas.ts",
+    "src/pantallas/Duelos.tsx",
+    "src/estado/usuario.ts",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "El criterio que Senda aplica sin nombrarlo",
+   "x": "Donde hay competencia entre personas (puntaje de una sala), el árbitro del tiempo es **un solo reloj**, el de la base. Donde cada persona juega por su cuenta (sus vidas), alcanza con el reloj local. Es la regla práctica de siempre: cuando un dato tiene que ser igual para todos, una sola máquina le pone la hora. No hace falta un reloj vectorial si hay un único punto que decide, a costa de depender de él (si la base no responde, no hay árbitro): una sombra de lo que mañana vas a ver como el teorema CAP."
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás para decidir"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "Antes de usar una hora para **ordenar** o **resolver conflictos**, preguntate cuál es el error entre los relojes y si dos eventos pueden quedar más cerca que ese error.",
+    "Para **duraciones**, el reloj monotónico. Para **fechas visibles**, el reloj de pared. Para **orden causal**, un reloj lógico.",
+    "Si hay un único árbitro (una base central), la hora de ese árbitro alcanza. Si hay varios nodos que aceptan escrituras, necesitás vectores o una regla explícita de reconciliación.",
+    "Cada vez que un diseño dice «ganó el último», preguntate **último según quién**."
+   ],
+   "ord": false
+  }
+ ],
+ "recap": [
+  "No hay un «ahora» compartido: los relojes derivan (15 ppm equivalen a 1,3 s por día) y los mensajes tardan un tiempo variable.",
+  "Reloj de pared para fechas, monotónico para duraciones; el de pared puede saltar hacia atrás cuando NTP lo corrige.",
+  "NTP estima el desfase con cuatro marcas, `theta = ((T2−T1)+(T3−T4))/2`, suponiendo ida y vuelta iguales; la asimetría deja un error de (ida−vuelta)/2.",
+  "«Última escritura gana» con hora de pared puede dejar un dato viejo como definitivo si los relojes difieren.",
+  "Lamport: contador por proceso, `c = max(c, marca) + 1`; si A causó a B entonces C(A) < C(B), pero no al revés.",
+  "Reloj vectorial: un contador por nodo; permite decidir «antes», «después» o «concurrentes», a costa de crecer con los nodos.",
+  "Con un único árbitro (la base), su hora alcanza; con varios que escriben, hace falta causalidad explícita."
+ ],
+ "repaso": [
+  {
+   "p": "Una app calcula cuánto tardó una operación restando dos lecturas del reloj de pared. En el medio, el sistema corrige la hora 3 segundos hacia atrás. ¿Qué pasa?",
+   "o": [
+    "La duración sale 3 segundos mayor, porque el ajuste suma el atraso al intervalo",
+    "La duración no cambia, porque la resta de dos horas cancela cualquier corrección",
+    "La duración calculada sale 3 segundos menor que la real, porque el reloj retrocedió",
+    "La operación falla, porque el sistema operativo bloquea los ajustes mientras se mide"
+   ],
+   "c": 2,
+   "e": "El reloj de pared se puede ajustar, incluso hacia atrás, y la resta sufre ese salto: queda 3 s menor. Un reloj monotónico no retrocede y es el indicado para medir duraciones. Las otras opciones imaginan que el ajuste se compensa solo o que se bloquea, y no es así."
+  },
+  {
+   "p": "Dos réplicas escriben el mismo campo y el sistema se queda con el sello de hora más nuevo. La réplica A tiene el reloj adelantado 5 segundos. ¿Qué riesgo concreto corre el sistema?",
+   "o": [
+    "Escrituras de A pueden ganar a escrituras de otras réplicas hechas después en tiempo real",
+    "Escrituras de A van a perderse siempre, porque su sello se ve como del futuro",
+    "Las escrituras de todas las réplicas se duplicarán, porque los sellos no coinciden",
+    "Las escrituras de A quedarán bloqueadas hasta que su reloj vuelva a la hora real"
+   ],
+   "c": 0,
+   "e": "Con el reloj adelantado, el sello de A parece más nuevo de lo que es y le gana a escrituras posteriores de otras réplicas. Es lo contrario de que se pierdan las de A. Duplicarse o bloquearse no tiene relación con comparar sellos."
+  },
+  {
+   "p": "En un intercambio NTP la ida tarda 60 ms y la vuelta 20 ms. ¿Cuánto error introduce eso en el desfase calculado con la fórmula del protocolo?",
+   "o": [
+    "40 ms de error, porque se descuenta íntegra la diferencia entre ida y vuelta",
+    "80 ms de error, porque se suman los dos tiempos de red antes de dividirlos",
+    "Ningún error, porque la fórmula descuenta el tiempo de red de forma exacta",
+    "20 ms de error, porque la fórmula toma la mitad de la diferencia entre ida y vuelta"
+   ],
+   "c": 3,
+   "e": "La fórmula supone caminos simétricos; si no lo son, el error es (ida − vuelta)/2 = (60 − 20)/2 = 20 ms. 40 sería la diferencia entera, y sumar los tiempos no corresponde a nada. Que no haya error solo vale con un camino simétrico."
+  },
+  {
+   "p": "En un reloj de Lamport, el nodo P tiene el contador en 9 y recibe un mensaje con marca 14. ¿En cuánto queda?",
+   "o": [
+    "10, porque su propio contador avanza un paso y la marca se descarta",
+    "15, porque toma el máximo entre 9 y 14 y le suma 1",
+    "14, porque copia la marca del mensaje sin sumar nada",
+    "23, porque suma su valor con el de la marca recibida"
+   ],
+   "c": 1,
+   "e": "La regla es c = max(c, marca) + 1, o sea max(9, 14) + 1 = 15. Quedarse en 10 ignora la causalidad con el emisor, copiar 14 deja al evento de recepción empatado con el de envío, y sumar ambos valores no es parte del algoritmo."
+  },
+  {
+   "p": "Dos eventos tienen contadores de Lamport 3 y 7. ¿Qué se puede concluir con certeza?",
+   "o": [
+    "El de 3 causó al de 7, porque su contador es menor",
+    "Los dos son concurrentes, porque sus contadores difieren en mucho",
+    "El de 7 no pudo haber causado al de 3, pero podrían ser concurrentes",
+    "El de 7 ocurrió después en tiempo real, porque Lamport mide tiempo físico"
+   ],
+   "c": 2,
+   "e": "Lamport garantiza que si A causó a B entonces C(A) < C(B); el recíproco no vale. Un contador mayor excluye que el evento haya causado a uno de contador menor, pero no prueba causalidad ni concurrencia. Tampoco mide tiempo físico."
+  },
+  {
+   "p": "Los vectores de dos versiones de un mismo dato son [2,0,1] y [1,1,1]. ¿Qué relación tienen?",
+   "o": [
+    "La primera ocurrió antes, porque su suma de casillas es igual a la otra",
+    "Son concurrentes: cada uno es mayor en una casilla distinta",
+    "La segunda ocurrió antes, porque tiene más casillas distintas de cero",
+    "Son iguales, porque ambos suman cuatro y tienen tres casillas"
+   ],
+   "c": 1,
+   "e": "El primero gana en la casilla A (2 contra 1) y el segundo en la casilla B (1 contra 0), así que ninguno es menor o igual en todas: son concurrentes y hay que reconciliarlas. Comparar sumas o cantidad de ceros no tiene sentido causal."
+  },
+  {
+   "p": "En Senda, el puntaje por rapidez de una sala en vivo se calcula en la base con `now() - pregunta_desde`. ¿Qué ventaja de diseño tiene eso frente a usar la hora del teléfono?",
+   "o": [
+    "Los teléfonos dejan de necesitar conexión, porque la base calcula todo por su cuenta",
+    "El tiempo medido es exacto al nanosegundo, porque la base usa un reloj atómico",
+    "Se evita guardar la hora de la pregunta, porque la base la deduce sola de las respuestas",
+    "Todas las respuestas se miden con un único reloj, y ningún teléfono desfasado altera el puntaje"
+   ],
+   "c": 3,
+   "e": "Con un solo árbitro de la hora, el desfase de cada teléfono no cambia el resultado. No elimina la necesidad de conexión, no da precisión atómica (es un reloj común de servidor) y la hora de la pregunta sí se guarda, en `pregunta_desde`."
+  }
+ ],
+ "feynman": "Explicale a alguien que no sabe de informática por qué dos computadoras no pueden ponerse de acuerdo en «qué pasó primero» mirando sus relojes, y cómo un simple contador que se actualiza con cada mensaje resuelve parte del problema. Usá el ejemplo de los vigilantes de las puertas del depósito.",
+ "para_profundizar": [
+  {
+   "fuente": "lamport-time",
+   "nota": "El artículo original de 1978. Las primeras secciones definen «ocurrió antes que» y las reglas IR1 e IR2 que corriste hoy; leelas aunque saltees las demostraciones."
+  },
+  {
+   "fuente": "rfc5905-ntpv4",
+   "nota": "La especificación de NTPv4. Alcanza con la sección de cálculo de desfase y demora, y con la tabla de constantes globales, para ver de dónde salen los números de hoy."
+  },
+  {
+   "fuente": "dynamo",
+   "nota": "El paper de Dynamo, sección 4.4, explica cómo usa relojes vectoriales para las versiones de un objeto y cuánto cuesta (truncado del vector)."
+  },
+  {
+   "fuente": "ddia",
+   "nota": "Libro de Kleppmann: el capítulo sobre los problemas de los sistemas distribuidos trata relojes poco confiables y «última escritura gana» con ejemplos de fallas."
+  }
+ ],
+ "videos": [
+  {
+   "p": "vector clocks explained distributed systems causality",
+   "por_que": "Para ver animado el avance de los vectores mensaje por mensaje y comparar con lo que corriste hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "reloj lógico",
+   "d": "Contador que cada proceso lleva para etiquetar sus eventos de modo que las etiquetas respeten la causalidad, sin medir tiempo físico. No dice qué hora es: dice qué pudo influir en qué."
+  },
+  {
+   "t": "Lamport",
+   "d": "Leslie Lamport, autor del artículo de 1978 que define la relación «ocurrió antes que» y el reloj lógico con un contador por proceso, que se ajusta con cada mensaje recibido (c = max(c, marca) + 1)."
+  },
+  {
+   "t": "reloj vectorial",
+   "d": "Reloj lógico que guarda un contador por cada nodo. Comparando dos vectores casilla por casilla se sabe si un evento ocurrió antes, después o fue concurrente con otro. Crece con la cantidad de nodos."
+  },
+  {
+   "t": "sincronización NTP",
+   "d": "Protocolo que ajusta el reloj de una máquina consultando a servidores de hora por red. Con cuatro marcas de tiempo estima el desfase y la demora; su precisión en internet es de decenas de milisegundos."
+  },
+  {
+   "t": "deriva",
+   "d": "Alejamiento gradual de un reloj respecto de la hora real, por imperfecciones del cristal que lo mueve. Con 15 ppm son unos 1,3 segundos por día."
+  },
+  {
+   "t": "reloj de pared",
+   "d": "Reloj que dice la fecha y hora. Se puede ajustar y saltar, incluso hacia atrás. Sirve para fechar datos, no para medir duraciones."
+  },
+  {
+   "t": "reloj monotónico",
+   "d": "Reloj que solo avanza: mide tiempo transcurrido desde un punto arbitrario y nunca retrocede. Sirve para duraciones, timeouts y reintentos."
+  },
+  {
+   "t": "última escritura gana",
+   "d": "Regla de resolución de conflictos que se queda con el dato de sello de hora más nuevo. Si los relojes difieren, puede conservar un valor viejo y descartar uno nuevo sin avisar."
+  },
+  {
+   "t": "concurrentes",
+   "d": "Dos eventos entre los cuales no hay camino de mensajes en ningún sentido: ninguno pudo influir en el otro, y preguntar cuál ocurrió primero no tiene respuesta física."
+  }
+ ],
+ "siguiente": "Ya sabés ordenar eventos sin una hora común. Mañana: qué le prometen las réplicas a quien lee, la diferencia entre linealizabilidad y consistencia eventual, y el teorema CAP con precisión.",
+ "fuentes_nuevas": [
+  {
+   "id": "rfc5905-ntpv4",
+   "t": "RFC 5905: Network Time Protocol Version 4: Protocol and Algorithms Specification",
+   "a": "D. Mills, J. Martin, J. Burbank, W. Kasch",
+   "tipo": "rfc",
+   "anio": 2010,
+   "url": "https://datatracker.ietf.org/doc/html/rfc5905"
+  }
+ ]
+}
