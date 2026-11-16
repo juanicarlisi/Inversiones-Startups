@@ -65,7 +65,9 @@ export function pintar(el, html) {
 export function frenarRueda() {
   addEventListener('wheel', (e) => {
     if (e.ctrlKey || e.target?.id === 'mundo') return;
-    for (let el = e.target; el && el !== document.body; el = el.parentElement) {
+    // el camino compuesto ve también adentro de la oficina (árbol aparte); e.target ahí sería solo su contenedor
+    for (const el of (e.composedPath?.() ?? [e.target])) {
+      if (el === document.body) break;
       if (!(el instanceof HTMLElement) || el.scrollHeight <= el.clientHeight + 1) continue;
       const o = getComputedStyle(el).overflowY;
       if (o !== 'auto' && o !== 'scroll') continue;

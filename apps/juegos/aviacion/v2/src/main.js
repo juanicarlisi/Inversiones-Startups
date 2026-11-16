@@ -1349,11 +1349,13 @@ function tocarMundo(x, y) {
   refrescar(performance.now());
 }
 function tecla(e) {
-  if (escena !== 'juego' || e.target.tagName === 'INPUT' || e.ctrlKey || e.metaKey) return;
+  // con la oficina abierta el teclado es de ella (su campo de nombre vive en un árbol aparte: e.target es el contenedor)
+  const donde = e.composedPath?.()[0] ?? e.target;
+  if (escena !== 'juego' || oficinaAbierta || /^(INPUT|TEXTAREA|SELECT)$/.test(donde?.tagName ?? '') || e.ctrlKey || e.metaKey) return;
   if (e.key === ' ') { fijarVel(vel === 0 ? velElegida : 0); e.preventDefault(); }
   else if (e.key === '1') fijarVel(0.5); else if (e.key === '2') fijarVel(1); else if (e.key === '3') fijarVel(3);
   else if (e.key === '+' || e.key === '=') mundo.pasoZoom(1); else if (e.key === '-' || e.key === '_') mundo.pasoZoom(-1);
-  else if (e.key === 'Escape') { if (oficinaAbierta) return; if (U.ventanaAbierta()) accion('cerrarVentana', {}, null); else if (sel) accion('cerrarPanel', {}, null); }
+  else if (e.key === 'Escape') { if (U.ventanaAbierta()) accion('cerrarVentana', {}, null); else if (sel) accion('cerrarPanel', {}, null); }
 }
 
 // ───────────── para las pruebas y las capturas ─────────────
