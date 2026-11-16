@@ -1,0 +1,655 @@
+{
+ "id": "11-03",
+ "titulo": "Electron y Tauri",
+ "bajada": "Corrés una app de Electron de verdad en esta VM, la medís por dentro y entendés por qué tantas apps de escritorio son páginas web empaquetadas, y qué cambia cuando en vez de traer el navegador usás el del sistema.",
+ "minutos": 30,
+ "vigencia": "herramienta",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué lleva adentro una app de Electron (Chromium y Node.js) y por qué eso explica su tamaño.",
+  "Distinguir el proceso principal del proceso de render, y decir qué puede hacer cada uno.",
+  "Leer un preload con contextBridge y un canal de IPC, y predecir qué ve la página con y sin aislamiento de contexto.",
+  "Comparar Electron y Tauri en tamaño, actualización de seguridad y consistencia entre sistemas operativos.",
+  "Elegir entre ambos para un caso concreto y justificar la elección con criterios, no con modas."
+ ],
+ "venis_de": "En [@11-01] viste las opciones para hacer una app de escritorio y por qué muchas son web empaquetada, y en [@11-02] las capas de interfaz nativas de Windows y macOS. Hoy abrís las dos cajas más usadas de esa categoría y mirás qué hay adentro. En [@04-02] viste a VS Code como ejemplo; acá aprendés la pieza sobre la que está parado.",
+ "se_apoya_en": [
+  "11-01",
+  "04-02",
+  "03-12"
+ ],
+ "gancho": [
+  "Instalás un programa de escritorio de gestión de depósito (inventado). Pesa más de 200 MB, aunque lo único que hace es mostrar tablas de remitos y escanear códigos. Lo abrís, entrás al administrador de tareas y aparecen cuatro procesos con el mismo nombre. Ninguno es un virus. Es un navegador completo vestido de aplicación.",
+  "Hoy abrís la caja. Instalé Electron en esta VM, armé una app mínima de remitos con datos inventados, la corrí con un monitor virtual y le pedí al propio programa cuánta memoria usa cada proceso. Después mirás la alternativa, Tauri, que apuesta a lo contrario: no traer navegador y usar el que ya tiene el sistema."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una página web con ventana propia"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una app de escritorio tradicional se escribe contra las herramientas de interfaz de cada sistema, como viste en [@11-02]. Eso obliga a mantener un programa por sistema, con equipos que dominen cada uno. [[Electron]] propone otra cosa: escribís tu interfaz con HTML, CSS y JavaScript, como una página web, y Electron la empaqueta junto con un navegador y con un intérprete de JavaScript para que corra como un programa instalado. El sitio oficial lo resume así: embebe Chromium y Node.js para llevar JavaScript al escritorio [#escr1103-electron-home].",
+    "Esas dos piezas son el corazón. [[Chromium embebido|Chromium embebido]] significa que tu app no usa el navegador que tenga la persona instalado: trae adentro su propia copia del motor que dibuja páginas (el mismo que usa Chrome), con la versión exacta que vos elegiste. [[Node.js]] es lo que permite que el código de la parte «de atrás» lea archivos, abra conexiones o hable con el sistema operativo, cosas que una página web común tiene prohibidas. La combinación es la que le da a una página los poderes de un programa."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El food truck y la cocina del salón",
+   "x": [
+    "Pensá en un servicio de viandas. Electron es el food truck: lleva su propia cocina completa (Chromium) a todos lados, así que la comida sale igual en cualquier parte, pero el camión es grande y hay que mantenerlo. La alternativa, que vas a ver con Tauri, es cocinar en la cocina que ya tiene cada salón: el camión es chico, pero cada cocina tiene sus hornos y sus mañas.",
+    "Dónde deja de valer: una cocina de salón la mantiene el dueño del salón, mientras que el navegador del sistema lo actualiza el fabricante del sistema, con su propio calendario. Más abajo vas a ver qué consecuencias tiene eso."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Los dos procesos de Electron"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[proceso]] es un programa en ejecución con su propia memoria aislada. Electron hereda su arquitectura de Chromium, y la documentación aclara que por eso se parece mucho a un navegador moderno [#oficio-electron-process]. La razón de fondo es histórica: los navegadores viejos usaban un solo proceso, y una pestaña colgada tiraba abajo todo. Chrome decidió que cada pestaña se dibuje en su propio proceso, con un proceso central que coordina. Electron copia el esquema.",
+    "Como desarrollador controlás dos tipos de proceso. Mirá cuáles son y qué puede hacer cada uno:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Proceso principal",
+       "s": "uno por app · Node.js completo",
+       "k": "servidor"
+      }
+     ],
+     "baja": "crea una ventana (BrowserWindow) por cada pantalla"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Render A",
+       "s": "ventana 1 · HTML, CSS, JS",
+       "k": "cliente"
+      },
+      {
+       "t": "Render B",
+       "s": "ventana 2 · HTML, CSS, JS",
+       "k": "cliente"
+      }
+     ],
+     "baja": "mensajes por canales con nombre (IPC)"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Preload",
+       "s": "puente acotado entre la página y el principal",
+       "k": "datos"
+      }
+     ]
+    }
+   ],
+   "cap": "El proceso principal es el único con acceso total. Cada ventana corre en su propio proceso de render, que se comporta como una pestaña."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[proceso principal|proceso principal y de render]] es el punto de entrada de la app. Corre en un entorno Node.js completo, de modo que puede leer el disco, abrir sockets y usar cualquier módulo. Su trabajo es crear y manejar ventanas con `BrowserWindow`, controlar el ciclo de vida de la aplicación (abrir, cerrar, salir) y ofrecer funciones propias del sistema: menús, cuadros de diálogo, ícono en la bandeja [#oficio-electron-process]. Hay uno solo por aplicación.",
+    "El proceso de render, en cambio, hay uno por ventana. Se encarga de dibujar la interfaz, y su código debería comportarse según los estándares web, igual que una pestaña [#oficio-electron-process]. Si una ventana se cuelga, las demás siguen vivas. Y como viene de una página web, por defecto no debería tener acceso al disco ni al sistema, aunque más adelante vas a ver por qué eso se rompe fácil."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Tu app muestra una tabla de remitos y un botón «Guardar en disco». ¿El código del botón puede escribir el archivo directamente desde el proceso de render, con las reglas por defecto?",
+   "resp": "No. Con la configuración actual el render está aislado y sin acceso a Node. Tiene que pedirle el guardado al proceso principal por un canal de IPC, y el principal decide si lo hace. Esa distancia es justamente el mecanismo de seguridad."
+  },
+  {
+   "t": "h",
+   "x": "Cómo hablan: IPC, preload y aislamiento"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el render no puede tocar el sistema y el principal sí, necesitan comunicarse. Electron lo resuelve con [[IPC]] (comunicación entre procesos): canales con nombre arbitrario por donde viajan mensajes, con los módulos `ipcMain` en el principal e `ipcRenderer` en el render [#escr1103-electron-ipc]. Entre ambos se coloca un archivo intermedio, el *preload*, que corre antes de que cargue la página y con más permisos que ella.",
+    "La pieza clave es el aislamiento de contexto: el preload y la lógica interna de Electron corren en un contexto separado del de la web que cargás, de modo que el objeto `window` que ve el preload es otro objeto distinto del que ve la página [#escr1103-electron-context]. Esta opción viene activada por defecto desde Electron 12 [#escr1103-electron-context]. Lo que querés mostrarle a la página lo exponés vos, función por función, con `contextBridge`."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Armé la app mínima de abajo en esta VM. Es de juguete, con datos inventados: tres remitos y una pregunta, «¿cuántos están pendientes?». El proceso principal responde con una lista que vive solo en su memoria; el preload expone una única función; la página la llama."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// main.js (proceso principal). Los remitos son INVENTADOS.\nconst { app, BrowserWindow, ipcMain } = require('electron');\nconst path = require('path');\n\n// Este canal responde en el proceso principal, con Node completo.\nipcMain.handle('remitos:contar', (ev, estado) => {\n  const datos = [{id:'R-1',estado:'pendiente'},{id:'R-2',estado:'entregado'},{id:'R-3',estado:'pendiente'}];\n  return datos.filter(r => r.estado === estado).length;\n});\n\napp.whenReady().then(async () => {\n  const win = new BrowserWindow({ width: 600, height: 400, show: false,\n    webPreferences: { preload: path.join(__dirname, 'preload.js'),\n      contextIsolation: true, nodeIntegration: false, sandbox: true } });\n  await win.loadFile('index.html');\n});",
+   "cap": "El main.js de la app de prueba (sin el código que mide memoria). Corrido en esta VM con Electron 45.3.2."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// preload.js: lo único que la página va a poder llamar\nconst { contextBridge, ipcRenderer } = require('electron');\ncontextBridge.exposeInMainWorld('remitos', { contar: (estado) => ipcRenderer.invoke('remitos:contar', estado) });\n\n// index.html (proceso de render): script de la página\nconst pend = window.remitos ? await window.remitos.contar('pendiente') : 'sin puente';\nconsole.log(typeof require, typeof process, pend);",
+   "cap": "El puente expone una sola función. La página no recibe ipcRenderer ni nada del sistema."
+  },
+  {
+   "t": "p",
+   "x": "Para dibujar la ventana sin monitor usé `xvfb-run`, un monitor virtual de Linux, y pedí que la página me devuelva lo que ve. Esta es la salida real de esa corrida:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "xvfb-run -a electron --no-sandbox app",
+     "s": "PANTALLA: pendientes=2 | typeof require=undefined | typeof process=undefined"
+    }
+   ],
+   "cap": "La página recibió el 2 que calculó el proceso principal y no ve ni `require` ni `process`. El flag `--no-sandbox` es necesario solo porque en esta VM corro como administrador (root); en una máquina de usuario no hace falta."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "Que `--no-sandbox` sea obligatorio acá no es un capricho: Chromium se niega a arrancar como root sin esa opción, y lo avisa con un mensaje fatal. Es otra muestra de que el sandbox está activo y pesa."
+  },
+  {
+   "t": "h",
+   "x": "Qué pasa cuando se rompe el aislamiento"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora el contraste. Con una variable de entorno cambié tres opciones del mismo programa: `nodeIntegration` encendida, `contextIsolation` y `sandbox` apagadas. Esas son las configuraciones que usaban los tutoriales viejos porque hacían todo más cómodo: desde la página podías llamar a `require('fs')` y listo. Misma app, mismos datos:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Configuración",
+    "Lo que ve la página",
+    "Memoria total medida"
+   ],
+   "filas": [
+    [
+     "Por defecto: aislada, sin Node, con sandbox",
+     "`require` y `process` no existen; llega al principal solo por `remitos.contar`",
+     "473 MB (suma de procesos)"
+    ],
+    [
+     "Insegura: Node en la página, sin aislamiento",
+     "`require` es una función y `process` es un objeto; el puente ya no hace falta y ni siquiera se expone",
+     "519 MB (suma de procesos)"
+    ]
+   ],
+   "cap": "Dos corridas en una sola VM, con la ventana oculta. La diferencia de memoria entre ambas es ruido de medición, no una propiedad de la configuración."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Que la página tenga `require` significa que cualquier texto de esa página que logre ejecutarse como código, por ejemplo por una descripción de producto maliciosa pegada en un campo, ya no se limita a molestar en la pantalla: puede leer archivos, ejecutar comandos o borrar carpetas del usuario. Eso se llama ejecución remota de código y es mucho más grave en Electron que en una web común. La propia guía de seguridad lo dice: el vector clásico de XSS tiene en Electron un impacto mayor, y recomienda prácticas de desarrollo seguras y pruebas de seguridad [#escr1103-electron-security].",
+    "Para entender por qué importa en un caso cercano, imaginá (ejemplo inventado) una app de depósito que muestra una etiqueta de transportista que te manda un tercero en HTML. Si esa etiqueta incluye un fragmento de script y tu ventana tiene Node encendido, el transportista, o alguien que le hackeó el sistema, controla tu computadora. Con aislamiento, el script puede ensuciar la pantalla pero no sale de la ventana."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Aislar no es lo mismo que validar",
+   "x": [
+    "Que el preload exponga una función no alcanza si esa función hace cualquier cosa que le pidan. Si en lugar de `remitos.contar` hubieras expuesto `ejecutar(comando)`, la página volvería a tener todo el poder, solo que con un paso intermedio. La lista de buenas prácticas de Electron incluye validar quién envía cada mensaje de IPC, cargar solo contenido por HTTPS y no exponer APIs de Electron a contenido no confiable [#escr1103-electron-security]. Regla práctica propia: exponé verbos pequeños y específicos («contar remitos pendientes»), nunca herramientas genéricas («leer cualquier archivo»)."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay un segundo mecanismo, el sandbox de Chromium, que limita lo que un proceso puede pedirle al sistema: solo usa CPU y memoria, y para todo lo demás delega en procesos con más privilegios. Desde Electron 20 está activo para los procesos de render sin configurar nada, y activar `nodeIntegration` lo desactiva para ese proceso [#escr1103-electron-sandbox]. Por eso en la corrida insegura hubo que apagar los tres a la vez."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Lo que cuesta traer un navegador: tamaño y memoria"
+  },
+  {
+   "t": "p",
+   "x": "Ahora la pregunta del gancho: ¿por qué pesa tanto? Mirá lo que bajó `npm install electron` en esta VM, con la versión estable de hoy (Electron 45.3.2, que trae Chromium 156 y Node 24), y lo que midió la propia app al preguntarle a Electron por sus procesos:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dato",
+    "Valor medido",
+    "Qué es"
+   ],
+   "filas": [
+    [
+     "Ejecutable `electron`",
+     "234.577.224 bytes (≈ 224 MiB)",
+     "Chromium, Node.js y la capa de Electron en un solo binario"
+    ],
+    [
+     "Carpeta completa de Electron",
+     "274 MB (`du -sh`)",
+     "Más bibliotecas de gráficos, recursos y traducciones"
+    ],
+    [
+     "Mi app",
+     "2.005 bytes en 4 archivos",
+     "Es lo único que escribí yo"
+    ],
+    [
+     "Procesos al abrirla",
+     "4: principal, GPU, red y pestaña",
+     "Cada uno con su propia memoria"
+    ],
+    [
+     "Memoria: principal / GPU / red / pestaña",
+     "161 / 144 / 88 / 96 MB",
+     "«working set» que reporta Electron"
+    ],
+    [
+     "Suma",
+     "489 MB (otra corrida: 473 MB)",
+     "Sobrestima, porque cuenta páginas compartidas varias veces"
+    ],
+    [
+     "Referencia: `node` vacío",
+     "42 MB de RSS",
+     "Un intérprete de JavaScript sin ventana"
+    ]
+   ],
+   "cap": "Datos de una sola VM Linux con pantalla virtual y GPU por software, 2026-11-16. Son órdenes de magnitud para razonar, no un benchmark ni un valor de referencia para otras máquinas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos cosas saltan a la vista. Primero, mi código es 2 KB y el programa que lo sostiene, 224 MiB: el 99,999 % del peso es plataforma. Segundo, una ventana con tres líneas de texto ya ocupa del orden de medio gigabyte en esta medición, porque Electron arranca la arquitectura multiproceso de un navegador entero. Atención a la lectura de esa suma: el «working set» de cada proceso incluye memoria que comparten, por ejemplo las bibliotecas del propio Chromium, así que sumar los cuatro cuenta de más. El número honesto es «bastante menos que 489 MB de memoria exclusiva, pero mucho más que un programa nativo equivalente». También pesa que el proceso de GPU corre por software en esta VM, algo que en una compu real usa la placa de video.",
+    "Hay un número de una fuente primaria que sirve de referencia. Cuando Microsoft pasó la aplicación Teams de Electron a WebView2 (el componente de navegador que ya trae Windows), explicó en su blog de abril de 2023 que el ejecutable principal bajó de más de 134 MB a menos de 12 MB, porque la versión clásica incluía su propia copia de Chromium y Node [#escr1103-teams-webview2]. Ese es el costo del camión de comida, medido por quien lo vivió."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "El tamaño en disco es la parte menos grave. Lo que más se nota es que cada app de Electron instalada trae **su propia copia** de Chromium. Si una persona tiene cinco apps de este tipo, tiene cinco motores de navegador abiertos y cinco cadenas de actualización de seguridad distintas, una por cada empresa que publica su app."
+  },
+  {
+   "t": "h",
+   "x": "Tauri: usar el navegador que ya tiene el sistema"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[Tauri]] toma el camino opuesto. Según su documentación oficial, es un conjunto de herramientas para construir aplicaciones de escritorio con una combinación de Rust y HTML dibujado en un *webview*, y las apps resultan muy chicas porque usan el webview del sistema operativo y no incluyen un runtime, ya que el binario final se compila desde Rust [#escr1103-tauri-arch]. Un *webview* es un componente que el sistema operativo ya trae para mostrar contenido web dentro de una ventana de otro programa. Cuál es depende de la plataforma: WebView2, basado en Microsoft Edge y Chromium, en Windows; WebKit en macOS y en Linux; el WebView de Android en el teléfono [#escr1103-tauri-webview].",
+    "El esquema de procesos se parece al de Electron, con otros nombres. Cada app Tauri tiene un proceso central, el *core*, escrito en Rust, que es el único con acceso total al sistema y se encarga de crear ventanas, bandejas y notificaciones; ese core lanza uno o más procesos de webview que dibujan la interfaz [#escr1103-tauri-process]. La diferencia importante es el lenguaje de la parte privilegiada: acá es Rust en lugar de JavaScript sobre Node, con las garantías de memoria que ofrece ese lenguaje, según los propios autores."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Electron",
+    "k": "cliente",
+    "items": [
+     "Trae su Chromium y su Node",
+     "Lado privilegiado en JavaScript (Node)",
+     "Mismo motor web en todos los sistemas",
+     "Tamaño base de cientos de MB",
+     "Seguridad del motor: la actualizás vos"
+    ]
+   },
+   "der": {
+    "t": "Tauri",
+    "k": "servidor",
+    "items": [
+     "Usa el webview del sistema",
+     "Lado privilegiado en Rust",
+     "Motor y versión distintos según el sistema",
+     "Binarios mucho más chicos (según su doc)",
+     "Seguridad del motor: la pone el sistema"
+    ]
+   },
+   "cap": "Resumen de las dos arquitecturas según sus documentaciones oficiales y de lo que medí con Electron."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La comunicación entre la página y el core también es por mensajes. Tauri la describe como paso asincrónico de mensajes y ofrece dos primitivas: eventos, que son avisos de una sola vía, y comandos, que son llamadas a funciones de Rust con respuesta [#escr1103-tauri-ipc]. Su argumento de seguridad es que pasar mensajes es más seguro que compartir memoria o exponer funciones directamente, porque el receptor puede rechazar cualquier pedido que le parezca malicioso. Lo mismo que hace el preload de Electron, pero con permisos que se declaran de antemano por ventana, en un sistema de capacidades que la documentación de Tauri organiza bajo el principio del menor privilegio [#escr1103-tauri-process]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "No lo corrí, y por qué",
+   "x": "Quería mostrarte lo mismo con Tauri, pero en esta VM faltan las bibliotecas de desarrollo de WebKitGTK (`pkg-config` no encuentra `webkit2gtk-4.1`) y Rust solo no alcanza. Instalar ese conjunto pesa bastante y comparte disco con otros redactores, así que lo que sabés de Tauri en esta lección viene de su documentación oficial, no de una medición propia. Los números de tamaño de Tauri los toma de su documentación y no los verifiqué."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 2026-11-16",
+   "x": [
+    "Electron: al instalar hoy `npm install electron` bajó la 45.3.2, con Chromium 156.0.8078.100 y Node 24.22.2 (lo imprimió la propia app). Electron saca una versión mayor cada 8 semanas, alineada con Chromium, y el equipo da soporte oficial a las últimas tres versiones estables [#escr1103-electron-timelines]. Una app que no actualiza su Electron se queda con un Chromium viejo y sin parches. Revisá el calendario oficial antes de decidir.",
+    "Tauri: la documentación consultada es la de la versión 2 (v2.tauri.app). Los webviews de cada sistema, en cambio, se actualizan con el sistema: Tauri aclara que WebView2 puede actualizarse solo y viene preinstalado en Windows 11, mientras que para Linux avisa que es muy difícil reunir información precisa sobre WebKitGTK en cada distribución [#escr1103-tauri-webview]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Quién usa cada uno, y el caso VS Code"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@04-02] viste a VS Code por dentro. Su propia guía de preguntas frecuentes lo confirma al pasar: habla de «el shell de Electron usado por Visual Studio Code» cuando explica cómo resolver una ventana en blanco por problemas de aceleración gráfica [#oficio-vscode-faq]. Mirado desde hoy, tus tres componentes de entonces se reubican: la ventana del editor es un proceso de render, la gestión de ventanas y el ciclo de vida son el proceso principal, y el host de extensiones es un proceso aparte para que una extensión lenta no congele el editor.",
+    "Slack es otro caso documentado por sus ingenieros: en 2016 anunciaron una reescritura de su app de escritorio sobre Electron, que reemplazaba a una versión anterior basada en otra herramienta [#escr1103-slack-electron]. Y Teams es el caso inverso que ya viste: pasó de Electron a WebView2 en 2023 para ahorrar tamaño y memoria [#escr1103-teams-webview2]. Son pruebas de que la decisión no es de por vida: un producto grande puede cambiar de motor cuando el costo se vuelve visible.",
+    "Para Tauri no encontré en fuentes primarias una lista de aplicaciones conocidas que pueda citarte con confianza. El proyecto mantiene una lista curada de plantillas, plugins e integraciones en la comunidad [#escr1103-awesome-tauri], pero eso mide el ecosistema, no cuántas personas usan apps hechas con él. Prefiero decirte que no lo sé antes que repetir una lista de memoria."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa ninguno de los dos",
+   "x": "Dato verificado contra el código (commit 25e08fa, 2026-11-09; el código cambia, la forma permanece). El `package.json` de Senda no lista ni Electron ni Tauri. La app es Expo y React Native, que dibuja pantallas con piezas nativas de cada teléfono, y usa `react-native-web` para la vista previa en navegador. Es decir, aprovecha el mismo conocimiento de JavaScript que Electron, pero con otra estrategia de dibujo, y no existe una versión de escritorio de Senda en el repositorio.",
+   "archivos": [
+    "package.json"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo elegir con criterio"
+  },
+  {
+   "t": "p",
+   "x": "Lo que sigue es criterio propio, no una norma. Para cada decisión, preguntate esto:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pregunta",
+    "Si la respuesta es sí, inclina hacia…",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "¿Mi equipo ya domina web y JavaScript, y no hay quien sepa Rust?",
+     "Electron",
+     "Todo el código es del mismo lenguaje, de punta a punta"
+    ],
+    [
+     "¿Necesito que se vea y se comporte exactamente igual en Windows, macOS y Linux?",
+     "Electron",
+     "Controlás la versión del motor que dibuja"
+    ],
+    [
+     "¿Mis usuarios tienen compus justas de memoria o de disco, o instalan por conexión lenta?",
+     "Tauri",
+     "El instalador no incluye un navegador"
+    ],
+    [
+     "¿Me importa que el motor reciba parches de seguridad sin que yo publique una versión?",
+     "Tauri",
+     "Lo actualiza el sistema, aunque con el calendario del sistema"
+    ],
+    [
+     "¿Voy a usar mucho una API web muy nueva o muy específica?",
+     "Electron",
+     "El webview del sistema puede no tenerla todavía"
+    ],
+    [
+     "¿Mi app es una pantalla de datos simple que podría ser una página web?",
+     "Evaluá una web (PWA)",
+     "Quizás ni necesites instalar nada"
+    ]
+   ],
+   "cap": "Preguntas de decisión. Ninguna respuesta única sirve para todos los casos."
+  },
+  {
+   "t": "p",
+   "x": "Un ejemplo inventado: una empresa de logística quiere una consola para el personal del depósito, con lectura de códigos de barras y una impresora de etiquetas. Los operarios usan equipos viejos con poca memoria. El equipo es de tres personas que saben web. Hay una tensión real: el equipo empuja hacia Electron, y las máquinas hacia Tauri. Quien decide tiene que pesar cuánto cuesta aprender Rust contra cuánto cuesta comprar memoria o lidiar con quejas de lentitud. No hay respuesta correcta sin medir en el hardware real, y ese es el paso que más se omite."
+  },
+  {
+   "t": "h",
+   "x": "Dos creencias para soltar"
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si está hecha con web, es insegura o es lenta»",
+   "x": "Ninguna de las dos cosas se deduce de la tecnología. La inseguridad viene de configuraciones como la insegura que corriste hoy, y la lentitud viene de cuánto trabajo hace la interfaz y de cuánta memoria ocupa cada copia del motor. Hay apps de Electron muy cuidadas y apps nativas desastrosas."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Tauri reemplaza a Electron porque pesa menos»",
+   "x": "Pesar menos es una ventaja real y documentada por su proyecto, pero Tauri cambia otras cosas: necesitás Rust para la parte privilegiada, y tu interfaz depende de qué webview traiga cada sistema, con diferencias de versión entre equipos. Un equipo que necesita consistencia pixel a pixel puede preferir pagar el peso de Electron. Son compensaciones distintas, no una escalera."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu app Electron sigue usando la versión 40 de Electron, publicada hace más de un año, porque «anda bien». ¿Qué riesgo concreto acumula, aunque tu código no haya cambiado?",
+   "resp": "Su Chromium incluido envejece y deja de recibir parches. Cada vulnerabilidad nueva del motor web queda abierta en tu app instalada, porque el motor viaja adentro de tu paquete y solo se actualiza si publicás una versión nueva. Es el precio de traer el navegador propio."
+  }
+ ],
+ "recap": [
+  "Electron empaqueta Chromium y Node.js junto con tu interfaz web: por eso una app mínima de 2 KB sobre 224 MiB de ejecutable.",
+  "Hay un proceso principal por app, con Node completo y control de ventanas, y un proceso de render por ventana, que se comporta como una pestaña.",
+  "Se comunican por IPC con canales con nombre; el preload con `contextBridge` define lo único que la página puede pedir.",
+  "En la corrida con aislamiento, la página no ve `require` ni `process`; con `nodeIntegration` encendido, los ve, y cualquier fallo de la página se vuelve acceso al sistema.",
+  "Tauri usa el webview del sistema y un core en Rust: más chico, pero el motor y su versión dependen de cada sistema y su equipo necesita Rust.",
+  "Medí lo que importa en el hardware de tus usuarios; el tamaño de uno no se transfiere al del otro."
+ ],
+ "repaso": [
+  {
+   "p": "Una app de Electron tiene `nodeIntegration` encendido y un aviso en la pantalla muestra HTML que llegó de un tercero. ¿Cuál es el riesgo principal?",
+   "o": [
+    "Que la interfaz se vea desordenada porque el HTML tiene estilos que chocan con los de la app",
+    "Que el proceso principal se quede sin memoria por tener demasiados mensajes IPC pendientes",
+    "Un script dentro del HTML podría usar `require` y actuar sobre los archivos del usuario",
+    "Que el contexto del preload deje de existir y la app no pueda comunicarse con la página"
+   ],
+   "c": 2,
+   "e": "Con Node en la página, un script inyectado hereda el poder de un programa: puede leer y borrar archivos. El desorden visual existe pero es menor, y los mensajes IPC y el preload no se rompen por eso."
+  },
+  {
+   "p": "¿Qué es lo que define el proceso principal y no el de render?",
+   "o": [
+    "Crear ventanas y manejar el ciclo de vida de la aplicación con acceso completo a Node.js",
+    "Dibujar la interfaz y responder a los clics del usuario según estándares web",
+    "Aislar el contexto de cada pestaña para que los scripts de la página no se vean entre sí",
+    "Exponer con `contextBridge` las funciones que la página puede llamar directamente"
+   ],
+   "c": 0,
+   "e": "El principal es el punto de entrada con Node completo y control de ventanas. Dibujar es del render, y `contextBridge` es una herramienta del preload, que corre en un contexto separado de la página."
+  },
+  {
+   "p": "Pasaron cuatro meses y tu app Electron sigue sin actualizarse, pero tu código no cambió. ¿Qué cambió en su riesgo de seguridad?",
+   "o": [
+    "Nada, porque el código es el mismo y el sandbox impide cualquier ataque aunque el motor tenga fallas",
+    "Mejoró, porque el sistema operativo actualiza el navegador por su cuenta sin que hagas nada",
+    "Empeoró solo si la app usa `nodeIntegration`, porque sin eso no hay forma de explotar Chromium",
+    "Su Chromium incluido acumuló vulnerabilidades sin parche, porque el motor viaja dentro de tu paquete"
+   ],
+   "c": 3,
+   "e": "Electron incluye su propio Chromium, que solo se actualiza si publicás una versión nueva. El sandbox ayuda, pero no vuelve inofensivas las fallas del motor, y el sistema no actualiza un navegador que está dentro de tu paquete."
+  },
+  {
+   "p": "¿Por qué una app de Electron mínima pesa cientos de MB aunque su código propio sea de pocos KB?",
+   "o": [
+    "Porque el JavaScript que escribiste se compila a código de máquina muy grande al empaquetarse",
+    "Porque cada app incluye su propia copia de Chromium, Node.js y la capa de Electron",
+    "Porque las imágenes y fuentes de la interfaz ocupan casi todo el espacio, aun en una app mínima",
+    "Porque Electron guarda un historial completo de todas las versiones anteriores de tu app"
+   ],
+   "c": 1,
+   "e": "El peso es de plataforma: navegador y runtime van adentro. Los 2 KB de la app medida no explican el tamaño y los recursos propios son una parte mínima; no hay historial de versiones."
+  },
+  {
+   "p": "Elegís Tauri para una app de depósito. ¿Qué compensación real asumís respecto de Electron?",
+   "o": [
+    "Que la app no podrá comunicar la interfaz con el sistema, porque Tauri no tiene mecanismo de IPC",
+    "Que el instalador será mucho más grande, porque incluye un Chromium propio y también el de Rust",
+    "El aspecto y las APIs web disponibles pueden variar según el webview que traiga cada sistema",
+    "Que la parte con acceso al sistema debe escribirse en JavaScript, igual que en Electron"
+   ],
+   "c": 2,
+   "e": "Sin motor propio, tu interfaz corre en el webview de cada sistema, con versiones distintas. Tauri sí tiene IPC (eventos y comandos), su instalador es más chico y su core es de Rust, no de JavaScript."
+  },
+  {
+   "p": "En la corrida de esta VM, ¿qué demuestra que `typeof require` dé `undefined` en la página?",
+   "o": [
+    "Que Electron no incluye Node.js en el paquete y por eso no hay `require` en ninguna parte",
+    "Que la app falló al arrancar y la página se cargó sin ejecutar el preload correctamente",
+    "Que el proceso principal tampoco puede usar `require`, porque ambos procesos comparten el entorno",
+    "Que el proceso de render está aislado de Node y solo llega al principal por el puente del preload"
+   ],
+   "c": 3,
+   "e": "La página vio `undefined`, pero la misma app respondió «pendientes=2», con lo que el preload funcionó. El principal sí usa Node completo; lo que se aisló fue el render."
+  }
+ ],
+ "feynman": "Imaginá que un compañero de logística que no sabe de programación te pregunta por qué el programa del depósito pesa 200 MB y usa tanta memoria. Explicáselo con tus palabras: qué trae adentro una app de Electron, qué hacen el proceso principal y el de render, y qué haría distinto una app hecha con Tauri.",
+ "para_profundizar": [
+  {
+   "fuente": "oficio-electron-process",
+   "por_que": "Leé la sección «Process Model» completa: muestra el código real de BrowserWindow y de los módulos del proceso principal."
+  },
+  {
+   "fuente": "escr1103-electron-security",
+   "por_que": "Es la lista oficial de buenas prácticas; sirve como checklist antes de publicar cualquier app de Electron."
+  },
+  {
+   "fuente": "escr1103-tauri-process",
+   "por_que": "El «Process Model» de Tauri explica el core y el webview con el principio del menor privilegio; comparalo con lo de Electron."
+  }
+ ],
+ "videos": [
+  {
+   "p": "Electron vs Tauri arquitectura procesos explicación",
+   "por_que": "Una mirada en video de las dos arquitecturas; verificá la fecha, porque ambas herramientas cambian rápido."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "Electron",
+   "d": "Herramienta que empaqueta una interfaz hecha con HTML, CSS y JavaScript junto con Chromium y Node.js para que corra como programa de escritorio en Windows, macOS y Linux."
+  },
+  {
+   "t": "Chromium embebido",
+   "d": "Copia del motor de navegador Chromium que una app trae dentro de su propio paquete, en lugar de usar el navegador instalado en el sistema. Garantiza la misma versión en todos lados, pero suma cientos de MB y obliga a actualizarla."
+  },
+  {
+   "t": "Tauri",
+   "d": "Herramienta para hacer apps de escritorio con interfaz web, un core escrito en Rust y el webview que ya trae el sistema operativo, sin incluir un navegador propio."
+  },
+  {
+   "t": "proceso principal y de render",
+   "d": "Los dos tipos de proceso de una app de Electron: uno solo principal, con Node.js completo y control de ventanas y del ciclo de vida, y uno de render por ventana, que dibuja la interfaz como una pestaña de navegador."
+  },
+  {
+   "t": "IPC",
+   "d": "Comunicación entre procesos: forma en que dos procesos aislados se mandan mensajes. En Electron va por canales con nombre; en Tauri, por eventos y comandos."
+  },
+  {
+   "t": "preload",
+   "d": "Script de Electron que corre antes de que cargue la página, con más permisos que ella, y que define con contextBridge qué funciones puede llamar la página."
+  },
+  {
+   "t": "webview",
+   "d": "Componente que el sistema operativo trae para mostrar contenido web dentro de la ventana de otro programa; es lo que Tauri usa para dibujar la interfaz."
+  },
+  {
+   "t": "aislamiento de contexto",
+   "d": "Opción de Electron que hace correr el preload y la lógica interna en un contexto separado del de la página web, de modo que esta no pueda acceder a ellos."
+  }
+ ],
+ "siguiente": "Java y .NET en escritorio y en las empresas: el mundo de las aplicaciones de línea de negocio, que en muchas compañías sigue siendo el que realmente trabaja.",
+ "fuentes_nuevas": [
+  {
+   "id": "escr1103-electron-home",
+   "t": "Electron: Build cross-platform desktop apps with JavaScript, HTML, and CSS",
+   "a": "Electron (OpenJS Foundation)",
+   "tipo": "doc",
+   "url": "https://www.electronjs.org/"
+  },
+  {
+   "id": "escr1103-electron-ipc",
+   "t": "Inter-Process Communication (Electron)",
+   "a": "Electron",
+   "tipo": "doc",
+   "url": "https://www.electronjs.org/docs/latest/tutorial/ipc"
+  },
+  {
+   "id": "escr1103-electron-context",
+   "t": "Context Isolation (Electron)",
+   "a": "Electron",
+   "tipo": "doc",
+   "url": "https://www.electronjs.org/docs/latest/tutorial/context-isolation"
+  },
+  {
+   "id": "escr1103-electron-sandbox",
+   "t": "Process Sandboxing (Electron)",
+   "a": "Electron",
+   "tipo": "doc",
+   "url": "https://www.electronjs.org/docs/latest/tutorial/sandbox"
+  },
+  {
+   "id": "escr1103-electron-security",
+   "t": "Security (Electron)",
+   "a": "Electron",
+   "tipo": "doc",
+   "url": "https://www.electronjs.org/docs/latest/tutorial/security"
+  },
+  {
+   "id": "escr1103-electron-timelines",
+   "t": "Electron Releases (calendario y política de soporte)",
+   "a": "Electron",
+   "tipo": "doc",
+   "url": "https://www.electronjs.org/docs/latest/tutorial/electron-timelines"
+  },
+  {
+   "id": "escr1103-tauri-arch",
+   "t": "Tauri Architecture",
+   "a": "Tauri",
+   "tipo": "doc",
+   "url": "https://v2.tauri.app/concept/architecture/"
+  },
+  {
+   "id": "escr1103-tauri-process",
+   "t": "Process Model (Tauri)",
+   "a": "Tauri",
+   "tipo": "doc",
+   "url": "https://v2.tauri.app/concept/process-model/"
+  },
+  {
+   "id": "escr1103-tauri-ipc",
+   "t": "Inter-Process Communication (Tauri)",
+   "a": "Tauri",
+   "tipo": "doc",
+   "url": "https://v2.tauri.app/concept/inter-process-communication/"
+  },
+  {
+   "id": "escr1103-tauri-webview",
+   "t": "Webview Versions (Tauri)",
+   "a": "Tauri",
+   "tipo": "doc",
+   "url": "https://v2.tauri.app/reference/webview-versions/"
+  },
+  {
+   "id": "escr1103-awesome-tauri",
+   "t": "Awesome Tauri: lista curada del ecosistema",
+   "a": "Comunidad Tauri",
+   "tipo": "doc",
+   "url": "https://github.com/tauri-apps/awesome-tauri"
+  },
+  {
+   "id": "escr1103-slack-electron",
+   "t": "Building Hybrid Applications with Electron",
+   "a": "Slack Engineering",
+   "tipo": "articulo",
+   "anio": 2016,
+   "url": "https://slack.engineering/building-hybrid-applications-with-electron/"
+  },
+  {
+   "id": "escr1103-teams-webview2",
+   "t": "What's new for security in the new Microsoft Teams",
+   "a": "Microsoft Tech Community",
+   "tipo": "articulo",
+   "anio": 2023,
+   "url": "https://techcommunity.microsoft.com/t5/microsoft-teams-blog/what-s-new-for-security-in-the-new-microsoft-teams/ba-p/3804261"
+  }
+ ]
+}
