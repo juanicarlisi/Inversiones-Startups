@@ -18,8 +18,9 @@ artefacto hecho en un minuto. Tenía razón: era un mapa plano con puntos y text
 | **Rutas y faros** (`rutas.js`) | La ruta se dibuja sola al abrirla; los faros se **encienden en cadena** con una nota cada uno y una luz que corre por la ruta toda la noche |
 | **Cámara de cine** (`mundo.js`) | Entrada de 10 s (de la cordillera de noche al amanecer en Buenos Aires), seguir a un avión, acercarse a la base, encuadrar la red. Arrastrar mueve, rueda o pellizco acerca, botón derecho gira |
 | **Respuesta a cada acción** | La plata cuenta sola, monedas que vuelan a la caja, cifras que flotan, sobres que saltan al avión, chispas, papelitos, polvo en la pista, cartel de misión cumplida |
-| **Primer minuto guiado** (`main.js`) | Dos frases de historia y después una acción por vez, con flecha, anillo, dedo y un solo cartel: tocar Montevideo → abrir la ruta → comprar el avión → verlo volar → cobrar. Después, un botón **Siguiente paso** que siempre dice qué conviene; la primera noche vuelve el mismo patrón (la ruta abierta, una frase y el dedo sobre «Poner faros») |
-| **Carteles en fila** (`main.js`, «carteles en fila») | Nunca dos carteles importantes a la vez: el festejo de una misión, la pregunta de la base (se queda hasta que se responde y nada la tapa), la guía de la noche y las tarjetas de aviso esperan su turno. Una misión cumplida se queda su tiempo entero a cualquier velocidad y deja un aviso de 12 s |
+| **Primer minuto guiado** (`main.js`) | Dos frases de historia y después una acción por vez, con flecha, anillo, dedo y un solo cartel: tocar Montevideo → abrir la ruta → comprar el avión → verlo volar → cobrar. Después, un botón **Siguiente paso** que siempre dice qué conviene; la primera noche vuelve el mismo patrón: una frase y el dedo sobre «Siguiente paso», que propone los faros (el juego nunca abre un panel por su cuenta: lo abre el jugador, y ahí el dedo pasa a «Poner faros») |
+| **Siguiente paso** (`main.js`, «Siguiente paso») | Primero lo que pide la misión activa si se puede pagar; si no, **cuánto falta y por qué** («Cuesta $ 13.500 y hay que guardar $ 8.558 para la nafta»); después lo demás que aconseja el modelo (solo si la cuenta verdadera lo confirma); «seguí a un avión» solo cuando no hay nada que decidir ni que juntar. Una propuesta no cambia sola: se queda mientras siga en pie |
+| **Carteles en fila** (`main.js`, «carteles en fila») | Nunca dos carteles importantes a la vez: el festejo de una misión, la pregunta de la base (se queda hasta que se responde y nada la tapa), la guía de la noche y las tarjetas de aviso esperan su turno. Una misión cumplida es una tarjeta con fondo que **se queda hasta que se la toca** («Seguir») o 9 segundos; un encargo cumplido va en la tarjeta de arriba, sin pisar rótulos ni cifras |
 | **Rótulos sin choques** (`ui/rotulos.js`) | Algoritmo voraz por prioridad (la base, las ciudades de la misión, las que tienen cartas, el resto): cada rótulo prueba 9 lugares alrededor de su ciudad y se queda con el primero que no pisa otro rótulo, un panel fijo ni la ciudad de otro; si no entra, no se muestra. Con memoria para que no titile |
 | **Sonido y música** (`audio/audio.js`) | Todo generado por código: una milonga lenta en re menor (ritmo 3-3-2) con guitarra pulsada, fuelle y campanitas; de noche queda el fuelle y las campanitas. Cada acción tiene su sonido |
 | **Español rioplatense e inglés** (`ui/textos.js`) | Palabras de un chico de 12 años. Nunca «sacas», «transbordo», «hub» ni «balizas» (lo comprueba una prueba) |
@@ -42,7 +43,7 @@ artefacto hecho en un minuto. Tenía razón: era un mapa plano con puntos y text
 | torre con luz | **Faros** | Luces en el suelo. Con faros, tus aviones vuelan también de noche. |
 | estrella | **Misión** | Lo que te pide la historia. Al cumplirla ganás un premio. |
 | hoja con sello | **Encargo** | Un pedido especial, con fecha límite y premio extra. |
-| barras con flecha | **Ganancia del día** | Lo que entró menos lo que gastaste hoy. |
+| barras con flecha | **Ganancia del día** | Lo que entró menos lo que salió por volar desde las 6. Compras y premios van aparte. |
 
 ## Etapa 1 · decidir sabiendo (16-11-2026)
 
@@ -129,17 +130,29 @@ cámara en lugar de esperar: el consejo de relleno ya no pide apurar el reloj.
 ### El libro, el parte de la mañana y el resultado
 
 - **Día de la empresa = de 6:00 a 6:00** (la noche es parte del día de trabajo). A las 6:00 se cierra y sale el **parte de la
-  mañana**: entró, salió, quedó; mejor y peor ruta; un consejo. Una pantalla, un botón («A trabajar»), reloj frenado, partida
-  guardada. No sale antes del primer vuelo ni durante el primer minuto guiado. El consejo sale de los datos del día; los que
-  proponen una compra (faros donde durmieron aviones, otro avión donde salen llenos, agrandar el correo si hay cartas tarde) se
-  comprueban antes con el estimador y llevan su número («Otro avión ahí deja $ 12.462 más por día»).
+  mañana**: entró, salió, quedó; la caja; mejor y peor ruta; un consejo. Una pantalla, un botón («A trabajar»), reloj frenado,
+  partida guardada. No sale antes del primer vuelo ni durante el primer minuto guiado.
+- **«Hoy» es una sola cuenta** (`Libro.hoyDe`): lo que entró menos lo que salió por operar (volar y estar en tierra) desde el
+  último parte. La usan la barra del mapa, el libro de la oficina y el puente; el parte la cierra con el mismo número. Las compras
+  son inversión y los premios son premios: van aparte. Cada compra se anota por lo gastado (`Libro.marcaGastos`), no por lo que
+  baja la caja: si la compra cumple una misión, el premio entra en el mismo instante (así quedaban $ 8.000 de más en «salió»).
+- **La caja del parte cierra al peso** (`Libro.cierreCaja`): «Ayer tenías $ A · quedó +$ B · compraste −$ C · premios +$ D · hoy
+  tenés $ E» (lo que no hubo no aparece; el primer día dice «Empezaste con»). Lo que el redondeo deja suelto (uno o dos pesos) va
+  a «salió»; si sobra más (lo acreditado al volver de una ausencia) se dice aparte.
+- **El consejo** sale de los datos del día; los que proponen una compra (faros donde durmieron aviones, otro avión donde salen
+  llenos, agrandar el correo si hay cartas tarde) salen del mismo estimador que la tarjeta, con la cuenta hecha a las 6:00, y se
+  dicen en redondo («Otro avión ahí deja unos $ 12.000 por día»). «Ver la cuenta» abre la tarjeta con el reloj todavía frenado:
+  muestra esa misma cuenta, al peso ($ 11.567).
 - **Resultado contra lo prometido:** a los 3 días de comprar un avión, poner faros o agrandar el correo. «Lo que pasó» = lo
   prometido más lo que la ruta (o la empresa, si fue el correo) hizo de más o de menos que lo que el gemelo esperaba de ella,
   descontando lo que las compras posteriores le iban a cambiar a esa ruta según sus propias cuentas. Dentro de un 30% (o $ 300
   por día) dice «Se cumplió»; si no, dice qué cambió en el medio. Mientras la oficina no esté integrada va como un cartel de la
   fila; con la oficina, queda en su bandeja y el juego solo avisa.
-- **Guardado:** `hubnocturno.v2.extra` = `{ v: 2, guia, vistos, vel, empresa: { nombre, color }, libro }`. Una partida de antes (sin
-  libro) o un libro dañado no rompen nada: se empieza un libro de hoy. Un libro de 64 días pesa menos de 40 KB.
+- **Guardado:** `hubnocturno.v2.extra` = `{ v: 3, guia, vistos, vel, empresa: { nombre, color, estrenada }, libro }`. La versión 3
+  (16-11-2026) trae el libro con formato 2 (`libro.fmt`): compras por lo gastado y la caja del día anterior en cada día. Un guardado
+  de la versión 2 carga igual: al abrir el libro se corrige lo del día en curso y los días viejos, que no traen la caja de antes,
+  no muestran la línea de caja. Una partida de antes (sin libro) o un libro dañado no rompen nada: se empieza un libro de hoy. Un
+  libro de 64 días pesa menos de 40 KB.
 
 ### La oficina: contrato de datos y puente
 
@@ -155,17 +168,17 @@ conectarOficina({ abrir({ datos, accion }), cerrar() })   // la escena se anota;
 
 - El objeto es el del contrato (`diseno-carrera.md` §5) con estos agregados, todos opcionales: `empresa.estrenada` (el jugador
   ya eligió nombre y color: pasa a `true` con la acción `nombre` o al guardar en el menú); `hoy` trae además lo que va del día
-  (`entro`, `salio`, `cartas`, `vuelos`, `aTiempo`, `tarde`, `compras`, `premios`) y cada día cerrado trae `compras`, `premios` y
-  `caja`. `dias` son los días **cerrados** (el que corre está en `hoy`). `rutas[].prometido.dejaDia` es lo que se esperaba que
+  (`entro`, `salio`, `quedo`, `cartas`, `vuelos`, `aTiempo`, `tarde` y, aparte, `compras`, `premios`, `ventas`) y cada día cerrado
+  trae `compras`, `premios`, `ventas`, `caja` y `cajaAntes`. `dias` son los días **cerrados** (el que corre está en `hoy`). `rutas[].prometido.dejaDia` es lo que se esperaba que
   dejara **la ruta** por día desde la última compra hecha en ella (se compara con `rutas[].dejaDia`). En `bandeja`: los encargos
   ofrecidos traen la acción `aceptar`; los resultados, `ver` (lleva a la ruta y sale de la oficina); los últimos 3 partes van como
   `nota`. `cuaderno` y `carrera` son de la etapa 2 (hoy `[]` y `null`).
 - `src/oficina-datos-ejemplo.json` es ese objeto sacado de una partida de verdad de 6 días y pico (`npm run ejemplo-oficina`).
-- **Para integrar la escena** falta una línea en `main.js`: `import './oficina/conectar.js';` (ese archivo, del módulo de la
-  oficina, la crea con `datosOficina` y `accionOficina` y la anota con `conectarOficina`). No está puesta: la decide quien integre
-  los dos módulos. Sin escena anotada el juego anda igual y no muestra ningún botón de oficina. Probado el 16-11-2026 en una
-  copia armada aparte (juego + `conectar.js`, sin tocar `main.js` ni `dist/`): el parte muestra «Ir a la oficina», la escena abre
-  con el reloj frenado, aparece el botón de la oficina en la barra y al salir el juego sigue, sin errores de JavaScript.
+- **La escena está integrada** (`import './oficina/conectar.js';` en `main.js`; sacando esa línea el juego anda igual, sin botón
+  de oficina). Queda disponible después del primer minuto guiado y del primer vuelo: la primera vez se presenta con un cartel de la
+  fila («Tu oficina ya está abierta») y el dedo sobre su botón. En escritorio el botón está en la barra, con su nombre («Oficina»)
+  y un globito con lo que hay sin leer en la bandeja; en el celular va debajo de la misión, al lado de «Encargos» (en la barra de
+  arriba no entra). El parte de la mañana sigue ofreciendo «Ir a la oficina».
 
 ### Cámara y zoom: los seis defectos, antes y después
 
@@ -194,11 +207,11 @@ cd apps/juegos/aviacion/v2
 npm install                      # una vez (three, postprocessing, camera-controls, animejs, tone, fuentes, esbuild)
 npm run construir                # deja dist/ (index.html + archivos relativos; sin CDN, sin servidor propio)
 npm run servir                   # http://localhost:8812  (cualquier servidor de archivos sirve)
-node --test pruebas/*.test.mjs   # textos, rótulos, estimador (la tabla de arriba) y libro; sin navegador, unos 15 s
-node herramientas/jugador.cjs 10 # jugador automático: 10 minutos siguiendo «Siguiente paso»; falla si hay un error de JavaScript
+node --test pruebas/*.test.mjs   # textos, rótulos, estimador (la tabla de arriba), libro y cuentas («hoy», la caja del parte, el consejo); sin navegador, unos 20 s
+node herramientas/jugador.cjs 10 # jugador automático: 10 minutos siguiendo «Siguiente paso»; falla si hay un error de JavaScript o dos carteles a la vez
 node herramientas/medir.cjs      # cuadros por segundo por nivel de calidad
 node herramientas/capturas.cjs   # rehace las 8 capturas de capturas/
-node herramientas/capturas-etapa1.cjs   # rehace las de capturas/etapa1/ (tarjetas, parte, resultado, zoom); unos 25 minutos sin placa de video
+node herramientas/capturas-etapa1.cjs   # rehace las de capturas/etapa1/ (tarjetas, parte, resultado, zoom, «te faltan», misión cumplida, encargos, oficina); unos 30 minutos sin placa de video
 npm run ejemplo-oficina          # rehace src/oficina-datos-ejemplo.json (una partida jugada sola, sin navegador)
 ```
 
@@ -264,18 +277,47 @@ red de 4 rutas y 8 aviones:
 - Modelo (`cd .. && node --test pruebas/*.test.mjs`): 94 de 99, **las mismas 5 que fallaban antes de empezar** (n.º 2 sequía de
   novedades, 16 sugerencia en 3 estados fijos, 47 tiempo de CPU, 97 y 98 de la ronda; comparado renglón por renglón). El modelo no
   se tocó: ningún archivo de `../js` cambió (el estimador y el libro viven en `src/` y lo usan desde afuera).
-- Capa v2 (`node --test pruebas/*.test.mjs`): 40 de 40 (24 de esta capa y 16 del módulo de la oficina). Las 24: 11 de textos (4 nuevas: la tarjeta, las velocidades, todo porqué y
-  consejo en los dos idiomas, y que nada pida apurar el reloj), 5 de rótulos y 8 del estimador y el libro (la tabla de arriba, los
-  porqués, las tandas, la nota de resultado con la partida siguiendo, el día de 6 a 6, el tope de 60 días, el contrato de la
-  oficina y los guardados viejos o rotos).
-- Jugador automático (`herramientas/jugador.cjs 10`): **sin errores de JavaScript**. A la velocidad de una partida nueva, en 10
-  minutos cumple 5 misiones (5 rutas, 6 aviones) y cierra 2 partes de la mañana; el capítulo 1 entero lleva 16,7 minutos (medido
-  aparte, en tiempo real). Con el reloj frenado decide y cierra el panel antes de seguir; no compra lo que la tarjeta marca en
-  rojo salvo que «Siguiente paso» lo pida. (Arreglo de paso: un panel cerrado ya no deja botones viejos escondidos, que el jugador
-  automático seguía tocando.)
+- Capa v2 (`node --test pruebas/*.test.mjs`): 49 de 49 (33 de esta capa y 16 del módulo de la oficina). Las 33: 11 de textos (la
+  tarjeta, las velocidades, todo porqué y consejo en los dos idiomas, y que nada pida apurar el reloj), 5 de rótulos, 8 del
+  estimador y el libro (la tabla de arriba, los porqués, las tandas, la nota de resultado con la partida siguiendo, el día de 6 a
+  6, el tope de 60 días, el contrato de la oficina y los guardados viejos o rotos) y 9 de las cuentas (`cuentas.test.mjs`, del
+  16-11-2026: «hoy» es una sola cuenta y vuelve a cero con cada parte; la caja del parte cierra al peso en 30 días de 4 partidas,
+  también con ventas y con un día sin vuelos; un libro del formato anterior carga y se corrige; el consejo del parte y la tarjeta
+  coinciden en 5 casos con el estado sin cambiar).
+- Jugador automático (`herramientas/jugador.cjs 10`): **sin errores de JavaScript** y **0 s con dos o más carteles a la vez** (lo
+  mide el mismo guion, con el reloj de verdad, y falla si hay alguno). A la velocidad de una partida nueva, en 10 minutos cumple 4
+  misiones (4 o 5 rutas y 7 u 8 aviones, según la corrida) y cierra 1 o 2 partes de la mañana. Con el reloj frenado decide y cierra el panel antes de seguir; toca
+  «Seguir» en el cartel de misión cumplida; no toca el paso cuando dice «te faltan»; no compra lo que la tarjeta marca en rojo
+  salvo que «Siguiente paso» lo pida.
 - Con navegador (guiones en la carpeta de trabajo de la sesión, no versionados): ritmo de 10 y de 30 minutos, los seis defectos de
   zoom, el primer minuto guiado paso a paso en escritorio y en celular, una partida guardada con el formato del 15-11 y un «extra»
   roto (cargan y siguen), y el puente con una oficina de mentira (botones, reloj frenado, las cinco acciones del contrato).
+
+## Prueba a ciegas de la etapa 1 (16-11-2026) y lo que se corrigió
+
+Una persona sin contexto jugó la etapa 1 en escritorio y en celular: pudo decir costo, lo que deja por día y el recupero en las 12
+compras que hizo. Encontró catorce problemas; todos corregidos el 16-11-2026 y comprobados con capturas (1280×720 y 390×844):
+
+| Hallazgo | Arreglo | Medido |
+|---|---|---|
+| **«Hoy» se contradecía** (la barra decía +$ 3.273 y el libro «perdiste $ 4.727») | Una sola cuenta, `Libro.hoyDe`: lo que entró menos lo que salió por operar desde el último parte (6:00); compras y premios, aparte. Causa: cada compra se anotaba por lo que bajaba la caja, y si esa compra cumplía una misión el premio quedaba descontado de la compra y cargado a «salió» | Barra «+$ 5.141 hoy» = libro «Hoy, hasta ahora, te quedaron $ 5.141»; el libro agrega «Aparte: compraste por $ 27.900 · premios por $ 8.000» |
+| **El parte no cerraba con la caja** | Entró / Salió / Quedó y, debajo, la caja en palabras: «Empezaste con · quedó · compraste · premios · hoy tenés» | 40.000 + 20.805 − 30.000 + 27.000 = 57.805 (lo mismo que la barra); `pruebas/cuentas.test.mjs` lo verifica en 30 días de 4 partidas, peso por peso |
+| **El consejo del parte daba un número y la tarjeta otro** (14.365 contra 11.574) | El consejo usa la cuenta hecha a las 6:00 con el estimador de la tarjeta y la dice en redondo («unos $ 12.000»); «Ver la cuenta» abre la tarjeta con el reloj frenado | Con el estado sin cambiar, diferencia 0 en 5 casos. Si el reloj corre una hora de juego antes de abrir la tarjeta, la cuenta se mueve 0%, −9%, +25%, +6% y +13% (es otro estado: el avión se compra a otra hora) |
+| **«Faltan $ 8.668 para el Tero»** con plata de sobra a la vista | El texto muestra la cuenta, en «Siguiente paso» y en el botón bloqueado: «Cuesta $ 13.500 y hay que guardar $ 8.558 para la nafta de los próximos vuelos: te faltan $ 9.494» | 13.500 + 8.558 − 12.565 = 9.493 |
+| **El botón decía un precio y «Cuesta» otro** | La casilla «Cuesta» de una ruta lleva el desglose a la vista (ruta $ 3.400 + avión $ 10.000) y debajo del botón «Abrir ruta $ 3.400» dice «Ahora pagás la ruta. Después, el avión (Golondrina): $ 10.000». «Siguiente paso» dice el precio de la ruta | — |
+| **Una ruta que es mal negocio y la pide la misión** | La tarjeta lo dice con el premio a la vista: «Sola tarda unos 9 días en pagarse. La misión te da $ 8.000 al cumplirla: con el premio se paga en unos 4 días». Toda compra que pide la misión activa muestra su premio. Y una compra que no pide la misión y tarda más de una semana lo dice («Tarda más de una semana en pagarse», con el plazo en ámbar) | — |
+| **«Siguiente paso» repetía «seguí a un avión»** y alternaba sola entre dos consejos | Misión primero (o cuánto falta), después lo demás; una propuesta se queda mientras siga en pie. Causa: cuando el estimador rechazaba el consejo del modelo, no se probaba el siguiente | 100 s sin tocar nada a velocidad normal: 3 cambios, los tres por algo que pasó (misión nueva, la noche, la pregunta de la base) |
+| **La misión 4 se cumplió y el cartel no llegó a verse**; «¡Encargo cumplido!» pisaba rótulos y cifras | El cartel de misión es una tarjeta con fondo que se queda hasta que se la toca (o 9 s); el encargo cumplido va en la tarjeta de arriba; entre un cartel y el siguiente hay un respiro | 0 s con dos carteles a la vez en 10 minutos de reloj |
+| **Al caer la noche se abrió solo el panel de una ruta** mientras se tocaba «−» | Era la guía de la primera noche, que abría la ruta por su cuenta. Ahora propone los faros en «Siguiente paso», con una frase y el dedo; el panel lo abre el jugador | 14 toques a «−» mientras cae la noche: 0 paneles abiertos solos |
+| **La oficina no se anunciaba** | Cartel «Tu oficina ya está abierta» con el dedo sobre el botón; el botón lleva su nombre y un globito con lo que hay sin leer | — |
+| **Celular:** sin encargos en el mapa; en la oficina, nombre cortado, rótulos pegados y sin hora | Debajo de la misión, «Encargos» (abre la lista, con «Aceptar») y «Oficina». En la oficina: arriba el nombre entero; abajo la hora con «el reloj espera» y la caja; los rótulos no se enciman | 390×844 y 360×740: nombre de 24 letras sin cortar |
+| **Textos** raros y la mano tapando el precio | «Cuenta hecha con los próximos 3 días, si no cambiás nada más»; la mano se apoya en el borde de abajo, a la izquierda del botón; en el celular el panel se corre solo hasta mostrar el botón marcado | — |
+| **Objetos de la oficina que no hacían nada** | El reloj, la ventana, el almanaque, el mate y el perchero responden con una línea («Son las 16:20. El reloj espera mientras estás acá») | — |
+| **Siguiendo a un avión, la rueda casi no alejaba** | La rueda alejaba lo mismo que sin seguir (×1,17 por muesca), pero desde el primer plano eso era poco: ahora alejar rinde más mientras se sigue a un avión y, pasado el primer plano, el seguimiento se suelta solo | 5 muescas: de 3,2 a 11,2 (antes, 7,1) |
+
+Lo que queda de esa prueba y no se tocó: el modelo cuenta «Ganá $ 65.000 en un solo día» con las últimas 24 horas corridas (no de
+6:00 a 6:00), así que el avance de esa misión puede no coincidir con «hoy»; y el modelo sigue proponiendo, como paso de la misión
+3, rutas que solas tardan en pagarse (la tarjeta ahora lo dice).
 
 ## Prueba a ciegas del 15-11-2026 y lo que se corrigió
 
@@ -308,7 +350,7 @@ Una persona sin contexto jugó 15 minutos (hasta la misión 5): 8/10 en claridad
 | `02-entrada.jpg` | La entrada: la cordillera al amanecer y la primera frase |
 | `03-guia-primer-toque.jpg` | El primer paso de la guía: una sola cosa para tocar |
 | `04-primer-vuelo.jpg` | El primer vuelo, con la cámara siguiendo al avión |
-| `05-primer-cobro.jpg` | El primer cobro y el cartel de misión cumplida |
+| `05-primer-cobro.jpg` | El primer cobro y el cartel de misión cumplida (se queda hasta que se lo toca) |
 | `06-noche-faros.jpg` | La red de noche, con los faros encendidos |
 | `07-base-atardecer.jpg` | La base al atardecer, con su panel |
 | `08-celular-avion.jpg` | Celular 390×844: la tarjeta del primer avión |
@@ -327,14 +369,26 @@ Etapa 1 (`capturas/etapa1/`, de una partida jugada de verdad con semilla 7; `e-`
 | `e-09-zoom-cerca-base.jpg` | El zoom de cerca: la base |
 | `e-10-zoom-lejos.jpg` | El zoom de lejos: toda la época en pantalla |
 | `e-12-color-empresa.jpg` | Otro nombre y otro color de empresa: el banderín, la caja y la librea del avión |
+| `e-13-te-faltan.jpg`, `c-13-…` | «Siguiente paso» cuando falta plata para lo que pide la misión: cuánto falta y la cuenta (lo que cuesta y lo que hay que guardar para la nafta) |
+| `e-14-reserva-con-su-cuenta.jpg`, `c-14-…` | El hangar con un avión que todavía no se puede comprar: la misma cuenta, al lado del botón, y el premio de la misión |
+| `e-15-mision-cumplida.jpg`, `c-15-…` | El cartel de misión cumplida: una tarjeta con fondo y «Seguir» |
+| `c-16-atajos.jpg`, `c-17-encargos.jpg` | Celular: «Encargos» y «Oficina» debajo de la misión, y la lista de encargos |
+| `e-18-oficina.jpg`, `c-18-…` | La oficina: el botón con su nombre en la barra del mapa lleva acá; en el celular, el nombre entero arriba y la hora y la caja abajo |
 
 ## Lo que falta
 
 De la etapa 1:
 
-- **Integrar la escena de la oficina** (`src/oficina/`, otro módulo): una línea en `main.js`, `import './oficina/conectar.js';`.
-  Hasta entonces no hay botón de oficina y el resultado de cada compra va como cartel.
-- **Prueba a ciegas de la etapa 1:** que alguien sin contexto diga, antes de confirmar, qué cuesta y qué deja una ruta.
+- **Repetir la prueba a ciegas** con los catorce arreglos del 16-11-2026 (ver arriba): se comprobaron con capturas y con guiones,
+  pero no los volvió a jugar alguien sin contexto.
+- **El consejo del parte contra la tarjeta, si pasa un rato:** con el estado sin cambiar coinciden; una hora de juego después la
+  cuenta se movió hasta un 25% en un caso de cinco. El consejo se dice en redondo y «Ver la cuenta» lleva a la cifra exacta, pero
+  quien cierre el parte y vaya más tarde puede ver otro número. Si molesta en la próxima prueba: promediar la cuenta en dos o tres
+  horas de salida distintas.
+- **La misión «Ganá $ 65.000 en un solo día»** cuenta las últimas 24 horas corridas (es regla del modelo) y «hoy» va de 6:00 a
+  6:00: los dos números pueden no coincidir.
+- **La pregunta de la base** («¿Qué sale primero?») puede aparecer con un panel abierto (no se pisan, pero en el celular quedan
+  los dos a la vez).
 - **Probar el zoom con las manos** (mouse, trackpad y dedos de verdad): acá se midió con gestos sintéticos.
 - **Las cuentas en capítulos avanzados** tardan segundos (0,85 s por corrida con 230 aviones): pasarlas a un Web Worker. Y los
   porqués y los consejos del parte hablan de cartas: en 1946 y 1970 hay que decir pasajeros y carga.
@@ -353,9 +407,7 @@ De antes:
 4. **La ronda nocturna** (la mecánica propia de la v1) corre siempre en automático: falta su pantalla en la capa nueva.
 5. **Capítulos 2 y 3:** se juegan con la misma capa (ciudades, aviones, pasajeros y carga con su ícono, fin de capítulo), pero no
    tienen el pulido del capítulo 1: sin momentos propios ni tomas de cámara para la cordillera o los jets.
-6. **Encargos en el celular:** se aceptan desde «Siguiente paso», que dice cuál es (cuántas cartas, de dónde y adónde); falta su
-   lista en pantalla angosta, con el aviso de si ya se puede cumplir.
-7. **Detalle cerca de la base:** el relieve tiene unos 4 km por píxel; de muy cerca el suelo se ve liso. Con teselas de más detalle
+6. **Detalle cerca de la base:** el relieve tiene unos 4 km por píxel; de muy cerca el suelo se ve liso. Con teselas de más detalle
    para la zona del Río de la Plata mejoraría.
-8. **Portales:** la capa de portal de la v1 (CrazyGames, Poki) no está conectada a la v2.
-9. Tormentas sin efecto visual propio (hoy avisan con un cartel y un ícono sobre el avión).
+7. **Portales:** la capa de portal de la v1 (CrazyGames, Poki) no está conectada a la v2.
+8. Tormentas sin efecto visual propio (hoy avisan con un cartel y un ícono sobre el avión).

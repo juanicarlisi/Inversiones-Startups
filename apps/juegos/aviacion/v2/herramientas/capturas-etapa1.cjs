@@ -1,5 +1,7 @@
 // Capturas de la etapa 1 «decidir sabiendo»: cada tarjeta de decisión, el reloj frenado, el parte de la mañana, el resultado contra
-// lo prometido, el zoom de cerca y de lejos y el color de la empresa, en escritorio (1280×720) y en celular (390×844).
+// lo prometido, el zoom de cerca y de lejos y el color de la empresa, en escritorio (1280×720) y en celular (390×844). Desde los
+// arreglos de la prueba a ciegas 1 (16-11-2026) suma: «te faltan» con su cuenta, la reserva dicha en el hangar, el cartel de
+// misión cumplida, los encargos del celular y la oficina.
 //   node herramientas/capturas-etapa1.cjs [escritorio|celular|todo]
 // Necesita dist/ servido en http://localhost:8812 (npm run servir). Por defecto saca JPEG a capturas/etapa1/ con calidad alta
 // (sin placa de video tarda unos 25 minutos). Variables: URL_JUEGO, CARPETA, CALIDAD=alto|medio|bajo, RAPIDO=1 (menos píxeles),
@@ -80,10 +82,11 @@ async function serie(pref, opciones) {
   console.log(pref, 'correo:', JSON.stringify(await p.evaluate(() => [document.querySelector('.tarjeta')?.innerText.replace(/\n+/g, ' | '), document.querySelector('.tarjeta + .porque')?.innerText])));
   await foto(p, `${pref}-04-correo.png`, 2500);
   // 5) una compra que pierde plata: otro avión en la ruta a Montevideo
-  await p.evaluate(() => { const h = window.__hn; h.accion('cerrarPanel', {}, null); h.s.dinero = 90000; h.elegir({ tipo: 'hangar', ruta: 'BUE-MVD' }, { camara: 'justa' }); }); await listo(p);
+  // (la caja se sube solo para la foto y se devuelve después: si no, el parte de la mañana tendría plata que no salió de ningún lado)
+  await p.evaluate(() => { const h = window.__hn; h.accion('cerrarPanel', {}, null); window.__caja = h.s.dinero; h.s.dinero = 90000; h.elegir({ tipo: 'hangar', ruta: 'BUE-MVD' }, { camara: 'justa' }); }); await listo(p);
   console.log(pref, 'hangar MVD:', JSON.stringify(await p.evaluate(() => [...document.querySelectorAll('.modelo')].map((m) => m.innerText.replace(/\n+/g, ' | ')))));
   await foto(p, `${pref}-05-hangar-mvd.png`, 2500);
-  await p.evaluate(() => window.__hn.accion('cerrarPanel', {}, null));
+  await p.evaluate(() => { const h = window.__hn; h.accion('cerrarPanel', {}, null); h.s.dinero = window.__caja; });
 
   // 6) parte de la mañana: se corre hasta las 6:00
   const parte = await p.evaluate(async () => {
@@ -99,7 +102,8 @@ async function serie(pref, opciones) {
   // 7) resultado contra lo prometido: se corre hasta que llega la primera nota
   const res = await p.evaluate(async () => {
     const h = window.__hn; h.fijarVel(3);
-    for (let i = 0; i < 400 && !document.querySelector('#momento.res:not([hidden])'); i++) { h.cuentas(); const v = document.querySelector('#ventana:not([hidden]) [data-accion="cerrarVentana"]'); if (v) v.click(); const e = document.querySelector('#momento:not([hidden]) .elige button'); if (e) e.click(); h.avanzar(1); await new Promise((r) => setTimeout(r, 30)); }
+    // (con la oficina integrada el resultado llega a su bandeja: alcanza con esperar a que exista la nota)
+    for (let i = 0; i < 400 && !document.querySelector('#momento.res:not([hidden])') && !h.libro.notas.length; i++) { h.cuentas(); const v = document.querySelector('#ventana:not([hidden]) [data-accion="cerrarVentana"]'); if (v) v.click(); const e = document.querySelector('#momento:not([hidden]) .elige button'); if (e) e.click(); h.avanzar(1); await new Promise((r) => setTimeout(r, 30)); }
     h.fijarVel(0.5);
     return { abierto: !!document.querySelector('#momento.res:not([hidden])'), texto: document.querySelector('#momento')?.innerText.replace(/\n+/g, ' | '), notas: h.libro.notas.length, fila: h.fila };
   });
@@ -126,6 +130,34 @@ async function serie(pref, opciones) {
     console.log(pref, 'empresa:', JSON.stringify(await p.evaluate(() => window.__hn.datosOficina().empresa)));
     await foto(p, `${pref}-12-color-empresa.png`, 5000);
   }
+  // 10) lo que falta para la misión, con su cuenta: en «Siguiente paso» y en el hangar (la reserva para la nafta, dicha)
+  await p.evaluate(async () => {
+    const h = window.__hn, s = h.s;
+    document.querySelector('#ventana:not([hidden]) [data-accion="cerrarVentana"]')?.click(); h.limpiar(); h.fijarVel(0.5);
+    s.dinero = 40000; h.accion('abrirRuta', { a: 'BHI', b: 'CRD' }, null); h.accion('cerrarPanel', {}, null); s.dinero = 12567;
+    h.accion('centrar', {}, null); h.cuentas(); h.avanzar(1.2); h.cuentas(); h.avanzar(0.1); h.fijarVel(0);
+  });
+  console.log(pref, 'te faltan:', JSON.stringify(await p.evaluate(() => document.querySelector('#paso')?.innerText.replace(/\n+/g, ' | '))));
+  await foto(p, `${pref}-13-te-faltan.png`, 2500);
+  await p.evaluate(() => { const h = window.__hn; h.tocarPaso(); h.avanzar(0.1); }); await listo(p);
+  console.log(pref, 'reserva:', JSON.stringify(await p.evaluate(() => [...document.querySelectorAll('.modelo .mal')].map((m) => m.innerText))));
+  await foto(p, `${pref}-14-reserva-con-su-cuenta.png`, 2500);
+  await p.evaluate(() => window.__hn.accion('cerrarPanel', {}, null));
+  // 11) misión cumplida: el cartel se queda hasta que se lo toca
+  await p.evaluate(() => { const h = window.__hn; h.accion('centrar', {}, null); h.verCartel(); });
+  await foto(p, `${pref}-15-mision-cumplida.png`, 2500);
+  await p.evaluate(() => window.__hn.limpiar());
+  // 12) en el celular: los encargos y la oficina, debajo de la misión; la lista de encargos
+  if (movil) {
+    await foto(p, `${pref}-16-atajos.png`, 1500);
+    await p.evaluate(() => window.__hn.accion('encargos', {}, null));
+    await foto(p, `${pref}-17-encargos.png`, 1200);
+    await p.evaluate(() => document.querySelector('#ventana [data-accion="cerrarVentana"]')?.click());
+  }
+  // 13) la oficina (el reloj espera; en el celular, el nombre entero arriba y la hora y la caja abajo)
+  await p.evaluate(() => { const h = window.__hn; h.fijarVel(0.5); h.fijarEmpresa({ nombre: h.datosOficina().empresa.nombre }); h.Puente.abrirOficina(); });
+  await p.waitForFunction(() => window.__oficina?.estado === 'casa', null, { timeout: 120000 }).catch(() => console.log(pref, '(la oficina no llegó a abrir)'));
+  await foto(p, `${pref}-18-oficina.png`, 4000);
   console.log(pref, 'errores:', JSON.stringify(errores));
   await b.close();
 }

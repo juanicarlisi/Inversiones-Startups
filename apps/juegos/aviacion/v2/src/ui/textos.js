@@ -230,6 +230,7 @@ const T = {
     mo_oficina: 'Ahí están tu red, tus cuentas y tus aviones. Entrás con este botón.',
     oficinaCorto: 'Oficina',
     que_rutaAvion: 'la ruta a {ciudad} con su avión',
+    tj_lenta: 'Tarda más de una semana en pagarse.',
     toca: 'tocá', Toca: 'Tocá', clic: 'hacé clic en', Clic: 'Hacé clic en',
   },
   en: {
@@ -440,6 +441,7 @@ const T = {
     mo_oficina: 'Your network, your accounts and your planes are in there. This button takes you in.',
     oficinaCorto: 'Office',
     que_rutaAvion: 'the route to {ciudad} with its plane',
+    tj_lenta: 'It takes more than a week to pay back.',
     toca: 'tap', Toca: 'Tap', clic: 'click', Clic: 'Click',
   },
 };

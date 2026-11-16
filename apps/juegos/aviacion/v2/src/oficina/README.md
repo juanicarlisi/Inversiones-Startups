@@ -69,6 +69,10 @@ nada. `cerrar()` se puede llamar dos veces sin problema.
 | **Cuaderno** | Cerrado, con su lápiz | **Cuaderno**: en la etapa 1 llega vacío y se muestra como cuaderno nuevo |
 | **Placa de bronce** | El nombre grabado y un filete con el color | **Tu empresa**: nombre y color, con vista previa en la placa, los aviones y la alfombra |
 
+**Detalles que responden** (16-11-2026): el reloj, la ventana, el almanaque, el mate y el perchero no abren nada, pero al tocarlos
+dicen una línea cerca del dedo («Son las 16:20. El reloj espera mientras estás acá»); `escena.apuntarDetalle(x, y)` dice cuál hay
+bajo el cursor y un objeto con hoja siempre gana.
+
 Además: el reloj de pared marca la hora del juego y el almanaque, la fecha; la lámpara se enciende al atardecer; el telégrafo recibe
 ráfagas y su cinta avanza; por la ventana se ve la pista de la base (despegan los tipos de avión de la flota; de noche, solo si
 alguna ruta tiene luces) y el faro girando. La hora del juego manda la luz: un solo foco con sombra entra por la ventana (sol o
@@ -78,7 +82,9 @@ luna), con polvo en el rayo; los colores salen de `mundo/cielo.js`, el mismo cie
 Lucero»: buscado el 15-11-2026, no hay empresa real con ese nombre) y el color, y un recorrido de tres toques (mapa, libro, estante).
 
 **Celular** (más alto que ancho): otra distribución de la misma oficina (estantes arriba, mapa y ventana, escritorio abajo),
-rótulos siempre a la vista y hojas a pantalla completa (con la hoja abierta el 3D deja de dibujarse).
+rótulos siempre a la vista y hojas a pantalla completa (con la hoja abierta el 3D deja de dibujarse). La barra se reparte: arriba,
+volver y el nombre entero de la empresa (24 letras entran en 360 px); abajo, la hora con «el reloj espera» y la caja. Los rótulos
+dejan más aire entre sí cuando van uno arriba del otro, y si ninguno de sus lugares queda libre eligen el que menos pisa.
 
 ## Archivos
 
@@ -157,7 +163,8 @@ acciones del contrato llegan al juego, cero errores. Dentro del juego de verdad 
 3. **Lo de afuera** se ve por una ventana angosta: alcanza para la pista, el faro y un avión que pasa, pero no luce como el mapa.
 4. **El sillón, la campera del perchero y el corredor de la puerta** son lo menos trabajado; la veta de la madera, de cerca, es
    demasiado pareja.
-5. **En celular** los rótulos tapan parte del escritorio (los objetos de la mesa son chicos en vertical).
+5. **En celular** los rótulos tapan parte del escritorio (los objetos de la mesa son chicos en vertical); en 360×740 «Tu empresa»
+   y «Cuaderno» quedan lado a lado, justos.
 6. **Lo señalado** se marca con un resplandor, un leve movimiento y el rótulo; no hay contorno.
 7. **Sonido:** la oficina avisa cada gesto (`sonido(nombre)`), pero no tiene sonidos propios: `conectar.js` usa los que el juego ya
    tiene. El tictac del reloj, el telégrafo y el papel están por hacer (y por escuchar).

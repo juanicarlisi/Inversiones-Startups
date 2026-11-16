@@ -410,8 +410,9 @@ function primeraNoche(e) {
 function guiaNocheVale(id) { const r = rutaDe(id); return !!r && !r.balizas && M.esNoche(s) && s.aviones.some((a) => a.ruta === id) && s.dinero >= M.costoBalizas(r, s); }
 function abrirGuiaNoche(f) {
   if (guia.paso === 'sigue') terminarGuia();
-  ayudaNoche = { ruta: f.ruta, hasta: performance.now() + 40000 };
-  marcarBoton('#paso', 40000);
+  // (la frase se queda 25 s: el reloj sigue corriendo y los demás carteles esperan detrás; si el jugador toca el paso, 40 s más)
+  ayudaNoche = { ruta: f.ruta, hasta: performance.now() + 25000 };
+  marcarBoton('#paso', 25000);
   U.burbuja(t('g_noche'), 'faro');
   ultimaSug = 0; pasoFijo = null;
   A.sonar('momento');
@@ -538,7 +539,7 @@ function avanzarCola() {
     case 'momento':
       if ((!f.firme && ahora - f.t > CADUCA) || (f.vale && !f.vale())) break; // esperó tanto que ya no viene a cuento
       U.momento(f.m); A.sonar('momento'); f.alMostrar?.();
-      turno('momento', (f.m.dura ?? 6500) + 250); break;
+      turno('momento', (f.m.dura ?? 6500) + 250, { firme: !!f.quieto }); break;       // quieto: un festejo que espera no la acorta
     case 'avionNuevo': {
       const a = M.AV[f.avion];
       U.momento({ img: retratos[a.id], titulo: t('avionNuevo'), texto: `<b>${esc(a.nombre)}.</b> ${esc(t(`a_${a.id}`))}`, dura: 7000 }); A.sonar('momento');
@@ -1144,7 +1145,7 @@ function refrescar(ahora) {
   const of = oficinaLista(), nov = of ? novedadesOficina().n : 0, nueva = of && !empresa.estrenada;
   U.mision(objs, { encargos: pastillaEncargos(objs), oficina: of ? { n: nov, nueva } : null });
   U.botonOficina(of, nov, nueva);
-  if (of && !vistos.oficina) { vistos.oficina = 1; if (!empresa.estrenada) cola.push({ tipo: 'momento', clave: 'oficina', firme: true, turno: 4.8, t: ahora, alMostrar: () => marcarBoton('[data-accion="oficina"]', 9000), m: { ico: 'oficina', titulo: t('mo_oficina_t'), texto: esc(t('mo_oficina')), dura: 9000 } }); guardarPronto = true; }
+  if (of && !vistos.oficina) { vistos.oficina = 1; if (!empresa.estrenada) cola.push({ tipo: 'momento', clave: 'oficina', firme: true, quieto: true, turno: 4.8, t: ahora, alMostrar: () => marcarBoton('[data-accion="oficina"]', 9000), m: { ico: 'oficina', titulo: t('mo_oficina_t'), texto: esc(t('mo_oficina')), dura: 9000 } }); guardarPronto = true; }
   // siguiente paso
   if (ahora - ultimaSug > (s.aviones.length > 100 ? 2500 : 900)) {
     const callado = guiando() && guia.paso !== 'sigue';
@@ -1187,11 +1188,13 @@ function cifrasDe(e) {
   // verde solo si deja plata seguro (un rango que cruza el cero va sin color)
   return { deja, paga: textoDias(e), clase: e.pierde ? 'pierde' : e.casiNada || e.dejaDia < 0 || (e.incierto && e.min < 0) ? '' : 'gana', largo: e.incierto };
 }
-// El renglón de abajo: si pierde (y por qué), si casi no cambia, o si la cuenta es incierta.
-function porqueDe(e) {
+// El renglón de abajo: si pierde (y por qué), si casi no cambia, si tarda mucho en pagarse o si la cuenta es incierta.
+// avisarLenta: una compra que deja plata pero tarda más de una semana en pagarse lo dice (salvo que ya lo diga la línea de la misión).
+const esLenta = (e) => !!e && !e.imposible && !e.pierde && !e.casiNada && e.recuperoDias != null && e.recuperoDias > 8;
+function porqueDe(e, avisarLenta = true) {
   if (!e || e.imposible) return '';
   const partes = [];
-  if (e.pierde) partes.push(`<b>${esc(t('tj_pierde'))}</b>`); else if (e.casiNada) partes.push(esc(t('tj_nada')));
+  if (e.pierde) partes.push(`<b>${esc(t('tj_pierde'))}</b>`); else if (e.casiNada) partes.push(esc(t('tj_nada'))); else if (avisarLenta && esLenta(e)) partes.push(esc(t('tj_lenta')));
   if (e.motivo && (e.pierde || e.casiNada || e.tipo !== 'ruta')) partes.push(esc(t(e.motivo.clave)));
   if (e.incierto) partes.push(esc(t('tj_incierto')));
   return partes.length ? `<p class="porque${e.pierde ? ' mal' : ''}">${partes.join(' ')}</p>` : '';
@@ -1218,9 +1221,10 @@ function lineaMision(d, e, costo) {
 function tarjeta(d, costo = null, partes = null) {
   const e = cuenta(d), precio = costo ?? e?.costo ?? costoDecision(s, d)?.costo, c = cifrasDe(e);
   const desglose = partes ? `<em>${partes.map(([k, v], i) => `<span>${i ? '+ ' : ''}${esc(k)} ${plata(v)}</span>`).join('')}</em>` : '';
+  const mision = lineaMision(d, e, precio);
   return `<div class="tarjeta${partes ? ' con-partes' : ''}"><div><small>${esc(t('tj_cuesta'))}</small><b>${precio != null ? plata(precio) : '—'}</b>${desglose}</div>
     <div class="${c.clase}"><small>${esc(t('tj_deja'))}</small><b class="${c.largo ? 'largo' : ''}">${esc(c.deja)}</b></div>
-    <div class="${c.clase === 'espera' ? 'espera' : ''}"><small>${esc(t('tj_paga'))}</small><b class="${c.paga.length > 9 ? 'largo' : ''}">${esc(c.paga)}</b></div></div>${porqueDe(e)}${lineaMision(d, e, precio)}`;
+    <div class="${c.clase === 'espera' ? 'espera' : esLenta(e) ? 'lenta' : ''}"><small>${esc(t('tj_paga'))}</small><b class="${c.paga.length > 9 ? 'largo' : ''}">${esc(c.paga)}</b></div></div>${porqueDe(e, !mision)}${mision}`;
 }
 // Un botón bloqueado dice su cuenta: cuánto cuesta, cuánto hay que guardar para volar (si hay reserva) y cuánto falta.
 const faltaTxt = (costo, reserva = 0) => {
@@ -1317,12 +1321,13 @@ function tarjetaAvion(tp, rutaId, mejor) {
   // (el modelo pide que después de comprar quede en la caja para la nafta de los próximos vuelos: se dice cuánto)
   const mal = p.ok ? '' : p.error === 'alcance' ? t('noLlega', { km: numero(r.km) }) : p.error === 'plata' || p.error === 'reserva' ? faltaTxt(tp.precio, M.reserva(s, { t: tp, r })) : t('bloqueado');
   const e = llega ? cuenta({ tipo: 'avion', id: tp.id, ruta: rutaId }) : null, c = llega ? cifrasDe(e) : { deja: '—', paga: '—', clase: 'espera' };
+  const mision = llega ? lineaMision({ tipo: 'avion', id: tp.id, ruta: rutaId }, e, tp.precio) : '';
   return `<div class="modelo${p.ok ? '' : ' bloq'}${mejor ? ' mejor' : ''}"><img src="${retratos[tp.id]}" alt=""><h3>${esc(tp.nombre)}${mejor ? `<span class="antes">${esc(t('tj_antes'))}</span>` : ''}</h3><p class="desc">${esc(t(`a_${tp.id}`))}</p>
     <div class="nums"><div><span>${esc(t('tj_cuesta'))}</span><b>${plata(tp.precio)}</b></div>
       <div class="${c.clase}"><span>${esc(t('tj_deja'))}</span><b class="${c.largo ? 'largo' : ''}">${esc(c.deja)}</b></div>
-      <div class="${c.clase === 'espera' ? 'espera' : ''}"><span>${esc(t('tj_paga'))}</span><b class="${c.paga.length > 9 ? 'largo' : ''}">${esc(c.paga)}</b></div></div>
+      <div class="${c.clase === 'espera' ? 'espera' : esLenta(e) ? 'lenta' : ''}"><span>${esc(t('tj_paga'))}</span><b class="${c.paga.length > 9 ? 'largo' : ''}">${esc(c.paga)}</b></div></div>
     <p class="ficha">${lleva} · ${esc(t('kmh', { n: numero(tp.vel) }))} · ${esc(t('llegaA', { n: numero(tp.alcance) }))}</p>
-    ${llega ? porqueDe(e) : ''}${mal ? `<p class="mal">${esc(mal)}</p>` : ''}${llega ? lineaMision({ tipo: 'avion', id: tp.id, ruta: rutaId }, e, tp.precio) : ''}
+    ${llega ? porqueDe(e, !mision) : ''}${mal ? `<p class="mal">${esc(mal)}</p>` : ''}${mision}
     ${botonPrecio('comprar', `data-id="${tp.id}" data-ruta="${rutaId}"`, esc(t('comprar')), tp.precio, p.ok)}</div>`;
 }
 function panelHangar(rutaId) {
@@ -1641,6 +1646,8 @@ function depuracion() {
     // el consejo del último parte, con su cuenta al peso (para medir consejo contra tarjeta)
     consejoParte() { const c = consejoParte; return c ? { clave: c.clave, texto: textoConsejo(c), decision: c.decision ?? null, dejaExacto: c.dejaExacto ?? null, costo: c.costo ?? null } : null; },
     get paso() { return pasoAhora ? { clave: pasoAhora.clave, clase: pasoAhora.clase, texto: pasoAhora.texto, detalle: pasoAhora.detalle ?? '' } : null; },
+    // muestra el cartel de la última misión cumplida y lo deja quieto (para las capturas)
+    verCartel() { const m = MISIONES.find((x) => x.id === s.misiones.at(-1)); if (!m) return false; U.cartel(t('misionCumplida'), `${t('mision')} ${MISIONES.filter((x) => x.cap === m.cap).indexOf(m) + 1} · ${textoMision(m)}`, m.premio, null, { seguir: t('seguirJugando') }); enPantalla = { tipo: 'mision', desde: performance.now(), hasta: performance.now() + 600000, f: { id: m.id, premio: 0 } }; return true; },
     // vuelve a mostrar el último resultado contra lo prometido y lo deja «ms» en pantalla (para las capturas)
     verResultado(ms = 60000) { const n = libro.notas.at(-1); if (!n) return false; mostrarResultado(n, ms); enPantalla = { tipo: 'momento', firme: true, desde: performance.now(), hasta: performance.now() + ms }; return true; },
   };

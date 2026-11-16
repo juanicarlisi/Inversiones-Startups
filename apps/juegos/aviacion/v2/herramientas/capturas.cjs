@@ -47,7 +47,7 @@ fs.mkdirSync(carpeta, { recursive: true });
     // el vuelo corre en tiempo real (con GPU por software va en cámara lenta): se espera a que el avión esté a mitad de camino
     await hasta(p, () => { const h = window.__hn, a = h.s.aviones[0]; return a && a.fase === 'vuelo' && (1 - a.resta / a.dur) > 0.42; });
     if (fotos.vuelo) await foto(p, fotos.vuelo, 300);
-    // el cartel de misión cumplida dura 3 s: se lo espera a él (no al paso de la guía) para no llegar tarde
+    // el cartel de misión cumplida se queda hasta que se lo toca (o 9 s): se lo espera a él, no al paso de la guía
     if (fotos.cobro) { await p.waitForSelector('#cartel:not([hidden]) .prm', { timeout: 240000 }); await foto(p, fotos.cobro, 900); }
     else await hasta(p, () => window.__hn.estado.guia === 'cobro');
   }
@@ -62,7 +62,9 @@ fs.mkdirSync(carpeta, { recursive: true });
     console.log('noche con faros y vista de la base');
     const p = await abrir(1280, 720, '&saltar=guia');
     await p.evaluate(() => { const h = window.__hn, M = h.M, s = h.s; s.dinero = 300000; h.fijarVel(1);
-      for (const [a, b2, n] of [['BUE', 'MVD', 2], ['BUE', 'BHI', 2], ['BUE', 'ROS', 1], ['BUE', 'MDQ', 1]]) { M.abrirRuta(s, a, b2); for (let i = 0; i < n; i++) M.comprarAvion(s, 'golondrina', M.idRuta(a, b2)); }
+      // (las compras pasan por el juego, no directo por el modelo: así quedan anotadas en el libro y «hoy» dice lo que es)
+      for (const [a, b2, n] of [['BUE', 'MVD', 2], ['BUE', 'BHI', 2], ['BUE', 'ROS', 1], ['BUE', 'MDQ', 1]]) { h.accion('abrirRuta', { a, b: b2 }, null); for (let i = 0; i < n; i++) h.accion('comprar', { id: 'golondrina', ruta: M.idRuta(a, b2) }, null); }
+      h.accion('cerrarPanel', {}, null);
       for (const k of ['base', 'tarde', 'noche', 'encargo', 'faros', 'despegueNoche', 'ciudades', 'perdio']) h.ver(k);
       h.avanzar(52);
       for (let i = 0; i < 600 && !(M.hora(s) >= 17.9 && M.hora(s) < 18.3); i++) h.avanzar(0.25);
@@ -71,7 +73,7 @@ fs.mkdirSync(carpeta, { recursive: true });
     await foto(p, '07-base-atardecer.jpg', 9000);
     await p.evaluate(() => { const h = window.__hn, M = h.M, s = h.s; h.accion('cerrarPanel', {}, null);
       for (let i = 0; i < 600 && !(M.hora(s) >= 20.5 && M.hora(s) < 21); i++) h.avanzar(0.25);
-      for (const r of s.rutas.slice(0, 3)) M.ponerBalizas(s, r.id);
+      for (const r of s.rutas.slice(0, 3)) h.accion('faros', { id: r.id }, null);
       s.flags.despNoche1 = true; // sin la tarjeta del primer vuelo nocturno: la captura muestra la red
       h.limpiar(); h.accion('cerrarPanel', {}, null); h.mundo.pedida(); h.verRed();
     });

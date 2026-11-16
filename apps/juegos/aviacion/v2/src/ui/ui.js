@@ -157,18 +157,22 @@ export function mision(objetivos, atajos = null) {
 export function paso(p) {
   const el = $('#paso');
   raiz().classList.toggle('con-paso', !!p);
-  if (!p) { el.hidden = true; return; }
+  if (!p) { el.hidden = true; if (el._mas) { el._mas = 0; raiz().style.setProperty('--paso-mas', '0px'); } return; }
   el.hidden = false;
   // pasivo: no hay nada que tocar ahora (la red trabaja sola); si no, es un botón con su flecha
   pintar(el, `<span class="circ">${icono(p.ico ?? 'flecha')}</span><span class="cuerpo">${p.pasivo ? '' : `<span class="rot">${esc(t('siguiente'))}</span>`}<span class="txt">${p.texto}${p.costo ? ` <span class="precio">${plata(p.costo)}</span>` : ''}</span>${p.detalle ? `<span class="det">${p.detalle}</span>` : ''}</span>${p.pasivo ? '' : `<span class="ir">${icono('flecha')}</span>`}`);
   el.classList.toggle('pulso', !!p.pulso); el.classList.toggle('pasivo', !!p.pasivo);
+  // cuando el paso lleva dos o tres renglones (en el celular, con la cuenta de lo que falta), lo que va arriba suyo (los botones
+  // de acercar, la burbuja, los avisos) sube lo mismo: nada queda debajo
+  const mas = Math.max(0, el.offsetHeight - 68);
+  if (mas !== (el._mas ?? 0)) { el._mas = mas; raiz().style.setProperty('--paso-mas', `${mas}px`); }
 }
 
 // ── panel ──
 export function panel(html, ancho = false) {
   const el = $('#panel'), habia = !el.hidden;
-  if (html == null) { if (!el.hidden || el._html != null) { el.hidden = true; el._html = null; el.innerHTML = ''; } raiz().classList.remove('con-panel'); return; }   // cerrado y vacío: no quedan botones viejos escondidos
-  el.hidden = false; raiz().classList.add('con-panel'); el.classList.toggle('ancho', ancho);
+  if (html == null) { if (!el.hidden || el._html != null) { el.hidden = true; el._html = null; el.innerHTML = ''; } raiz().classList.remove('con-panel', 'panel-alto'); return; }   // cerrado y vacío: no quedan botones viejos escondidos
+  el.hidden = false; raiz().classList.add('con-panel'); el.classList.toggle('ancho', ancho); raiz().classList.toggle('panel-alto', ancho);
   if (pintar(el, html) && !habia) { el.classList.remove('entra'); void el.offsetWidth; el.classList.add('entra'); el.scrollTop = 0; }
 }
 export const panelAbierto = () => !$('#panel').hidden;
