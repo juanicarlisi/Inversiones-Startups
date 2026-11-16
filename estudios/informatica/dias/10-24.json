@@ -1,0 +1,620 @@
+{
+ "id": "10-24",
+ "titulo": "Firma de apps y certificados",
+ "bajada": "Qué prueba y qué no prueba la firma de una app, cómo se hace con keytool y apksigner, qué cambia con Play App Signing y por qué los APK de prueba de Senda están firmados con una clave pública.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué compara Android al instalar una actualización y por qué la firma garantiza continuidad de autor y no calidad.",
+  "Crear un keystore con keytool, leer su huella y firmar y verificar un APK de práctica con apksigner.",
+  "Predecir qué falla si se cambia un byte de un APK firmado, si se firma con otra clave o si se alinea después de firmar.",
+  "Distinguir la clave de subida de la clave de firma de la app en Play App Signing y decir qué pasa si se pierde cada una.",
+  "Comparar el modelo de Android con el de iOS (certificados y perfiles de aprovisionamiento) y evaluar el caso de la clave de depuración en Senda."
+ ],
+ "venis_de": "Ya viste cómo funcionan las claves pública y privada ([@05-21]), cómo un certificado liga una clave con una identidad ([@05-23]) y cómo iOS exige firma de código ([@02-29]). Hoy aplicás todo eso a una app de teléfono, con comandos corridos en este entorno.",
+ "se_apoya_en": [
+  "02-29",
+  "02-31",
+  "03-27",
+  "05-21",
+  "05-23",
+  "10-02",
+  "10-05"
+ ],
+ "gancho": [
+  "Hay una clave de firma que no es secreta. Está dentro de un paquete de npm que cualquiera puede bajar, su alias es `androiddebugkey` y su contraseña es `android`. El 16-11-2026 bajé de la pestaña Releases de Senda el APK de la prueba 56 y le pedí a `apksigner` que dijera quién lo firmó. La respuesta fue `CN=Android Debug` y una huella que empieza con `fac61745`. Es exactamente la huella de esa clave pública.",
+  "¿Es un problema? Depende de lo que se espere de una firma, y la mayoría de la gente espera otra cosa. Hoy lo averiguás creando tus propias claves, firmando un APK de práctica de un kilobyte y rompiéndolo a propósito, y después mirás cómo lo resuelven Google Play e iOS."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Para qué sirve firmar, y para qué no"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Android exige que todo APK esté firmado digitalmente con un certificado antes de instalarlo o actualizarlo [#android-app-signing-2611]. La firma es una [[firma de código]] como la que viste en iOS ([@02-29]): se calcula un resumen del contenido con una función hash ([@03-27]) y ese resumen se cifra con la [[clave privada]] del autor. Cualquiera puede verificarlo con la [[clave pública]] que viaja dentro del [[certificado X.509]] del APK ([@05-23]). Si el contenido cambia un solo byte, el resumen ya no coincide y la verificación falla.",
+    "Lo importante es lo que esa firma afirma. Dice «este contenido salió de quien tiene esta clave privada y no fue alterado». No dice que la app sea buena, ni segura, ni que su autor sea quien dice ser. Y a diferencia de lo que viste con HTTPS, acá no hay una [[autoridad certificadora]] que respalde el certificado. La documentación de Android lo dice sin vueltas:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "Apps don't have to be signed by a central authority. Android currently doesn't perform CA verification for app certificates.",
+   "autor": "Android Open Source Project",
+   "fuente": "aosp-firma-apps"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Entonces, ¿para qué sirve? Para la **continuidad**. Cuando el sistema instala una actualización, compara los certificados de la versión nueva con los de la versión ya instalada, y solo la permite si coinciden. Si firmaste la nueva con otro certificado, hay que darle otro nombre de paquete y el usuario la instala como una app distinta [#android-app-signing-2611]. La firma es el carnet del autor: quien tenga la clave privada puede actualizar tu app, y quien no, no.",
+    "De ahí salen dos reglas prácticas. Primera: la clave tiene que durar toda la vida de la app. Google recomienda una validez de 25 años o más, y para publicar en Play exige que termine después del 22 de octubre de 2033. Segunda: si perdés la clave que firma tus actualizaciones y no tenés un plan B, no podés actualizar tu app nunca más. Más adelante vas a ver cómo Play resuelve ese riesgo."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el sello del precinto de un camión",
+   "x": [
+    "Un camión sale del depósito con un precinto numerado. Si el precinto llega intacto y con el número que figura en el remito, sabés que nadie abrió la carga en el camino y que salió de ese depósito. No sabés si la mercadería es buena.",
+    "Donde la analogía deja de valer: un precinto físico se rompe y se nota; una firma digital no solo detecta que algo cambió, además liga el contenido a una clave. Y un precinto no sirve para decidir quién puede mandar el camión siguiente; la firma de una app sí."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un amigo te pasa por mensaje un APK de tu banco y te dice «tranquilo, está firmado». ¿Qué te garantiza esa firma y qué no?",
+   "resp": "Garantiza que el contenido no cambió desde que lo firmó el dueño de cierta clave privada. No garantiza que esa clave sea la del banco: cualquiera puede generar un certificado con el nombre que quiera, porque Android no verifica una autoridad. Lo que sí podés hacer es comparar la huella del certificado con la que publica el banco, o instalar solo desde la tienda."
+  },
+  {
+   "t": "h",
+   "x": "El keystore y keytool, con las manos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[keystore]] es el archivo donde viven las claves privadas y sus certificados, protegido con contraseña. Java trae una herramienta para crearlo, `keytool`. Un keystore guarda entradas con un *alias* (un nombre) y puede tener una contraseña para el archivo y otra para cada clave. Desde Java 9 el formato por defecto es PKCS12; el formato JKS, más viejo, sigue existiendo y es el de muchas plantillas.",
+    "Creé una clave de práctica con los parámetros que usa el flujo de firma de Senda: RSA de 2.048 bits y validez de 10.950 días, unos 30 años. La contraseña que usé es de práctica y la clave se borra al terminar el día de estudio."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "keytool -genkeypair -keystore practica.jks -alias practica -keyalg RSA -keysize 2048 -validity 10950 -storepass \"$PASS\" -keypass \"$PASS\" -dname \"CN=Practica, O=Estudio, C=AR\"",
+     "s": "Generating 2,048 bit RSA key pair and self-signed certificate (SHA384withRSA) with a validity of 10,950 days\n\tfor: CN=Practica, O=Estudio, C=AR"
+    },
+    {
+     "c": "keytool -list -v -keystore practica.jks -storepass \"$PASS\" | grep -E 'Keystore type|Alias|Owner|Valid|SHA256|Signature algorithm'",
+     "s": "Keystore type: PKCS12\nAlias name: practica\nOwner: CN=Practica, O=Estudio, C=AR\nValid from: Mon Nov 16 02:02:21 UTC 2026 until: Wed Nov 08 02:02:21 UTC 2056\n\t SHA256: F3:FD:E6:4E:1F:13:DF:AA:21:DA:3C:70:4B:92:0A:2E:76:EC:CF:D1:DA:35:75:FC:20:E2:52:AA:F0:B6:AA:53\nSignature algorithm name: SHA384withRSA"
+    }
+   ],
+   "cap": "Corrido en esta VM el 16-11-2026 con OpenJDK 21. `$PASS` es una contraseña de práctica. El archivo resultante pesa 2.636 bytes."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en tres cosas. El certificado es **autofirmado** (el dueño y el emisor son la misma persona): no hay nadie arriba. El `Owner` es texto libre que escribí yo. Y la **huella** SHA-256, esa cadena de 32 pares de hexadecimales, es lo que identifica de verdad al certificado: es un hash de todo el certificado. Dos certificados con el mismo nombre tienen huellas distintas. Cuando un servicio como Firebase o Google Sign-In te pide «la huella de tu app», te pide esto, y por eso vas a ver más adelante que importa cuál es."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Qué no hay que hacer con un keystore",
+   "x": "No se sube a un repositorio, no se manda por chat y no se pierde. Tampoco se guardan sus contraseñas en el mismo lugar. Si se compromete, alguien más puede firmar «actualizaciones» de tu app; si se pierde, nadie puede (esto último cambia con Play App Signing, más abajo)."
+  },
+  {
+   "t": "h",
+   "x": "Firmar un APK de práctica y romperlo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para firmar necesitaba un APK. En esta VM no hay Android SDK completo, así que armé uno mínimo: un `AndroidManifest.xml` con `minSdkVersion` 24 y un `classes.dex` de 540 bytes con una clase de una línea, empaquetados con `aapt`. Pesa 977 bytes, no tiene pantalla ni recursos y no lo instalé en ningún dispositivo: sirve para firmar y verificar, nada más. `apksigner`, `zipalign` y `aapt` los instalé con `apt` (versiones de Ubuntu 24.04, no las del SDK actual de Google).",
+    "El orden importa: primero `zipalign` y después `apksigner`. La documentación lo advierte: si firmás con `apksigner` y después modificás el APK, la firma queda invalidada, y alinear es una modificación [#m1024-android-apksigner]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "zipalign -f -p 4 base.apk alineado.apk && zipalign -c -p 4 alineado.apk && echo alineacion-ok",
+     "s": "alineacion-ok"
+    },
+    {
+     "c": "apksigner sign --ks practica.jks --ks-pass pass:$PASS --out firmado.apk alineado.apk",
+     "s": "(sin salida: salió bien)"
+    },
+    {
+     "c": "apksigner verify --verbose --print-certs firmado.apk",
+     "s": "Verifies\nVerified using v2 scheme (APK Signature Scheme v2): true\nVerified using v3 scheme (APK Signature Scheme v3): true\nVerified using v4 scheme (APK Signature Scheme v4): false\nNumber of signers: 1\nSigner #1 certificate DN: CN=Practica, O=Estudio, C=AR\nSigner #1 certificate SHA-256 digest: f3fde64e1f13dfaa21da3c704b920a2e76eccfd1da3575fc20e252aaf0b6aa53"
+    }
+   ],
+   "cap": "Salida recortada. Con `minSdkVersion` 24 el verificador marca v1 en falso, aunque `apksigner` dejó también los tres archivos `META-INF`. La huella coincide con la de `keytool`, escrita sin los dos puntos y en minúscula."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La huella que imprimió `apksigner` es la que mostró `keytool`: el certificado dentro del APK es el del keystore. El APK pasó de 977 a 8.535 bytes, y `apksigner` además dejó `firmado.apk.idsig`, de 5.545 bytes. ¿Qué se agregó?",
+    "Lo medí con un script de Python. Hay cuatro piezas. Primero, los archivos de firma estilo JAR en `META-INF` (esquema v1: un hash por cada archivo del APK; es el esquema original de Android). Segundo, un **bloque de firma** insertado justo antes del directorio central del ZIP, con la firma de todo el archivo: es el esquema v2, que Android 7.0 introdujo para que cualquier modificación, incluso de los metadatos del ZIP, invalide la firma [#aosp-firma-apks-v2]. Tercero, dentro del mismo bloque, el esquema v3, de Android 9, que suma información para rotar la clave [#aosp-firma-apks-v3]. Cuarto, un archivo aparte `.idsig` con el esquema v4, que Google diseñó para la instalación incremental de apps y que exige una firma v2 o v3 complementaria [#m1024-aosp-apksigning-v4]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dónde",
+    "Posición en el archivo",
+    "Qué hay"
+   ],
+   "filas": [
+    [
+     "Entradas del ZIP",
+     "bytes 0 a 4.095",
+     "AndroidManifest.xml, classes.dex y los tres archivos de META-INF (v1)"
+    ],
+    [
+     "Bloque de firma",
+     "bytes 4.096 a 8.191",
+     "Tres pares: ID `0x7109871a` (v2, 1.440 bytes), ID `0xf05368c0` (v3, 1.440 bytes) y un tercero de 1.148 bytes que parece relleno para alinear a 4 KiB"
+    ],
+    [
+     "Directorio central del ZIP",
+     "desde el byte 8.192",
+     "Índice de las entradas del ZIP"
+    ]
+   ],
+   "cap": "Medido en `firmado.apk` (8.535 bytes). Los IDs de v2 y v3 son los de la especificación de AOSP; del tercer par no encontré el ID en las páginas que leí, así que lo de «relleno» es una lectura mía."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora lo bueno: romperlo. Hice dos pruebas. En la primera cambié un solo bit dentro de los datos de `classes.dex`. `apksigner` contestó que la verificación del esquema v3 falla porque el resumen del archivo no coincide con el firmado. En la segunda agregué un archivo al ZIP con la herramienta `zip`: el resultado no es una firma inválida, es una firma que desapareció, porque el programa reescribió el ZIP y no copió el bloque. El verificador se quejó de que la firma v1 afirma que el APK está firmado con v2 y no encuentra nada: «Signature stripped?». Es el mecanismo anti-descarte que describe AOSP: como v1 declara que hubo v2, alguien que quite el bloque no consigue engañar al verificador [#aosp-firma-apps]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "apksigner verify --verbose manipulado.apk   # un bit cambiado en classes.dex",
+     "s": "DOES NOT VERIFY\nERROR: APK Signature Scheme v3 signer #1: APK integrity check failed. CHUNKED_SHA256 digest mismatch. Expected: <a2bb6561…>, actual: <311c2ef3…>"
+    },
+    {
+     "c": "apksigner verify --verbose reempaquetado.apk   # se agregó un archivo con zip",
+     "s": "DOES NOT VERIFY\nERROR: JAR signer PRACTICA.RSA: JAR signature META-INF/PRACTICA.SF indicates the APK is signed using APK Signature Scheme v2 but no such signature was found. Signature stripped?"
+    }
+   ],
+   "cap": "Corrido en esta VM. Los resúmenes están recortados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Última prueba, la de las claves. Firmé el mismo APK con otros dos keystores y comparé las huellas que informa `apksigner`:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Clave",
+    "Huella SHA-256 del certificado (primeros 16 hex)"
+   ],
+   "filas": [
+    [
+     "practica.jks (mía, de práctica)",
+     "f3fde64e1f13dfaa"
+    ],
+    [
+     "otra.jks (otra clave mía)",
+     "1cae18f5cf554d9a"
+    ],
+    [
+     "debug.keystore (la del paquete público de Expo)",
+     "fac61745dc090378"
+    ]
+   ],
+   "cap": "El contenido del APK es el mismo en los tres casos; solo cambia la clave. Un teléfono que ya tiene instalada una de estas versiones se negaría a actualizarla con la firmada por otra, según la regla de compatibilidad de certificados de la documentación; no lo probé porque no hay dispositivo."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Firmaste un APK con `apksigner` y después descubrís que olvidaste alinearlo con `zipalign`. Alguien te dice «alinealo ahora y listo, la firma sigue valiendo». ¿Tiene razón? Explicalo con lo que viste de los esquemas v2 y v3.",
+   "pista": "Pensá qué cubre la firma v2 y qué hace `zipalign` con los bytes del archivo.",
+   "solucion": "No tiene razón. La firma v2 protege el APK como un todo, incluidos los metadatos del ZIP. `zipalign` reubica entradas y agrega relleno, es decir, cambia bytes del archivo, y la verificación calcula el resumen de todo y lo compara con el firmado: no coincide. Hay que alinear primero y firmar después, o volver a firmar. La documentación de apksigner lo avisa en su advertencia."
+  },
+  {
+   "t": "h",
+   "x": "La clave que no es secreta: el caso de Senda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Volvamos al comienzo. Cuando Expo genera el proyecto de Android con `prebuild` ([@10-12]), el `build.gradle` que escribe trae una configuración de firma. Bajé de npm la plantilla de la versión 57 (`expo-template-bare-minimum@sdk-57`, 57.0.35) para leerla. Define un `debug.keystore` dentro del proyecto, con la contraseña `android`, y el tipo de compilación `release` usa esa misma firma, con un comentario que avisa que en producción hay que generar un keystore propio. El archivo es JKS y su certificado dice `CN=Android Debug`, válido de 2013 a 2052."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "signingConfigs {\n    debug {\n        storeFile file('debug.keystore')\n        storePassword 'android'\n        keyAlias 'androiddebugkey'\n        keyPassword 'android'\n    }\n}\nbuildTypes {\n    release {\n        // Caution! In production, you need to generate your own keystore file.\n        signingConfig signingConfigs.debug\n    }\n}",
+   "cap": "Extracto de `android/app/build.gradle` de la plantilla de Expo para el SDK 57 (paquete público de npm, leído el 16-11-2026). Está resaltado como `bash` porque Gradle no está en la lista de lenguajes del estudio."
+  },
+  {
+   "t": "senda",
+   "titulo": "Todas las pruebas de Senda salen firmadas con la clave de depuración",
+   "x": [
+    "El flujo `.github/workflows/apk.yml` corre `npx expo prebuild --platform android`, compila con `./gradlew assembleRelease` y publica el APK en Releases. No configura ninguna firma propia. Para no quedarme en la inferencia, bajé el APK de la prueba 56 (125,8 MB, `com.sendaapp.biblia`, versionCode 41, versionName 0.40.0, `targetSdkVersion` 36) y lo verifiqué: un solo firmante, `CN=Android Debug`, SHA-256 `fac61745…3b9c`, con el esquema v2 verificado y sin v3. Es la misma huella que la del keystore público de la plantilla. Es el estado esperado de un APK de pruebas: la firma de depuración permite que cada prueba se instale encima de la anterior.",
+    "El mismo día firmé mi APK de práctica con esa clave pública, con la contraseña `android`, y `apksigner verify` dio `Verifies` con la misma huella. Con ese certificado puede firmar cualquiera. Mi inferencia, que no probé en un teléfono: un APK modificado y firmado con esa clave sería aceptado por Android como actualización de cualquiera de las pruebas de Senda, porque la regla de actualización solo compara el certificado. El riesgo real es acotado, porque el atacante tendría que lograr que un tester instale ese archivo, pero es el tipo de supuesto que conviene conocer. Estado al commit `25e08fa` del repositorio y a la prueba 56; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/aab.yml",
+    "app.json"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Y la otra cara: esa firma tiene fecha de vencimiento práctica. La documentación de Android dice que, como el certificado de depuración está hecho por las herramientas y es inseguro por diseño, la mayoría de las tiendas, Google Play incluida, no aceptan apps firmadas con él [#android-app-signing-2611]. Los testers que tienen hoy una prueba instalada tendrán que desinstalarla para pasar a la versión de la tienda, porque la clave será otra y el sistema no actualiza entre certificados distintos (de nuevo, según la regla; sin probar en un teléfono)."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Play App Signing: dos llaves en lugar de una"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si la clave que firma tu app se pierde, no podés actualizarla. Ese riesgo asustaba tanto que Google cambió el modelo. Con [[Play App Signing]], Google custodia la clave que firma lo que llega a los teléfonos y vos conservás otra, más descartable. Son dos llaves distintas [#android-app-signing-2611]:",
+    "La **clave de firma de la app** (*app signing key*) la guarda Google. Con ella firma los APK que se entregan a los usuarios y no cambia en toda la vida de la app. Vos no podés recuperar una copia. La **clave de subida** (*upload key*) la guardás vos. Con ella firmás el paquete que subís a la Play Console, y Google la usa solo para verificar que el que sube sos vos. Si la perdés o se compromete, pedís un restablecimiento en la consola y registrás una nueva, sin tocar la clave que usan los teléfonos. Un keystore propio sin Play App Signing, en cambio, no se puede restablecer [#m1024-play-app-signing-help]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "cap": "Flujo según la documentación oficial de Android y de la ayuda de Play, consultadas el 16-11-2026. No hay cuenta de Play en este entorno, así que no lo corrí. AAB y las pistas de Play se presentan en [@10-25] y [@10-27].",
+   "actores": [
+    {
+     "n": "Vos (clave de subida)",
+     "k": "cliente"
+    },
+    {
+     "n": "Play Console",
+     "k": "servidor"
+    },
+    {
+     "n": "Google (clave de firma)",
+     "k": "datos"
+    },
+    {
+     "n": "Teléfono",
+     "k": "os"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Subís el paquete firmado con tu clave",
+     "d": "Firmás el AAB con la clave de subida y lo subís. La consola compara el certificado con el que registraste."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "Genera los APK de cada dispositivo",
+     "d": "Play arma los APK optimizados desde el paquete."
+    },
+    {
+     "de": 2,
+     "a": 2,
+     "t": "Firma con la clave de firma de la app",
+     "d": "Esa clave nunca sale de la infraestructura de Google."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "Entrega el APK firmado",
+     "d": "El teléfono ve siempre el mismo certificado de la clave de firma, aunque cambies de clave de subida."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay un detalle que se mide en el día a día. Los servicios que piden una huella para asociarla a tu app (inicio de sesión con Google, algunas API de mapas) necesitan la huella de la **clave de firma de Play**, que es la que llevan los teléfonos, y no la de tu clave de subida. La página de ayuda de Play lo dice: hay que registrar la huella de la clave de firma de la app que mantiene Google [#m1024-play-app-signing-help]. En Senda, `google-services.json` tiene `oauth_client: []` y ningún `certificate_hash`: hoy no hay ninguna huella registrada, y la que se registre el día que haga falta no será la de depuración.",
+    "Dos novedades de la página de ayuda de Play al 16-11-2026: a las apps nuevas las inscribe automáticamente en un esquema de firma «híbrido, preparado para la era cuántica» con claves generadas por Google, y el desarrollador solo crea la clave de subida. Es un cambio reciente; verificá la página antes de decidir nada."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La clave de subida de Senda, todavía sin usar",
+   "x": [
+    "El flujo `firma.yml` (manual, una sola vez) crea con `keytool` una clave RSA de 2.048 bits válida 10.950 días, la deja como artefacto privado de GitHub por 7 días y le avisa al fundador que la guarde y cargue cuatro secretos en el repositorio: `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` y `ANDROID_KEY_PASSWORD`. No vi valores, solo los nombres que figuran en el flujo.",
+    "El flujo `aab.yml` usa esos secretos: decodifica el keystore a un archivo dentro de `android/app/`, agrega cuatro propiedades a `gradle.properties` y modifica el `build.gradle` con un script de Python para que `release` use esa firma. Si los secretos no están, emite una advertencia y firma con la clave de depuración, «solo para probar que compila». Según los documentos de lanzamiento de Senda, el fundador todavía no corrió el flujo; lo que sí está implementado es el mecanismo."
+   ],
+   "archivos": [
+    ".github/workflows/firma.yml",
+    ".github/workflows/aab.yml",
+    "docs/TIENDAS.md"
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En `firma.yml` el keystore se genera en una máquina de GitHub, se guarda como artefacto 7 días y se borra solo. ¿Qué riesgo corre durante esos 7 días y qué ventaja tiene frente a generarlo en tu laptop?",
+   "resp": "Riesgo: cualquiera con acceso de lectura al repositorio privado puede bajar el artefacto y, si además averigua la contraseña, firmar como Senda. Ventaja: la clave nunca pasa por el chat ni por una computadora personal comprometida, y el fundador la baja una vez y la guarda donde él decida. Es una decisión razonable; el punto débil es la contraseña, que se elige al correr el flujo, y conviene tratarla como un secreto aparte."
+  },
+  {
+   "t": "h",
+   "x": "En iOS: certificados y perfiles de aprovisionamiento"
+  },
+  {
+   "t": "p",
+   "x": [
+    "iOS resolvió el mismo problema con una autoridad central. Según la guía de seguridad de Apple, estos sistemas exigen que todo el código ejecutable esté firmado con un certificado emitido por Apple, y la firma permite enviar las apps al App Store [#apple-psg-codesign-ios]. A diferencia de Android, acá sí hay una autoridad arriba: Apple verifica la identidad real del desarrollador antes de emitir el certificado.",
+    "Pero con el certificado solo no alcanza. Falta decir **en qué dispositivos y con qué permisos** puede correr la app firmada. Eso lo declara el [[perfil de aprovisionamiento]]: un archivo emitido por Apple que une un identificador de app (*App ID*), uno o más certificados y, según el tipo, una lista de dispositivos registrados y capacidades autorizadas. Los de desarrollo agrupan App ID, certificados de desarrollo y dispositivos registrados [#m1024-apple-dev-profile]. El de distribución para el App Store contiene un solo certificado de distribución y se ata a un App ID explícito, sin lista de dispositivos [#m1024-apple-store-profile]. Si elegís «Automatically manage signing», Xcode se encarga de certificados, identificadores y perfiles [#m1024-apple-registered-devices]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Android",
+    "iOS"
+   ],
+   "filas": [
+    [
+     "Quién emite el certificado",
+     "El propio autor (autofirmado)",
+     "Apple, tras verificar la identidad del desarrollador"
+    ],
+    [
+     "Qué liga la app a un dispositivo",
+     "Nada: cualquier teléfono compatible puede instalarla",
+     "El perfil de aprovisionamiento (en desarrollo, una lista de dispositivos)"
+    ],
+    [
+     "Dónde se guardan las claves",
+     "En un keystore que administrás vos (más la clave de firma que custodia Google en Play)",
+     "En el llavero del desarrollador, con perfiles que baja de la cuenta de Apple"
+    ],
+    [
+     "Qué se pierde si desaparece la clave",
+     "Con Play App Signing, solo la clave de subida, que se restablece",
+     "Según Apple, se emite un certificado nuevo (no lo verifiqué para este día)"
+    ]
+   ],
+   "cap": "Resumen propio a partir de la documentación de Android y de Apple consultada el 16-11-2026. No corrido: no hay macOS, Xcode ni cuenta de desarrollador de Apple en este entorno. La última celda es de memoria: contrastala con la documentación de Apple antes de depender de ella."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Una frontera menos visible: instalar sin tienda",
+   "x": "En iOS, instalar sin App Store requiere un perfil que autorice ese dispositivo. Apple documenta que la cantidad de dispositivos que se pueden registrar por familia de producto y por año es limitada y que, como alternativa, se puede distribuir por TestFlight [#m1024-apple-registered-devices]. En Android, instalar un APK de prueba solo necesita que el usuario lo permita en su teléfono."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no tiene nada de esto todavía",
+   "x": "El identificador de Senda es `com.sendaapp.biblia` y solo existe como APK de Android: nunca se compiló para iOS, y no hay cuenta de Apple Developer. No hay certificados, ni perfiles, ni `ios/` generado. Cuando llegue ese día, Expo (EAS) puede administrar certificados y perfiles; lo marco como pendiente de verificar en su documentación, porque hoy no aplica.",
+   "archivos": [
+    "app.json",
+    "docs/TIENDAS.md"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Lo que cambia con el tiempo: verificación de desarrolladores"
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Verificación de desarrolladores de Android, al 16-11-2026",
+   "x": [
+    "Android tiene un programa nuevo: la verificación de desarrolladores. Según la página oficial, las protecciones empezaron el 30 de septiembre de 2026 para quienes instalan apps desde tiendas participantes en Brasil, Indonesia, Singapur y Tailandia, en dispositivos certificados con Android 7 o más; y «se expandirá globalmente en 2027». Quien distribuye solo fuera de Google Play se registra en la Android Developer Console; quien usa Play, a través de la Play Console [#m1024-android-dev-verification].",
+    "La FAQ aclara tres cosas relevantes. Si usás Play App Signing, tus apps se registran automáticamente. Para registrar un paquete hace falta una clave de firma, y si la perdés no podés registrarlo. Y la fecha de septiembre de 2026 solo alcanza a las tiendas participantes: si distribuís por otra tienda o la gente instala el APK directamente, esos requisitos todavía no se aplican, aunque Google recomienda prepararse para 2027. La instalación con ADB está exenta [#m1024-android-dev-verification-faq].",
+    "Para Senda esto significa dos cosas, y las dos son inferencias mías. Las pruebas salen por GitHub Releases y Argentina no figura en la lista inicial, así que hoy no las afecta. Pero antes de 2027 conviene registrar `com.sendaapp.biblia`, y registrarlo con una clave que no sea la pública de depuración."
+   ]
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**La clave que firma las pruebas no es privada.** Cualquiera podría firmar un APK que se instale encima de las pruebas de Senda. Corregirlo es dar a `apk.yml` una clave de pruebas propia, guardada como secreto, o usar la de subida.",
+    "**La clave de subida existe como mecanismo y no como hecho.** Los secretos de GitHub hay que cargarlos para que `aab.yml` firme de verdad.",
+    "**Los testers van a tener que desinstalar** cuando pasen de una prueba firmada con la clave de depuración a una versión de Play.",
+    "**El orden de operaciones importa:** primero `zipalign`, después `apksigner`; nunca al revés."
+   ]
+  }
+ ],
+ "recap": [
+  "Firmar un APK prueba continuidad de autor, no calidad: Android compara el certificado de la actualización con el instalado y no verifica ninguna autoridad certificadora.",
+  "Un keystore guarda claves privadas con alias y contraseñas; su huella SHA-256 identifica al certificado. Lo medí: `keytool` y `apksigner` dan la misma huella para el mismo certificado.",
+  "El bloque de firma v2/v3 va antes del directorio central del ZIP; cambiar un bit invalida la verificación y reempaquetar el ZIP borra la firma. Se alinea con `zipalign` antes de firmar.",
+  "La clave de depuración de Expo es pública (alias `androiddebugkey`, contraseña `android`): el APK de la prueba 56 de Senda está firmado con ella, huella `fac61745…`.",
+  "Con Play App Signing hay dos claves: la de firma de la app, que custodia Google, y la de subida, que se restablece si se pierde. Los servicios que piden huella necesitan la de la clave de firma.",
+  "En iOS, un certificado de Apple y un perfil de aprovisionamiento (App ID, certificados, dispositivos en desarrollo) autorizan qué corre y dónde. Senda no tiene nada de esto porque nunca se compiló para iOS."
+ ],
+ "repaso": [
+  {
+   "p": "Instalás la versión 2 de una app sobre la versión 1 y Android la rechaza. ¿Cuál es la causa más probable?",
+   "o": [
+    "La versión 2 está firmada con un certificado distinto del de la versión 1",
+    "La versión 2 pesa más y el teléfono no tiene suficiente espacio libre",
+    "La versión 2 no pasó por una autoridad certificadora reconocida",
+    "La versión 2 tiene una firma v3 y la versión 1 solo tenía firma v2"
+   ],
+   "c": 0,
+   "e": "Para actualizar, Android compara el certificado de la nueva versión con el de la instalada y solo la deja pasar si coinciden. El espacio es otro error distinto, y Android no consulta autoridades certificadoras para las firmas de apps. Tener v2 y v3 a la vez es lo normal y no impide actualizar."
+  },
+  {
+   "p": "Cambiás un solo byte dentro de un APK firmado con v2 y v3. ¿Qué pasa al verificar?",
+   "o": [
+    "La verificación falla porque el resumen del archivo ya no coincide",
+    "La verificación pasa porque la firma se calcula solo sobre el manifiesto",
+    "La verificación pasa y la app queda marcada como no confiable",
+    "La verificación pide la contraseña del keystore para recalcular"
+   ],
+   "c": 0,
+   "e": "Los esquemas v2 y v3 firman el APK completo: cualquier cambio altera el resumen y la comparación falla, como mostró el error de CHUNKED_SHA256. No se firma solo el manifiesto, no existe un estado intermedio de «no confiable» y la verificación nunca usa la contraseña, que es para firmar y no para verificar."
+  },
+  {
+   "p": "Alguien firma un APK, después lo alinea con `zipalign` y vuelve a verificar. ¿Qué resultado esperás y por qué?",
+   "o": [
+    "Que verifique bien, porque alinear solo cambia el orden del contenido",
+    "Que falle, porque alinear modifica bytes del archivo y la firma lo cubre entero",
+    "Que verifique bien, porque la alineación está fuera del bloque de firma",
+    "Que falle solo en teléfonos viejos, que verifican con el esquema v1"
+   ],
+   "c": 1,
+   "e": "La firma v2 protege el archivo completo, de modo que alinear después de firmar invalida la firma. Por eso la documentación pide alinear antes. Decir que verifica bien ignora que el resumen se calcula sobre bytes que cambiaron, y el fallo no depende de la versión de Android del teléfono."
+  },
+  {
+   "p": "Una empresa usa Play App Signing y pierde el keystore con el que firmaba los paquetes que subía. ¿Qué puede hacer?",
+   "o": [
+    "Nada: sin ese keystore no podrá actualizar la app nunca más",
+    "Pedir un restablecimiento de la clave de subida y registrar una nueva",
+    "Recuperar de Google una copia de la clave de firma de la app",
+    "Cambiar el nombre del paquete y publicar la app como una nueva"
+   ],
+   "c": 1,
+   "e": "La clave de subida es la que se pierde, y la documentación ofrece un restablecimiento desde la Play Console. La clave de firma de la app la custodia Google y no se entrega al desarrollador. La primera opción describe lo que pasaría sin Play App Signing y la cuarta es el último recurso sin ese sistema."
+  },
+  {
+   "p": "Para registrar la huella de tu app en un servicio que la pide, y la app se distribuye por Play con Play App Signing, ¿cuál huella corresponde?",
+   "o": [
+    "La de la clave de subida, porque es la que firma tu paquete",
+    "La de la clave de depuración, porque es la que usa Gradle",
+    "La de la clave de firma de la app que custodia Google, porque es la de los teléfonos",
+    "Cualquiera de las dos, porque Play las convierte en la misma"
+   ],
+   "c": 2,
+   "e": "Los teléfonos reciben APK firmados con la clave de firma que mantiene Google, y el servicio compara contra esa huella. La de subida no llega a los usuarios, la de depuración es pública y Play no unifica las claves: son dos certificados con huellas distintas."
+  },
+  {
+   "p": "En iOS, un perfil de aprovisionamiento de desarrollo, ¿qué agrupa?",
+   "o": [
+    "La clave privada del desarrollador y su contraseña, para firmar",
+    "El App ID, los certificados de desarrollo y los dispositivos registrados",
+    "El código fuente compilado de la app junto con su firma",
+    "Una lista de usuarios autorizados a descargar la app desde el App Store"
+   ],
+   "c": 1,
+   "e": "Según la ayuda de cuenta de Apple, se arma con un App ID, uno o más certificados de desarrollo y uno o más dispositivos registrados. Las claves privadas viven en el llavero del desarrollador y no en el perfil; el perfil no contiene el código; y la descarga desde el App Store no usa una lista de usuarios."
+  },
+  {
+   "p": "El APK de pruebas de Senda está firmado con la clave de depuración de Expo. ¿Qué consecuencia es correcta?",
+   "o": [
+    "Google Play no lo aceptará así y cualquiera con esa clave pública puede firmar un APK con el mismo certificado",
+    "El APK no se puede instalar en ningún teléfono hasta que se firme con otra clave",
+    "Los usuarios no pueden verificar la firma porque Android ignora las claves de depuración",
+    "El APK pierde el soporte del esquema v2 y solo verifica con el esquema v1"
+   ],
+   "c": 0,
+   "e": "La documentación dice que las tiendas, Play incluida, no aceptan apps firmadas con la clave de depuración, y la clave está publicada con su contraseña, así que puede producir firmas con ese mismo certificado. El APK se instala sin problema, Android verifica la firma igual que cualquier otra y el de la prueba 56 verificó con v2."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa por qué una app tiene que estar firmada, qué le garantiza esa firma al usuario y qué no, y por qué hay quien guarda la clave en una caja fuerte. Usá un ejemplo propio que no sea el del precinto del camión y marcá hasta dónde sirve.",
+ "para_profundizar": [
+  {
+   "fuente": "android-app-signing-2611",
+   "nota": "La guía oficial de firma: claves de subida y de firma, consideraciones (validez de 25 años, 22 de octubre de 2033) y cómo registrar una clave. Es el texto de referencia del día."
+  },
+  {
+   "fuente": "m1024-android-apksigner",
+   "nota": "Referencia de `apksigner`: sus opciones `--min-sdk-version`, `--v1-signing-enabled` y la rotación de claves. Sirve para repetir los experimentos del día."
+  },
+  {
+   "fuente": "aosp-firma-apks-v2",
+   "nota": "La especificación del esquema v2: qué partes del APK protege y cómo se guarda el bloque. Buscá el ID `0x7109871a`."
+  },
+  {
+   "fuente": "m1024-android-dev-verification-faq",
+   "nota": "La FAQ de verificación de desarrolladores: registro de nombres de paquete y claves, y fechas de entrada en vigor. Cambia seguido, por eso importa leerla de nuevo."
+  }
+ ],
+ "videos": [
+  {
+   "q": "android app signing keystore upload key play app signing explicado",
+   "por_que": "Para ver con otro ejemplo el flujo de claves de subida y de firma de Play App Signing."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "keystore",
+   "d": "Archivo protegido con contraseña donde se guardan claves privadas y sus certificados, cada una con un alias. En Android se crea con `keytool` y de él sale la clave con la que se firma un APK o un paquete para subir a la tienda."
+  },
+  {
+   "t": "firma de APK",
+   "d": "Resumen cifrado del contenido de un APK, calculado con la clave privada del autor, que viaja con su certificado. Android la verifica al instalar y exige que una actualización lleve el mismo certificado que la versión instalada. Existen los esquemas v1, v2, v3 y v4."
+  },
+  {
+   "t": "perfil de aprovisionamiento",
+   "d": "Archivo emitido por Apple que une un identificador de app, uno o más certificados y, en desarrollo y distribución interna, una lista de dispositivos registrados con las capacidades autorizadas. Sin él una app firmada no corre en un iPhone."
+  },
+  {
+   "t": "Play App Signing",
+   "d": "Servicio de Google Play que custodia la clave de firma de la app y firma con ella los APK que llegan a los usuarios, mientras el desarrollador firma lo que sube con una clave de subida restablecible. Es obligatorio para las apps nuevas en Play."
+  },
+  {
+   "t": "huella de certificado",
+   "d": "Resumen hash (por ejemplo SHA-256) de todo un certificado, escrito en hexadecimal. Identifica al certificado sin ambigüedad y es lo que piden los servicios para asociar una app con su clave."
+  },
+  {
+   "t": "clave de subida",
+   "d": "Clave con la que el desarrollador firma el paquete que sube a la Play Console cuando usa Play App Signing. Google la usa solo para verificar quién sube, y si se pierde o se compromete se restablece desde la consola."
+  }
+ ],
+ "siguiente": "qué es un APK, un AAB y un IPA: cómo se empaqueta lo que acabás de firmar, qué hay dentro de cada formato y por qué Google Play pasó de pedir APK a pedir AAB.",
+ "fuentes_nuevas": [
+  {
+   "id": "m1024-android-apksigner",
+   "t": "apksigner (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/tools/apksigner"
+  },
+  {
+   "id": "m1024-aosp-apksigning-v4",
+   "t": "APK signature scheme v4 (AOSP)",
+   "a": "Android Open Source Project",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/security/features/apksigning/v4"
+  },
+  {
+   "id": "m1024-play-app-signing-help",
+   "t": "Use Play App Signing (Play Console Help)",
+   "a": "Google",
+   "tipo": "doc",
+   "url": "https://support.google.com/googleplay/android-developer/answer/9842756?hl=en"
+  },
+  {
+   "id": "m1024-android-dev-verification",
+   "t": "Android developer verification (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/developer-verification"
+  },
+  {
+   "id": "m1024-android-dev-verification-faq",
+   "t": "Android developer verification: FAQ (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/developer-verification/guides/faq"
+  },
+  {
+   "id": "m1024-apple-dev-profile",
+   "t": "Create a development provisioning profile (Apple Developer Help)",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/help/account/provisioning-profiles/create-a-development-provisioning-profile"
+  },
+  {
+   "id": "m1024-apple-store-profile",
+   "t": "Create an App Store provisioning profile (Apple Developer Help)",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/help/account/provisioning-profiles/create-an-app-store-provisioning-profile"
+  },
+  {
+   "id": "m1024-apple-registered-devices",
+   "t": "Distributing your app to registered devices (Apple Developer Documentation)",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/documentation/xcode/distributing-your-app-to-registered-devices"
+  }
+ ]
+}
