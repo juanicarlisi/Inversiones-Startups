@@ -1,0 +1,744 @@
+{
+ "id": "11-05",
+ "titulo": "Instaladores, ejecutables y actualizadores",
+ "bajada": "Abrís un .deb y un AppImage por dentro, ves cómo MSI, MSIX y la notarización de Apple garantizan lo que instalás, y construís un actualizador que rechaza un archivo adulterado.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Distinguir los tres trabajos de un instalador: poner archivos, integrar con el sistema y registrar lo hecho.",
+  "Describir por dentro un paquete deb (tres miembros ar) y un AppImage (runtime ELF más SquashFS).",
+  "Explicar qué garantizan y qué no la firma de código y la notarización.",
+  "Enumerar los pasos de un actualizador automático y las tres verificaciones que lo hacen seguro.",
+  "Reconocer en qué eslabón de la cadena de suministro fallaron SolarWinds y Notepad++."
+ ],
+ "venis_de": "En [@11-03] viste cómo Electron y Tauri empaquetan una app web adentro de una ventana, y en [@11-04] la mirada fue hacia Java y .NET. Hoy falta el último tramo: cómo ese programa llega a la computadora de otra persona y cómo se mantiene al día.",
+ "se_apoya_en": [
+  "02-19",
+  "02-20",
+  "02-29",
+  "05-23",
+  "10-24",
+  "11-03"
+ ],
+ "gancho": [
+  "Un depósito de Buenos Aires tiene treinta terminales con una aplicación que imprime etiquetas de bultos (escena inventada). El lunes sale una versión nueva que corrige un error en el formato del código de barras. ¿Cómo llega esa versión a las treinta máquinas, y cómo se asegura el depósito de que lo que llega es lo que publicó el proveedor y no otra cosa?",
+  "Hoy abrís por dentro los formatos con que se entrega software, los armás con tus manos en esta VM con un programa de ejemplo y probás un actualizador mínimo con datos inventados. Al final, dos casos reales donde el eslabón más débil fue justo el camino de actualización."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué hace realmente un instalador"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Instalar un programa parece cosa de un clic en «Siguiente», pero por debajo son tres trabajos distintos. El primero es **poner los archivos en su lugar**: el ejecutable, las bibliotecas, los íconos. El segundo es **integrar la app con el sistema**: que aparezca en el menú de inicio, que sepa abrir los archivos de su tipo, que arranque con la sesión si hace falta. El tercero es el que casi nadie mira hasta que falla: **anotar lo que se hizo**, para poder desinstalar sin dejar restos y para que el sistema sepa qué versión está instalada.",
+    "Cada sistema operativo resolvió esos tres trabajos a su manera, y por eso conviven formatos distintos. Es como en un depósito: recibir, ubicar y registrar el movimiento son tareas separadas."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Sistema",
+    "Formatos habituales",
+    "Quién registra lo instalado"
+   ],
+   "filas": [
+    [
+     "Windows",
+     "`.exe` propio, `.msi` (MSI), `.msix` (MSIX)",
+     "El instalador y el registro de Windows; en MSIX, el propio sistema"
+    ],
+    [
+     "macOS",
+     "Carpeta `.app` dentro de un `.dmg`, o un `.pkg`",
+     "Casi nada: la app es una carpeta que se arrastra; el `.pkg` deja un recibo"
+    ],
+    [
+     "Linux",
+     "`.deb`, `.rpm`, AppImage, Flatpak, Snap",
+     "El gestor de paquetes (deb y rpm); en AppImage, nadie"
+    ]
+   ],
+   "cap": "Mapa de formatos de escritorio. La columna de la derecha es la que más cambia entre ellos."
+  },
+  {
+   "t": "p",
+   "x": "Antes de entrar en cada uno, una idea que ordena todo lo de hoy: un instalador es un **paquete de archivos más un manifiesto que lo describe**. Lo que cambia entre formatos es qué dice el manifiesto, quién lo lee y qué tan fuerte es la garantía de que el paquete no fue alterado. Esa última parte, la integridad y el origen, es la que más importa cuando el programa se va a actualizar solo."
+  },
+  {
+   "t": "h",
+   "x": "Windows: MSI y MSIX"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[MSI]] es el formato del servicio Windows Installer, que viene con el sistema desde Windows 2000 y XP en sus versiones iniciales. Un archivo `.msi` no es un programa que se ejecuta solo: es un paquete que el servicio interpreta. Según la documentación de Microsoft, ese servicio da un formato estándar de gestión de componentes y permite despliegues corporativos [#ms-windows-installer-portal]. Dos capacidades explican por qué sigue vivo en las empresas: desde Windows Installer 4.5 puede instalar varios paquetes en una **transacción** y, si algo falla o el usuario cancela, deshacer los cambios y dejar la máquina como estaba; y los administradores pueden desplegarlo y consultarlo de forma masiva [#ms-windows-installer-portal].",
+    "Con treinta terminales, el área de sistemas no recorre las máquinas con un pendrive: empuja el `.msi` con una herramienta de administración."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El [[MSIX]] es el formato más nuevo. La documentación de Microsoft, actualizada en octubre de 2026, lo describe como el formato moderno de empaquetado de Windows y destaca cuatro propiedades: instalación y desinstalación limpias, sin archivos ni claves de registro sobrantes; actualizaciones diferenciales, donde se descargan solo los bloques cambiados de 64 KB; ejecución en un contenedor liviano con sistema de archivos y registro virtualizados; y soporte para despliegue empresarial con Intune y Configuration Manager [#msix-overview-2611]. La cifra de 99,96 % de instalaciones exitosas es una afirmación de Microsoft, no una medición independiente."
+  },
+  {
+   "t": "p",
+   "x": "Por dentro, un paquete MSIX tiene la carga útil (los archivos de la app) y tres archivos de metadatos que vale la pena conocer [#msix-overview-2611]:"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "`AppxManifest.xml`: la identidad del paquete (nombre, editor, versión, arquitectura), sus dependencias y sus capacidades.",
+    "`AppxBlockMap.xml`: la lista de archivos con un hash criptográfico por cada bloque de 64 KB. Windows lo usa para verificar integridad y para saber qué bloques cambiaron en una actualización.",
+    "`AppxSignature.p7x`: la firma del paquete. Según la documentación, todo MSIX debe estar firmado antes de instalarse."
+   ],
+   "ord": false
+  },
+  {
+   "t": "p",
+   "x": "El detalle del block map vale una pausa. Si cada bloque de 64 KB tiene su hash, una actualización puede comparar el mapa viejo con el nuevo y bajar solo los bloques distintos. Es como un inventario cíclico: no contás todo el depósito, solo las posiciones que se movieron."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Un paquete MSIX es como un bulto precintado con remito. El manifiesto es el remito (qué trae, de quién, para qué versión), el block map es el detalle de cada caja interna con su peso y la firma es el precinto del proveedor. La analogía falla en algo: un precinto roto se ve a simple vista, y una firma inválida solo se detecta si alguien la verifica.",
+   "titulo": "El bulto con precinto"
+  },
+  {
+   "t": "pensa",
+   "x": "Un MSIX actualiza solo los bloques cambiados. ¿Qué información necesita Windows guardar de la versión instalada para poder calcular esa diferencia?",
+   "resp": "Necesita el block map de la versión instalada (los hashes por bloque). Compara cada bloque del paquete nuevo con esa lista y descarga únicamente los que no coinciden."
+  },
+  {
+   "t": "h",
+   "x": "macOS: el .dmg, el .pkg y la notarización"
+  },
+  {
+   "t": "p",
+   "x": "En macOS una aplicación es, en esencia, una carpeta con extensión `.app` que contiene el ejecutable y sus recursos. Por eso el formato de distribución más común, el [[paquete dmg]], es simplemente una **imagen de disco**: un archivo que el sistema monta como si fuera un pendrive y que dentro trae la carpeta `.app` para arrastrar a Aplicaciones. No hay instalador que corra código: copiar la carpeta es instalar. Cuando una app necesita más (poner un servicio, escribir fuera de su carpeta), se usa un `.pkg`, que sí es un instalador con pasos y un recibo en el sistema."
+  },
+  {
+   "t": "p",
+   "x": "Lo que Apple agrega por encima es una cadena de confianza. El flujo que describe su documentación para software distribuido fuera de la App Store tiene tres piezas [#apple-notarization-docs]:"
+  },
+  {
+   "t": "pasos",
+   "titulo": "Firma, notarización y Gatekeeper",
+   "pasos": [
+    {
+     "t": "Firmar",
+     "x": "El desarrollador firma cada ejecutable de la app con un certificado «Developer ID» que Apple le emitió, con el hardened runtime activado. Es la misma [[firma de código]] que viste en [@02-29], con un certificado de la cadena de Apple."
+    },
+    {
+     "t": "Notarizar",
+     "x": "Sube el `.dmg`, `.pkg` o `.zip` a un servicio de Apple, que lo analiza de forma automática en busca de código malicioso y de problemas de firma. Si pasa, Apple emite un ticket. A este paso se lo llama [[notarización]]."
+    },
+    {
+     "t": "Engrapar y verificar",
+     "x": "El ticket se «engrapa» (con la herramienta `stapler`) al archivo, y cuando el usuario lo abre, Gatekeeper comprueba la firma y la notarización. Con el ticket engrapado la comprobación funciona incluso sin conexión."
+    }
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Revisado el 16-11-2026. Los nombres de las herramientas (`notarytool`, `stapler`) y el orden de los pasos salen de la documentación de Apple [#apple-notarization-docs]. La página carga su texto con JavaScript y esta sesión no pudo leerla completa, así que el detalle (qué formatos acepta, qué se puede engrapar) está contado de memoria y hay que cotejarlo con la página vigente antes de armar un proceso de publicación real. Los requisitos de Apple cambian con las versiones de macOS.",
+   "titulo": "vigencia"
+  },
+  {
+   "t": "p",
+   "x": "Notá qué garantiza y qué no. La notarización dice que Apple analizó ese archivo exacto en ese momento y no encontró malware conocido, y que el desarrollador está identificado. No dice que la app sea buena ni que no pueda tener vulnerabilidades."
+  },
+  {
+   "t": "h",
+   "x": "Linux: paquetes, y por dentro un .deb"
+  },
+  {
+   "t": "p",
+   "x": "En Linux la idea dominante es distinta: no se instala desde la web de cada fabricante sino desde un **repositorio** que mantiene la distribución, a través de un [[gestor de paquetes]] (lo viste en [@02-19] y [@02-26]). El formato de Debian y Ubuntu es el [[paquete deb]]. Se le puede abrir la tapa, y vale la pena, porque desarma el misterio."
+  },
+  {
+   "t": "p",
+   "x": "Armé uno mínimo en esta VM, con un programa de ejemplo de una línea que imprime una etiqueta con datos inventados. Un `.deb` es un archivo `ar` (un contenedor viejo y simple) que según la página de manual `deb(5)` tiene tres miembros, obligatoriamente en este orden: `debian-binary` (la versión del formato), `control.tar` (los metadatos) y `data.tar` (los archivos a instalar) [#deb5-debian-man]:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "dpkg-deb -Zgzip --root-owner-group --build etiquetas-demo etiquetas-demo_1.0.0_all.deb",
+     "s": "dpkg-deb: building package 'etiquetas-demo' in 'etiquetas-demo_1.0.0_all.deb'."
+    },
+    {
+     "c": "head -c 8 etiquetas-demo_1.0.0_all.deb",
+     "s": "!<arch>"
+    },
+    {
+     "c": "ar tv etiquetas-demo_1.0.0_all.deb",
+     "s": "rw-r--r-- 0/0      4 Nov 16 02:12 2026 debian-binary\nrw-r--r-- 0/0    345 Nov 16 02:12 2026 control.tar.gz\nrw-r--r-- 0/0    355 Nov 16 02:12 2026 data.tar.gz"
+    },
+    {
+     "c": "cat debian-binary",
+     "s": "2.0"
+    },
+    {
+     "c": "tar tvzf control.tar.gz",
+     "s": "drwxr-xr-x root/root         0 ./\n-rw-r--r-- root/root       195 ./control\n-rwxr-xr-x root/root        63 ./postinst"
+    },
+    {
+     "c": "tar tvzf data.tar.gz",
+     "s": "drwxr-xr-x root/root         0 ./usr/\n-rwxr-xr-x root/root       111 ./usr/bin/etiquetas-demo\n-rw-r--r-- root/root        73 ./usr/share/applications/etiquetas-demo.desktop"
+    }
+   ],
+   "cap": "Corrido en esta VM (dpkg 1.22.6, 16-11-2026). El paquete entero pesa 894 bytes. Con las opciones por defecto de esta versión de dpkg, los `tar` internos salen comprimidos con zstd; usé gzip para poder abrirlos con `tar` sin instalar nada más."
+  },
+  {
+   "t": "p",
+   "x": "Ahí está todo el formato. `control.tar` trae el archivo `control` (nombre, versión, arquitectura, dependencias, descripción) y los **scripts del mantenedor**, como `postinst`, que corre después de copiar los archivos. `data.tar` es una foto de lo que se va a escribir en el disco: el ejecutable va a `/usr/bin` y el `.desktop` a `/usr/share/applications`, que es lo que hace aparecer la app en el menú. Instalar es abrir `data.tar` sobre la raíz y anotar la lista de archivos para poder desinstalar."
+  },
+  {
+   "t": "p",
+   "x": "Instalé el paquete en una raíz de prueba dentro de mi carpeta temporal (no en el sistema de la VM) para ver ese registro:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "dpkg --root=$R --force-not-root --force-depends -i etiquetas-demo_1.0.0_all_sinpost.deb",
+     "s": "Setting up etiquetas-demo (1.0.0) ..."
+    },
+    {
+     "c": "dpkg --root=$R -s etiquetas-demo | head -3",
+     "s": "Package: etiquetas-demo\nStatus: install ok installed\nMaintainer: Ejemplo <ejemplo@example.com>"
+    },
+    {
+     "c": "$R/usr/bin/etiquetas-demo B-0042",
+     "s": "Etiquetas 1.0.0: imprimiendo la etiqueta del bulto B-0042 (programa de ejemplo, datos inventados)"
+    },
+    {
+     "c": "dpkg --root=$R -r etiquetas-demo",
+     "s": "Removing etiquetas-demo (1.0.0) ..."
+    }
+   ],
+   "cap": "`$R` es una carpeta temporal que hace de raíz del sistema. Usé una variante del paquete sin `postinst` y `--force-depends` porque la raíz de prueba está vacía y no tiene `sh` ni la dependencia declarada."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "La primera vez que instalé con el `postinst` incluido, dpkg copió los archivos pero el paquete quedó en el estado `install ok half-configured`: el script no pudo correr porque la raíz de prueba no tenía `/bin/sh`. Es un caso real de lo que pasa en un depósito con una máquina a medio actualizar: los archivos nuevos están, la configuración final no.",
+   "titulo": "Un paquete a medio instalar"
+  },
+  {
+   "t": "p",
+   "x": "¿Y cómo sabe el sistema que ese `.deb` no fue alterado en el camino? Aquí aparece la verificación en capas del repositorio. Según `apt-secure(8)`, el archivo `Release` del repositorio está firmado con la clave del archivo; contiene los hashes de los índices `Packages`; y estos contienen el hash de cada `.deb`. Un paquete cuyo hash no coincide con el listado se rechaza [#debian-apt-secure]. La misma página aclara un límite: no se firma cada paquete por separado, y no defiende contra el compromiso del servidor maestro ni de la clave de firma del repositorio."
+  },
+  {
+   "t": "pensa",
+   "x": "Si un atacante en una red de café intercepta tu descarga de un `.deb` y cambia un byte, ¿en qué eslabón de la cadena de APT se detecta?",
+   "resp": "Al comparar el hash del `.deb` descargado con el que figura en `Packages`, que a su vez está respaldado por el `Release` firmado. Si el atacante cambia también el `Packages`, falla la firma del `Release`, porque no tiene la clave del archivo."
+  },
+  {
+   "t": "h",
+   "x": "AppImage y Flatpak: lo universal"
+  },
+  {
+   "t": "p",
+   "x": "El problema de deb y rpm es que cada familia de distribuciones quiere su propio paquete. El [[AppImage]] ataca eso con otra idea: un **único archivo** que contiene la app con sus dependencias y que se ejecuta sin instalar nada. La documentación del proyecto dice que alcanza con marcar el archivo como ejecutable y lanzarlo, y que la herramienta `appimagetool` toma un directorio, crea una imagen de solo lectura, le antepone un *runtime* y lo marca ejecutable [#appimage-docs-concepts]."
+  },
+  {
+   "t": "p",
+   "x": "Hice uno con la misma app de etiquetas. Pesa 948.728 bytes, de los cuales casi todo es el runtime: la carga útil (el sistema de archivos con mi script) ocupa 761 bytes. El archivo es un ELF normal, el formato ejecutable que viste en [@02-20], y la especificación exige que en los bytes 8 a 10 lleve la marca `41 49 02` (las letras «AI» y un 2) [#appimage-spec-draft]:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "readelf -h Etiquetas-1.0.0-x86_64.AppImage | sed -n 2p",
+     "s": "  Magic:   7f 45 4c 46 02 01 01 00 41 49 02 00 00 00 00 00"
+    },
+    {
+     "c": "./Etiquetas-1.0.0-x86_64.AppImage --appimage-offset",
+     "s": "944632"
+    },
+    {
+     "c": "unsquashfs -l -o 944632 Etiquetas-1.0.0-x86_64.AppImage",
+     "s": "squashfs-root/AppRun\nsquashfs-root/etiquetas.desktop\nsquashfs-root/etiquetas.png\nsquashfs-root/usr/bin/etiquetas"
+    },
+    {
+     "c": "./Etiquetas-1.0.0-x86_64.AppImage B-0042",
+     "s": "Error: No suitable fusermount binary found on the $PATH"
+    },
+    {
+     "c": "./Etiquetas-1.0.0-x86_64.AppImage --appimage-extract-and-run B-0042",
+     "s": "Etiquetas 1.0.0: imprimiendo la etiqueta del bulto B-0042 (programa de ejemplo, datos inventados)"
+    }
+   ],
+   "cap": "Corrido en esta VM, con appimagetool build 370 (6-11-2026). El archivo mide 948.728 bytes; la imagen SquashFS empieza en el byte 944.632."
+  },
+  {
+   "t": "p",
+   "x": "La estructura quedó a la vista: **un ejecutable ELF (el runtime) seguido de un sistema de archivos comprimido**, y la especificación exige que contenga un `AppRun` en la raíz y, como mínimo, un archivo `.desktop` [#appimage-spec-draft]. El runtime monta esa imagen y ejecuta `AppRun`. Para montarla usa normalmente FUSE (sistema de archivos en espacio de usuario): en mi VM no está instalado y por eso la ejecución directa falló, con un mensaje claro. La opción `--appimage-extract-and-run` evita el montaje extrayendo a una carpeta temporal."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Un AppImage no necesita nada». Necesita las bibliotecas básicas del sistema (la documentación dice que se apoya en las comunes, como la biblioteca estándar de C) y, en el modo normal, FUSE [#appimage-docs-concepts]. Además, nadie lo registra: no hay lista de instalados ni desinstalación. Es copiar y borrar. Eso es cómodo y es a la vez el problema, porque nadie sabe qué versiones tenés regadas por la computadora."
+  },
+  {
+   "t": "p",
+   "x": "[[Flatpak]] va por otro lado: la app se distribuye desde repositorios y corre en un **sandbox** con permisos limitados al sistema, apoyada en *runtimes*, que son entornos base compartidos [#flatpak-intro-2611]. La documentación lo presenta como una forma de aislar apps entre sí. Del sandbox se habla en [@11-06]. Snap, de Canonical, es otra alternativa con aislamiento; no verifiqué sus detalles para este día."
+  },
+  {
+   "t": "h",
+   "x": "La firma de código: qué demuestra y qué no"
+  },
+  {
+   "t": "p",
+   "x": "Ya viste en [@02-29] la [[firma de código]] y en [@10-24] la firma de un APK. La idea es la misma en todas las plataformas: el desarrollador usa su [[clave privada]] para firmar un resumen del paquete, y cualquiera con la [[clave pública]], incluida en un [[certificado X.509]] emitido por una [[autoridad certificadora]], puede comprobar dos cosas: que el contenido no cambió desde la firma y que lo firmó el titular del certificado."
+  },
+  {
+   "t": "p",
+   "x": "Lo que la firma **no** demuestra es que el programa sea inofensivo. Un programa malicioso firmado con un certificado obtenido de forma legítima (o robado) sigue siendo malicioso. Por eso la industria endureció las reglas de emisión. El documento de requisitos base de código del CA/Browser Forum, en su versión 3.11.0 del 16-6-2026, exige desde el 1-6-2023 que la clave privada de los certificados de firma de código se genere, guarde y use en un módulo criptográfico de hardware, y limita a 460 días la validez de los certificados emitidos desde el 1-3-2026 [#cabf-codesigning-br]. La razón de fondo es simple: una clave guardada en un módulo de hardware no se copia con un archivo."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Revisado el 16-11-2026 contra el documento del CA/Browser Forum (secciones 6.2.7.4.2 y 6.3.2 de la versión 3.11.0) [#cabf-codesigning-br]. Se leyó solo la parte inicial del texto, que es larga. Los plazos y las exigencias de hardware cambian con cada votación del foro, y cada sistema (Windows, macOS) suma sus propias reglas encima.",
+   "titulo": "vigencia"
+  },
+  {
+   "t": "h",
+   "x": "Actualizadores automáticos"
+  },
+  {
+   "t": "p",
+   "x": "Un instalador deja la versión 1.0 en 30 máquinas. El lunes sale la 1.1. Sin un mecanismo de actualización, alguien tiene que ir a cada terminal. El [[actualizador automático]] es el componente que resuelve ese problema: una parte de la app (o un servicio aparte) que consulta cada tanto si hay una versión nueva, la descarga, verifica que sea legítima y la reemplaza. La parte de «verifica» es la que decide si el sistema es seguro."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "App instalada",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor de updates",
+     "k": "servidor"
+    },
+    {
+     "n": "Almacén de descargas",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "¿Hay algo más nuevo que 1.0.0?",
+     "d": "La app pide el manifiesto (feed) de versiones y le informa cuál tiene instalada."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "1.1.0, URL, hash y firma",
+     "d": "El manifiesto lista la versión, dónde bajarla, el hash esperado del archivo y una firma sobre todo eso.",
+     "resp": true
+    },
+    {
+     "de": 0,
+     "a": 0,
+     "t": "Verifica la firma del manifiesto",
+     "d": "Con la clave pública que viene dentro de la app instalada. Si no cierra, se corta acá."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "Descarga el archivo",
+     "d": "El archivo puede venir de otro servidor o de una red de distribución."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "Archivo de la 1.1.0",
+     "d": "Llega por una conexión que puede estar intervenida.",
+     "resp": true
+    },
+    {
+     "de": 0,
+     "a": 0,
+     "t": "Compara hash y reemplaza",
+     "d": "Si el hash coincide con el firmado, instala y reinicia con la versión nueva."
+    }
+   ],
+   "cap": "Los pasos de cualquier actualizador, con la verificación en dos puntos: el manifiesto y el archivo."
+  },
+  {
+   "t": "p",
+   "x": "Hay tres familias que conviene conocer, todas con documentación oficial."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Herramienta",
+    "Plataforma",
+    "Cómo se entera de la versión nueva",
+    "Qué verifica"
+   ],
+   "filas": [
+    [
+     "Sparkle",
+     "macOS",
+     "Un *appcast*: un feed RSS con información extra, cuya dirección va en `SUFeedURL` [#sparkle-docs]",
+     "Firma EdDSA (Ed25519) del archivo con la clave pública `SUPublicEDKey`; opcionalmente, el feed firmado (desde Sparkle 2.9) [#sparkle-docs]"
+    ],
+    [
+     "Squirrel.Windows",
+     "Windows",
+     "Paquetes y actualizaciones armados con NuGet; admite paquetes delta [#squirrel-windows-readme]",
+     "Depende del paquete firmado; su documentación es escueta y el proyecto pide ayuda para mantenimiento [#squirrel-windows-readme]"
+    ],
+    [
+     "`autoUpdater` de Electron",
+     "macOS y Windows",
+     "Una URL de actualización fijada con `setFeedURL` [#electron-autoupdater]",
+     "En macOS exige que la app esté firmada; si el feed declara `sha256` y tamaño, un archivo que no coincida se descarta antes de abrirlo [#electron-autoupdater]"
+    ]
+   ],
+   "cap": "Tres actualizadores reales. En Linux, Electron indica que no hay actualizador integrado y recomienda el gestor de paquetes de la distribución [#electron-autoupdater]."
+  },
+  {
+   "t": "p",
+   "x": "Una aclaración sobre Electron en Windows: según su documentación, detecta el formato de empaquetado y usa el actualizador que corresponde, Squirrel.Windows para los instaladores tradicionales y el actualizador de MSIX para esos paquetes [#electron-autoupdater]. Existe además `electron-updater`, una biblioteca del proyecto electron-builder que cubre más formatos; no verifiqué su documentación para este día."
+  },
+  {
+   "t": "p",
+   "x": "Para ver la lógica sin mágica, escribí un actualizador mínimo en Python que usa `openssl` para verificar una firma Ed25519. El manifiesto es un JSON con versión, URL y hash; el «servidor» lo firmó con una clave privada, y la app solo tiene la clave pública. Probé cinco situaciones, con datos inventados:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat manifiesto.json",
+     "s": "{\"version\":\"1.1.0\",\"url\":\"https://ejemplo.invalid/nueva-1.1.0.bin\",\"sha256\":\"3fc9489b…aaafed\"}"
+    },
+    {
+     "c": "python3 actualizador.py manifiesto.json manifiesto.sig nueva-1.1.0.bin pub.pem 1.0.0",
+     "s": "OK: se instala la versión 1.1.0"
+    },
+    {
+     "c": "… trucho.bin (le agregué un byte al archivo)",
+     "s": "RECHAZADO: el archivo descargado no coincide con el hash firmado"
+    },
+    {
+     "c": "… m2.json (cambié la versión en el manifiesto)",
+     "s": "RECHAZADO: la firma del manifiesto no coincide"
+    },
+    {
+     "c": "… con la versión actual ya en 1.1.0",
+     "s": "RECHAZADO: la versión no es mayor (¿intento de volver atrás?)"
+    },
+    {
+     "c": "… manifiesto y hash propios del atacante, firma vieja",
+     "s": "RECHAZADO: la firma del manifiesto no coincide"
+    }
+   ],
+   "cap": "Corrido en esta VM con OpenSSL 3.0.13. Firma Ed25519 de 64 bytes. El script y las claves eran de prueba y se borraron al terminar."
+  },
+  {
+   "t": "p",
+   "x": "Mirá el orden. Primero la firma del manifiesto, porque sin ella el hash que trae no vale nada: quien controla el servidor cambia archivo y hash a la vez. Segundo, la versión, contra los ataques de **regresión**, que te ofrecen una versión vieja con una falla conocida. Tercero, el hash del archivo. Cada defensa cierra una puerta distinta."
+  },
+  {
+   "t": "p",
+   "x": "Y una trampa clásica para quien programa su propio actualizador: comparar versiones como texto."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "const mayor = (a, b) => {\n  const x = a.split('.').map(Number), y = b.split('.').map(Number);\n  for (let i = 0; i < 3; i++) {\n    if (x[i] !== y[i]) return x[i] > y[i];\n  }\n  return false;\n};\nconsole.log('como texto, 1.10.0 > 1.9.0:', '1.10.0' > '1.9.0');\nconsole.log('como números, 1.10.0 > 1.9.0:', mayor('1.10.0', '1.9.0'));\nconsole.log('1.0.0 contra 1.0.0:', mayor('1.0.0', '1.0.0'));",
+   "cap": "Salida verificada con Node 22: false, true, false. Como texto, «1.10.0» es menor que «1.9.0» porque compara carácter por carácter y el «1» va antes que el «9». Con [[versionado semántico]] hay que comparar número por número."
+  },
+  {
+   "t": "h",
+   "x": "Cadena de suministro: cuando el actualizador es la puerta"
+  },
+  {
+   "t": "p",
+   "x": "Un actualizador es un mecanismo que, a propósito, ejecuta código nuevo con los permisos del usuario o del sistema, sin que nadie lo mire. Esa potencia lo vuelve un objetivo valioso. El conjunto de eslabones por los que pasa el software desde que alguien lo escribe hasta que corre en tu máquina (repositorio, compilación, firma, servidor de descargas, actualizador) es la [[cadena de suministro de software]], y atacar cualquiera de ellos alcanza para llegar a todos los que confían en el final de la cadena."
+  },
+  {
+   "t": "p",
+   "x": "Dos casos documentados con fuentes primarias muestran dos eslabones distintos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Caso",
+    "Eslabón atacado",
+    "Qué dicen las fuentes"
+   ],
+   "filas": [
+    [
+     "SolarWinds Orion (2020)",
+     "La compilación",
+     "La directiva de emergencia 21-01 de CISA, del 13-12-2020, dice que el adversario tuvo acceso encubierto al proceso de compilación de Orion y que eso llevó a insertar código malicioso en versiones afectadas, de la 2019.4 a la 2020.2.1 HF1 [#cisa-ed-21-01]"
+    ],
+    [
+     "Notepad++ (2025)",
+     "El servidor de descargas",
+     "El responsable informó que el servidor de hosting fue comprometido y que el tráfico de ciertos usuarios se redirigió a manifiestos de actualización maliciosos; el incidente empezó en junio de 2025 y lo atribuyen, según varios investigadores, a un grupo probablemente estatal chino [#notepadpp-incidente-2026]"
+    ]
+   ],
+   "cap": "En SolarWinds el software firmado salió contaminado de fábrica; en Notepad++ el programa estaba bien y lo que se corrompió fue el camino de actualización."
+  },
+  {
+   "t": "p",
+   "x": "El caso de Notepad++ es el más didáctico para el tema de hoy, porque encaja con lo que acabás de construir. Según el comunicado oficial, el problema no estuvo en una falla del código del editor sino en el hosting. Como respuesta, desde la versión 8.8.9 su actualizador, WinGUp, verifica el certificado y la firma del instalador descargado, y el XML que devuelve el servidor pasó a estar firmado; el mismo texto anuncia que la verificación obligatoria llegaría en la 8.9.2 [#notepadpp-incidente-2026]. Es decir: hasta ese momento, el mecanismo confiaba en lo que llegaba del servidor. Tu mini actualizador de recién habría rechazado el manifiesto adulterado en el segundo paso."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Esa verificación protege contra un servidor comprometido, pero no contra la pérdida de la clave de firma ni contra un compilador comprometido, como en SolarWinds. Cada defensa cubre un eslabón. Por eso se combinan: firmar el manifiesto, verificar el hash, versionar para impedir la regresión, firmar los binarios, guardar las claves en hardware, y reproducir la compilación en un entorno separado. Además, con XZ Utils en 2024 se vio un tercer eslabón: alguien que se gana la confianza del proyecto y mete código malicioso en el código fuente [#dep-xz-tukaani]."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu empresa distribuye una app interna a 200 terminales con un actualizador propio que baja un `.zip` desde un bucket de almacenamiento y lo descomprime sin verificar nada, porque «el bucket es nuestro». ¿Qué eslabón es el más débil y qué se arregla primero?",
+   "resp": "El bucket (el camino de actualización) es el eslabón débil: cualquiera con acceso de escritura al bucket, o una credencial filtrada, ejecuta código en 200 máquinas. Lo primero es firmar los releases con una clave que no viva en el mismo lugar que el bucket y hacer que el cliente verifique la firma antes de descomprimir."
+  },
+  {
+   "t": "h",
+   "x": "Cómo se elige, en la práctica"
+  },
+  {
+   "t": "p",
+   "x": "Una regla práctica para elegir (es criterio, no ley): en flotas gestionadas, como las terminales de un depósito, conviene el formato que tu herramienta de administración despliegue de forma gradual, que en Windows suele ser MSI o MSIX; en macOS, un `.dmg` firmado y notarizado; en Linux, el paquete nativo de la distribución, y Flatpak o AppImage si el objetivo son varias distribuciones. El actualizador es parte del producto: cada versión que publicás pasa por él."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un cliente te manda un instalador de Windows por mail y te pide que lo instales en 15 PCs. Escribí tres preguntas que harías antes de desplegarlo, usando lo que viste hoy.",
+   "pista": "Pensá en formato, en firma y en cómo se actualizará después.",
+   "solucion": "Por ejemplo: 1) ¿Es MSI o MSIX, o un `.exe` propio? De eso depende si se puede desplegar sin intervención y deshacer limpio. 2) ¿Está firmado, por quién, y con un certificado vigente? Se mira en las propiedades del archivo y se compara con el editor esperado. 3) ¿Cómo se actualiza: solo, por su servidor, y qué verifica? Si no se sabe, se asume que confía en el servidor."
+  }
+ ],
+ "recap": [
+  "Instalar es poner archivos, integrar con el sistema y registrar lo hecho; cada formato reparte esos trabajos de otra forma.",
+  "MSI es el formato del servicio Windows Installer, con transacciones y despliegue masivo; MSIX suma identidad de paquete, firma obligatoria, block map y actualización por bloques.",
+  "En macOS, el `.dmg` es una imagen de disco con una carpeta `.app`; la notarización añade un análisis de Apple y un ticket que Gatekeeper comprueba.",
+  "Un `.deb` es un archivo `ar` con `debian-binary`, `control.tar` y `data.tar`; APT verifica en cadena el Release firmado, los hashes de Packages y el hash de cada paquete.",
+  "Un AppImage es un ELF (runtime) seguido de un SquashFS; no instala nada, pero suele necesitar FUSE y no deja registro.",
+  "La firma prueba integridad y origen, no que el programa sea inofensivo.",
+  "Un actualizador seguro verifica el manifiesto, la versión y el hash del archivo; cada comprobación cierra un ataque distinto, y SolarWinds y Notepad++ muestran qué pasa cuando falta alguna."
+ ],
+ "repaso": [
+  {
+   "p": "Un paquete `.deb` se descarga y APT lo rechaza porque el hash no coincide con el índice Packages. ¿Qué indica eso?",
+   "o": [
+    "El antivirus del sistema operativo detectó un virus dentro del paquete descargado",
+    "El archivo bajado no es el que declaró el repositorio: hubo un error o una alteración",
+    "La firma personal del desarrollador venció y hay que renovar su certificado",
+    "La versión del paquete es menor que la instalada y no se admite el retroceso"
+   ],
+   "c": 1,
+   "e": "APT compara el hash del `.deb` con el que figura en Packages, que a su vez cuelga del Release firmado. No hay antivirus en ese paso, APT no firma por desarrollador sino por archivo de repositorio, y la comparación de versiones es otra comprobación."
+  },
+  {
+   "p": "¿Qué estructura tiene por dentro un AppImage de tipo 2?",
+   "o": [
+    "Un `.zip` que se descomprime solo en la carpeta del usuario la primera vez que se abre",
+    "Un script que baja las dependencias de la distribución usando el gestor de paquetes",
+    "Una máquina virtual completa con su propio núcleo que arranca dentro del sistema",
+    "Un ELF que hace de runtime, seguido de una imagen de sistema de archivos con la app"
+   ],
+   "c": 3,
+   "e": "El AppImage es un ELF con un sistema de archivos anexado que el runtime monta y desde el cual ejecuta `AppRun`. No es un zip, no usa el gestor de paquetes (justamente evita depender de él) y no incluye un núcleo."
+  },
+  {
+   "p": "Un actualizador verifica el hash del archivo descargado, pero el hash viene en un manifiesto sin firmar del mismo servidor. ¿Qué ataque sigue abierto?",
+   "o": [
+    "Quien controla el servidor cambia el archivo y el hash a la vez, y la comprobación pasa",
+    "El atacante puede forzar una versión vieja pero nunca hacer instalar código nuevo",
+    "La conexión HTTPS queda inutilizable y la app no puede consultar más el manifiesto",
+    "Solo se puede atacar a usuarios que tengan una versión anterior a la 1.0 de la app"
+   ],
+   "c": 0,
+   "e": "Sin firma del manifiesto, el hash solo protege contra errores de transmisión: si el atacante modifica ambos, coinciden. La firma es lo que ata el hash a una clave que el atacante no tiene."
+  },
+  {
+   "p": "¿Qué garantiza la notarización de Apple sobre una app?",
+   "o": [
+    "Que ingenieros de Apple revisaron el código fuente y no tiene ninguna vulnerabilidad",
+    "Que macOS no mostrará avisos al instalarla en ningún caso futuro ni en ningún equipo",
+    "Que Apple analizó ese archivo sin hallar malware conocido y que el autor está identificado",
+    "Que la app solo puede leer archivos de su propia carpeta y ninguna otra del usuario"
+   ],
+   "c": 2,
+   "e": "Es un análisis automatizado más identificación del desarrollador; no es una auditoría de código, no promete ausencia total de avisos y el aislamiento de archivos es otro mecanismo (App Sandbox)."
+  },
+  {
+   "p": "Un actualizador compara versiones como texto y la versión instalada es 1.9.0. Se publica la 1.10.0. ¿Qué ocurre?",
+   "o": [
+    "Actualiza bien, porque el texto «1.10.0» tiene más caracteres y se toma como mayor",
+    "Cree que 1.10.0 es menor que 1.9.0 y no actualiza, porque compara carácter por carácter",
+    "Da un error de sintaxis, porque el punto no puede repetirse dentro de una versión",
+    "Instala la 1.9.1 por defecto, que es la versión inmediatamente siguiente a la actual"
+   ],
+   "c": 1,
+   "e": "Al comparar texto, «1.1» contra «1.9» da menor el primero. La comparación correcta es numérica por componente, que es lo que propone el versionado semántico."
+  },
+  {
+   "p": "¿Cuál es la diferencia de fondo entre el compromiso de SolarWinds Orion y el de Notepad++?",
+   "o": [
+    "En SolarWinds falló un certificado vencido; en Notepad++ hubo un error de programación del editor",
+    "En ambos casos se robó el código fuente del producto y se lo publicó en un foro de ataques",
+    "En SolarWinds se contaminó la compilación; en Notepad++ se desvió la actualización hacia manifiestos maliciosos",
+    "En SolarWinds se atacó a cada usuario final; en Notepad++ se atacó la tienda de aplicaciones"
+   ],
+   "c": 2,
+   "e": "CISA describe acceso al proceso de compilación de Orion; el comunicado de Notepad++ describe un compromiso del hosting con redirección de tráfico de actualización hacia manifiestos maliciosos. No fueron un certificado vencido ni una tienda de aplicaciones."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin usar siglas, qué pasa desde que apretás «actualizar» hasta que la nueva versión de un programa corre en tu máquina, y por qué en ese camino hay dos puntos donde se verifica algo.",
+ "para_profundizar": [
+  {
+   "fuente": "debian-apt-secure",
+   "nota": "apt-secure(8): cómo APT verifica el archivo de un repositorio con la cadena Release, Packages, paquete; sirve para comprobar por qué un `.deb` descargado no se puede cambiar a mitad de camino."
+  },
+  {
+   "fuente": "msix-overview-2611",
+   "nota": "Qué es MSIX (Microsoft Learn): la sección «Inside an MSIX package» muestra el manifiesto, el block map y la firma que viste hoy."
+  },
+  {
+   "fuente": "sparkle-docs",
+   "nota": "Documentación de Sparkle: es el ejemplo más claro de un actualizador con claves Ed25519, appcast y feed firmado."
+  },
+  {
+   "fuente": "notepadpp-incidente-2026",
+   "nota": "Comunicado oficial de Notepad++ sobre el incidente de 2025: léelo completo para ver cómo cuenta el responsable lo que cambió en el actualizador."
+  }
+ ],
+ "videos": [],
+ "terminos": [
+  {
+   "t": "MSI",
+   "d": "Formato de paquete del servicio Windows Installer. Un archivo `.msi` describe qué instalar y cómo, y el servicio de Windows lo ejecuta con soporte de transacciones, reversa y despliegue masivo."
+  },
+  {
+   "t": "MSIX",
+   "d": "Formato moderno de empaquetado de Windows con identidad de paquete, firma obligatoria, mapa de bloques con hashes para actualizar solo lo cambiado y ejecución en un contenedor liviano."
+  },
+  {
+   "t": "paquete dmg",
+   "d": "Imagen de disco de macOS: un archivo que el sistema monta como un volumen y que suele contener la carpeta `.app` para arrastrar a Aplicaciones."
+  },
+  {
+   "t": "notarización",
+   "d": "Servicio de Apple que analiza de forma automática un software firmado y, si lo aprueba, emite un ticket que Gatekeeper comprueba al abrirlo; no es una auditoría de código."
+  },
+  {
+   "t": "paquete deb",
+   "d": "Formato de paquete de Debian y Ubuntu: un archivo `ar` con tres miembros, `debian-binary`, `control.tar` con los metadatos y `data.tar` con los archivos a instalar."
+  },
+  {
+   "t": "AppImage",
+   "d": "Formato de distribución para Linux de un único archivo: un ejecutable ELF (runtime) seguido de un sistema de archivos comprimido con la app, que se ejecuta sin instalar."
+  },
+  {
+   "t": "Flatpak",
+   "d": "Sistema de distribución de apps de escritorio para Linux que las ejecuta en un sandbox con permisos limitados y sobre runtimes compartidos."
+  },
+  {
+   "t": "actualizador automático",
+   "d": "Componente que consulta si hay una versión nueva, la descarga, verifica su legitimidad (firma y hash) y reemplaza la instalada, sin intervención manual."
+  },
+  {
+   "t": "cadena de suministro de software",
+   "d": "Conjunto de eslabones por los que pasa el software desde que se escribe hasta que corre en un equipo: código, compilación, firma, distribución y actualización. Atacar uno afecta a todos los que confían en el resultado."
+  }
+ ],
+ "siguiente": "Offline, archivos y dispositivos: cómo una app de escritorio lee archivos con permisos, usa una base local y habla con impresoras, balanzas y lectores de código de barras.",
+ "fuentes_nuevas": [
+  {
+   "id": "msix-overview-2611",
+   "t": "What is MSIX? (Microsoft Learn)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://learn.microsoft.com/en-us/windows/msix/overview"
+  },
+  {
+   "id": "deb5-debian-man",
+   "t": "deb(5): Debian binary package format",
+   "a": "Debian",
+   "tipo": "doc",
+   "url": "https://manpages.debian.org/unstable/dpkg-dev/deb.5.en.html"
+  },
+  {
+   "id": "appimage-docs-concepts",
+   "t": "AppImage: Concepts",
+   "a": "AppImage project",
+   "tipo": "doc",
+   "url": "https://docs.appimage.org/introduction/concepts.html"
+  },
+  {
+   "id": "appimage-spec-draft",
+   "t": "AppImage specification (draft)",
+   "a": "AppImage project",
+   "tipo": "doc",
+   "url": "https://github.com/AppImage/AppImageSpec/blob/master/draft.md"
+  },
+  {
+   "id": "sparkle-docs",
+   "t": "Sparkle: documentation",
+   "a": "Sparkle project",
+   "tipo": "doc",
+   "url": "https://sparkle-project.org/documentation/"
+  },
+  {
+   "id": "electron-autoupdater",
+   "t": "autoUpdater (Electron API)",
+   "a": "Electron (OpenJS Foundation)",
+   "tipo": "doc",
+   "url": "https://www.electronjs.org/docs/latest/api/auto-updater"
+  },
+  {
+   "id": "squirrel-windows-readme",
+   "t": "Squirrel.Windows (README)",
+   "a": "Squirrel",
+   "tipo": "doc",
+   "url": "https://github.com/Squirrel/Squirrel.Windows"
+  },
+  {
+   "id": "notepadpp-incidente-2026",
+   "t": "Hijacked incident info update (Notepad++)",
+   "a": "Notepad++",
+   "tipo": "articulo",
+   "anio": 2026,
+   "url": "https://notepad-plus-plus.org/news/hijacked-incident-info-update/"
+  },
+  {
+   "id": "cabf-codesigning-br",
+   "t": "Baseline Requirements for the Issuance and Management of Publicly-Trusted Code Signing Certificates",
+   "a": "CA/Browser Forum",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cabforum.org/working-groups/code-signing/requirements/"
+  },
+  {
+   "id": "cisa-ed-21-01",
+   "t": "ED 21-01: Mitigate SolarWinds Orion Code Compromise",
+   "a": "CISA",
+   "tipo": "doc",
+   "anio": 2020,
+   "url": "https://www.cisa.gov/news-events/directives/ed-21-01-mitigate-solarwinds-orion-code-compromise"
+  },
+  {
+   "id": "flatpak-intro-2611",
+   "t": "Flatpak: Introduction",
+   "a": "Flatpak project",
+   "tipo": "doc",
+   "url": "https://docs.flatpak.org/en/latest/introduction.html"
+  }
+ ]
+}
