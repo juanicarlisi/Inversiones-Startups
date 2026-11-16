@@ -585,6 +585,11 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     decidido (no deja tensiones abiertas); al fundador le llega solo plata, cuentas, terceros y publicar. Decidido: la carrera
     completa va a Steam (precio único cerca de USD 10) y el portal web es la demo gratis de 1929; la página de Steam se abre cuando
     la etapa 2 pase la prueba a ciegas y se lanza con 2.000 deseados o más a los seis meses;
+  - **Hub Nocturno, etapa 1 (16-11-2026)**: publicada en el enlace del juego (https://claude.ai/artifact/VKn4kDFvMMqeimWtCXPeHy):
+    tarjetas con costo, lo que deja por día y recupero (el estimador simula el modelo), reloj frenado al decidir, parte de la
+    mañana, oficina de 1929 con nombre y color, zoom; la prueba a ciegas pasó en lo principal y dejó 14 puntos a corregir; el caso
+    de negocio con Steam está en `producto-y-negocio.md` §5 bis (unos USD 5 netos por copia); cada etapa se publica solo después
+    de unir, probar a ciegas y mirar en el visor;
   - **Andén «Tu planta»**: el gemelo de cualquier planta desde fotos, videos, croquis y planos
     (`oportunidades/proyectos/anden/gemelo-de-planta.md`); la planta piloto es de su empleador: sus datos viven solo en el
     repositorio privado `plaza-gemelo2`, nunca acá (este repositorio es público);
