@@ -1,0 +1,698 @@
+{
+ "id": "10-02",
+ "titulo": "Android I: arquitectura",
+ "bajada": "Buscamos el `main` de una app de Android (no está en tu código), abrimos un archivo DEX byte a byte y seguimos el camino desde el toque en el ícono hasta tu `onCreate`.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar por qué una app de Android no tiene un `main` propio y quién llama a su código.",
+  "Leer el encabezado de un archivo DEX y decir qué contiene y qué no (las clases del framework se referencian, no se copian).",
+  "Describir el camino de un toque en el ícono hasta `onCreate`, con los hilos y los procesos que participan.",
+  "Distinguir los estados de compilación de ART y los archivos que deja un APK instalado.",
+  "Ubicar a Senda en estas capas: qué parte la ejecuta ART y qué parte la ejecuta Hermes."
+ ],
+ "venis_de": "En [@02-28] viste Android desde el sistema operativo: kernel, Binder, Zygote, ART y el aislamiento por UID. Hoy lo recorrés desde el lado de quien construye una app, con tres cosas que te faltan: quién llama a tu código, qué hay adentro del DEX y qué archivos deja el sistema al instalar.",
+ "se_apoya_en": [
+  "02-28",
+  "02-31",
+  "03-43",
+  "03-44",
+  "10-01"
+ ],
+ "gancho": [
+  "En [@10-01] armé una app de 15 líneas, con una sola clase, y la empaqueté en 8.581 bytes. Si le preguntás a cualquier programador dónde empieza ese programa, la respuesta de siempre es «en la función `main`». Buscala en esas 15 líneas: no está. La app existe, tiene un ícono, se abre y muestra un texto, y no tiene punto de entrada.",
+  "La respuesta es la idea central de la arquitectura de Android: **tu código es una pieza que alguien más llama**. Hoy encontramos a ese alguien, leemos su código fuente real, abrimos el archivo donde viaja tu programa y vemos qué contiene y, sobre todo, qué le falta a propósito."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Tu app no tiene `main`: la llama el framework"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@03-44] viste la diferencia entre una biblioteca y un [[framework]]: con una biblioteca, tu código llama a la biblioteca; con un framework, el framework llama a tu código. Eso se llama [[inversión de control]]. Android es el ejemplo más extremo. Tu clase `Principal` extiende `Activity`, una clase del framework, y redefine un método, `onCreate`. Nada más: no hay ningún lugar donde tu programa diga «ahora abro la pantalla».",
+    "Lo podés comprobar mirando el bytecode de la clase de ejemplo con `javap`, la herramienta de Java que desarma una clase compilada. Es la clase de [@10-01], compilada contra el SDK de nivel 23."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "javap -p -c -cp classes ar.ejemplo.hola.Principal",
+     "s": "public class ar.ejemplo.hola.Principal extends android.app.Activity {\n  public ar.ejemplo.hola.Principal();\n    ...\n  protected void onCreate(android.os.Bundle);\n    Code:\n       2: invokespecial #7   // Method android/app/Activity.onCreate:(Landroid/os/Bundle;)V\n       5: new           #11  // class android/widget/TextView\n      13: astore_2\n      17: invokevirtual #18  // Method android/widget/TextView.setText:(Ljava/lang/CharSequence;)V\n      22: invokevirtual #22  // Method setContentView:(Landroid/view/View;)V\n      25: return\n}"
+    }
+   ],
+   "cap": "Salida real de `javap` (OpenJDK 21) sobre la clase de [@10-01], abreviada, 16-11-2026. Fijate que hay dos métodos y ninguno se llama `main`. Y que lo primero que hace `onCreate` es llamar al `onCreate` de la clase padre."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Entonces, ¿dónde está el `main`? En el framework. Todo proceso de una app arranca ejecutando `ActivityThread.main`, una función del código público de Android. Leí la versión de la rama principal el 16-11-2026 y esto es lo esencial, con las líneas de preparación recortadas:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "java",
+   "x": "// android/app/ActivityThread.java (AOSP, rama main, abreviado)\npublic static void main(String[] args) {\n    // ... preparación del proceso ...\n    Looper.prepareMainLooper();\n    // ...\n    ActivityThread thread = new ActivityThread();\n    thread.attach(false, startSeq);\n    // ...\n    Looper.loop();\n\n    throw new RuntimeException(\"Main thread loop unexpectedly exited\");\n}",
+   "cap": "El punto de entrada real de cada app. `Looper.loop()` es un bucle que no termina mientras la app viva: por eso la última línea, que lanza un error, nunca debería ejecutarse. Fuente: código público de Android [#mob1002-activitythread]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Acá hay tres ideas para llevarse. Primera: el hilo que ejecuta esa función es el [[hilo principal]] de la app, y termina atrapado en un bucle infinito que saca mensajes de una cola y los atiende, uno por vez. Todo lo que ves en pantalla, desde un toque hasta el cuadro dibujado, es un mensaje en esa cola. Segunda: si tu código tarda mucho en atender un mensaje, los demás esperan. Android lo penaliza: si la app no responde a un evento de entrada (un toque, una tecla) en 5 segundos, el sistema declara un ANR («la aplicación no responde») y le ofrece al usuario cerrarla [#mob1002-anr]. Tercera: `thread.attach(...)` es la llamada que le avisa al sistema «ya estoy viva»; adentro, el código hace `mgr.attachApplication(mAppThread, startSeq)`, una llamada a otro proceso por Binder."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El código de Android lanza un error si `onCreate` de tu clase no llama a `super.onCreate()`. ¿Por qué un framework impondría esa regla en vez de hacer él mismo lo que hace el método padre?",
+   "resp": "Porque el framework necesita que el método padre haga su parte (dejar la Activity en un estado válido) y no tiene forma de ejecutarla por su cuenta en el medio de tu método. Lo que hace es comprobar después, con una bandera, que fuiste por el camino: en el código de `ActivityThread` hay un chequeo que, si el método padre no fue llamado, lanza una `SuperNotCalledException` con el mensaje «did not call through to super.onCreate()»."
+  },
+  {
+   "t": "h",
+   "x": "El camino de un toque en el ícono hasta tu onCreate"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con `ActivityThread` a la vista podemos completar el recorrido que en [@02-28] quedó resumido. Es una secuencia de cuatro participantes: el servicio `system_server` (que decide qué se abre), el hilo de Binder de tu app (que recibe las órdenes del sistema), el hilo principal (que las ejecuta) y tu clase. La clave es esta: **el sistema nunca llama directamente a tu código**. Le manda órdenes al hilo de Binder de tu proceso, y ese hilo las encola para que el hilo principal las ejecute en orden."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "system_server",
+     "k": "os"
+    },
+    {
+     "n": "Hilo de Binder de la app",
+     "k": "red"
+    },
+    {
+     "n": "Hilo principal de la app",
+     "k": "cliente"
+    },
+    {
+     "n": "Tu clase Principal",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 2,
+     "a": 0,
+     "t": "attachApplication(mAppThread)",
+     "d": "El proceso recién nacido (Zygote ya lo bifurcó, ver [@02-28]) ejecuta ActivityThread.main y, desde el hilo principal, le avisa por Binder a system_server que existe. En esa llamada entrega un objeto, mAppThread, por el que el sistema podrá hablarle.",
+     "resp": false
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "bindApplication(...)",
+     "d": "system_server llama a ese objeto. El código de la llamada se ejecuta en un hilo de Binder de la app, no en el principal."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "encola BIND_APPLICATION",
+     "d": "En vez de ejecutar el trabajo ahí, el hilo de Binder pone un mensaje en la cola del hilo principal, que lo atenderá con handleBindApplication."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "scheduleTransaction(lanzar Activity)",
+     "d": "Más tarde el sistema ordena abrir la pantalla. Llega por el mismo camino: Binder, hilo de Binder de la app."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "encola EXECUTE_TRANSACTION",
+     "d": "Igual que antes: el código de ClientTransactionHandler.scheduleTransaction envía el mensaje EXECUTE_TRANSACTION a la cola del hilo principal, que es el único que puede tocar la interfaz."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "newActivity + onCreate",
+     "d": "El hilo principal crea una instancia de tu clase, buscándola por nombre con el cargador de clases, que la lee del DEX del APK (performLaunchActivity), y llama a onCreate a través de Instrumentation.callActivityOnCreate. Recién acá corre una línea que escribiste."
+    }
+   ],
+   "cap": "Secuencia simplificada. Los nombres de funciones son los de ActivityThread en la rama principal de AOSP leída el 16-11-2026; los detalles internos cambian entre versiones de Android, la forma permanece."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Una oficina con una sola ventanilla",
+   "x": [
+    "Pensá en una oficina donde los pedidos llegan por teléfono (los hilos de Binder) pero un único empleado, el hilo principal, es el que puede sellar los papeles. Quien atiende el teléfono no sella: anota el pedido en la bandeja y el empleado los toma de a uno. Si un pedido lleva mucho tiempo, todos los siguientes esperan.",
+    "Donde la analogía deja de valer: en la oficina podrías contratar más empleados para sellar. En Android, solo el hilo principal puede tocar la interfaz, y eso no se negocia: por eso todo lo lento (red, disco, cuentas grandes) tiene que ir a otros hilos."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El DEX por dentro: lo que viaja y lo que no"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora abrimos el archivo donde viaja tu programa. Es `classes.dex`, el de 912 bytes de [@10-01]. Su formato está documentado por Android [#mob1002-dex-format]: un encabezado de tamaño fijo (112 bytes, `0x70`) y, después, tablas. La idea de diseño es que **todo lo repetido se guarda una sola vez**: un único pozo de cadenas y una única tabla de tipos y de métodos para todas las clases del archivo, en lugar de un archivo `.class` por clase como en Java. Escribí un lector de 20 líneas en Python que sigue la especificación (no es una herramienta de Android) y lo corrí contra el archivo."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import struct, zlib, sys\nb = open(sys.argv[1], 'rb').read()\nguardado, = struct.unpack_from('<I', b, 8)          # checksum del encabezado\nprint('checksum guardado   0x%08x' % guardado)\nprint('adler32 recalculado 0x%08x' % zlib.adler32(b[12:]))   # todo salvo magic y checksum\nh = dict(zip(['str_n','str_o','typ_n','typ_o','pro_n','pro_o','fld_n','fld_o','met_n','met_o'],\n             struct.unpack_from('<10I', b, 56)))\ndef uleb(o):                                        # entero de largo variable\n    r = s = 0\n    while True:\n        x = b[o]; o += 1; r |= (x & 0x7f) << s\n        if not x & 0x80: return r, o\n        s += 7\ndef cad(i):\n    o, = struct.unpack_from('<I', b, h['str_o'] + 4*i); n, p = uleb(o); return b[p:p+n].decode()\ndef tipo(i):\n    s, = struct.unpack_from('<I', b, h['typ_o'] + 4*i); return cad(s)\nfor i in range(h['met_n']):\n    c, p, n = struct.unpack_from('<HHI', b, h['met_o'] + 8*i)\n    print('metodo', i, tipo(c), cad(n))",
+   "cap": "Lector mínimo de DEX, de elaboración propia, según la especificación de Android. Solo imprime el checksum y la tabla de métodos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 dexm.py classes.dex",
+     "s": "checksum guardado  0x383a8b9b\nadler32 recalculado 0x383a8b9b\nmetodo 0 Landroid/app/Activity; <init>\nmetodo 1 Landroid/app/Activity; onCreate\nmetodo 2 Landroid/widget/TextView; <init>\nmetodo 3 Landroid/widget/TextView; setText\nmetodo 4 Lar/ejemplo/hola/Principal; <init>\nmetodo 5 Lar/ejemplo/hola/Principal; onCreate\nmetodo 6 Lar/ejemplo/hola/Principal; setContentView"
+    }
+   ],
+   "cap": "Corrido por mí el 16-11-2026 sobre el `classes.dex` de 912 bytes. Los dos checksums coinciden: el archivo se verifica a sí mismo. Una referencia como `Landroid/app/Activity;` es el nombre interno de una clase."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Campo del encabezado",
+    "Valor en nuestro archivo",
+    "Qué dice"
+   ],
+   "filas": [
+    [
+     "magic",
+     "`dex\\n035\\0`",
+     "Es un DEX y su versión de formato es la 035"
+    ],
+    [
+     "file_size",
+     "912",
+     "El archivo entero, igual que lo que mostró `unzip`"
+    ],
+    [
+     "header_size",
+     "112 (0x70)",
+     "Tamaño fijo del encabezado, según la especificación"
+    ],
+    [
+     "endian_tag",
+     "0x12345678",
+     "Marca el orden de los bytes; si apareciera invertida, el archivo estaría «dado vuelta»"
+    ],
+    [
+     "string_ids_size",
+     "15",
+     "Cadenas distintas: nombres de métodos, tipos y el texto «Hola desde…»"
+    ],
+    [
+     "type_ids_size",
+     "8",
+     "Tipos distintos, de la app y del framework"
+    ],
+    [
+     "method_ids_size",
+     "7",
+     "Referencias a métodos, tanto propios como ajenos"
+    ],
+    [
+     "class_defs_size",
+     "1",
+     "Clases definidas en el archivo: una, `Principal`"
+    ]
+   ],
+   "cap": "Valores leídos con un lector propio el 16-11-2026. El significado de cada campo sale de la especificación del formato DEX [#mob1002-dex-format]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá lo que revela la tabla de métodos. De siete referencias, cuatro son de clases que **no están** en el archivo: `Activity` y `TextView` pertenecen al framework. El DEX no las trae: las nombra. Las tres restantes son de tu clase (`Principal`), y una de ellas, `setContentView`, aparece colgada de `Principal` porque tu clase la hereda de `Activity` y el compilador la anota por el nombre de la clase desde donde se la llama. Cuando ART carga tu código y encuentra el nombre `Landroid/app/Activity;`, lo resuelve contra el framework que ya está cargado en el proceso, el que heredó de Zygote.",
+    "Esto explica por qué el APK de una app nativa mínima pesa unos pocos kilobytes: **no lleva el framework adentro**. Cada versión de Android trae el suyo, y las apps se escriben contra la API pública, que se mantiene estable entre versiones. El framework es parte del teléfono y no de tu paquete."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "El límite de 65.536 métodos",
+   "x": [
+    "Los índices de métodos del formato DEX caben en 16 bits, así que un archivo DEX no puede referenciar más de 65.536 métodos. La documentación de Android lo explica: con apps grandes y un `minSdk` bajo, el error de compilación avisa que se alcanzó ese límite, y la solución es dividir el código en varios archivos (`classes.dex`, `classes2.dex`…), lo que se llama multidex [#mob1002-multidex]. En el APK de Senda, el código `.dex` suma 15,3 MB comprimidos (`docs/PESO.md`); a ese tamaño, lo esperable es que estén repartidos en varios archivos, pero no abrí el APK real para contarlos."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Desarmás un DEX y encontrás 300 cadenas, 40 tipos y 1.200 referencias a métodos, pero `class_defs_size` es 12. ¿Qué podés concluir del tamaño del archivo y de lo que contiene?",
+   "pista": "Recordá que un DEX comparte pozos entre todas sus clases y que también nombra métodos de clases que no define.",
+   "solucion": "El archivo define 12 clases propias, pero sus 1.200 referencias de métodos incluyen muchas que pertenecen a otras clases (del framework o de bibliotecas) y que solo se nombran. Por eso el número de referencias puede ser mucho mayor que lo que las 12 clases escriben. Para saber cuánto es propio hay que mirar `class_defs` y los datos de cada clase, no solo las tablas de identificadores."
+  },
+  {
+   "t": "h",
+   "x": "ART: de DEX a código del procesador, con perfiles"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El DEX es un formato portable: no es código de ningún procesador. Para ejecutarlo, [[ART]] combina tres modos, que su documentación describe para Android 7 en adelante: interpretación, compilación en vivo (JIT) y compilación anticipada (AOT), y la compilación anticipada puede guiarse por perfiles [#mob1002-art-configure]. La novedad respecto de [@02-28] es el detalle de **qué se compila y cuándo**, que la documentación cuenta con el flujo de un Pixel. Lo ordeno en pasos:"
+   ]
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "Instalación con perfil de nube",
+     "x": "Play entrega la app junto con un archivo de metadatos (`.dm`) que trae un perfil de nube: la lista de métodos que, en otros teléfonos, resultaron importantes. ART compila por adelantado solo esos métodos. Si la app se instala sin ese archivo, en el momento no se compila nada."
+    },
+    {
+     "t": "Primeras ejecuciones",
+     "x": "Los métodos que no están compilados se interpretan. Los que se repiten mucho los compila el JIT sobre la marcha. ART va armando un perfil local con lo que pasó en este teléfono y lo une con el de la nube."
+    },
+    {
+     "t": "Cuando el teléfono descansa",
+     "x": "Con el equipo inactivo y cargando, un demonio de compilación recompila la app con el perfil combinado."
+    },
+    {
+     "t": "Ejecuciones siguientes",
+     "x": "ART usa los archivos que generó ese demonio, con más código ya compilado. Lo que sigue sin compilar se interpreta o lo compila el JIT, y el perfil se sigue actualizando para la próxima vuelta."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esa compilación la hace la herramienta `dex2oat`, que toma un APK y genera archivos para el runtime. Según la documentación, desde Android 8 son estos: `.vdex` (metadatos para acelerar la verificación, a veces con el DEX sin comprimir), `.odex` (el código ya compilado) y, opcionalmente, `.art` (representaciones internas de cadenas y clases para acelerar el arranque). La documentación aclara que la cantidad, las extensiones y los nombres cambian entre versiones [#mob1002-art-configure]. Lo que `dex2oat` produce depende de un *filtro de compilación*:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Filtro",
+    "Qué hace",
+    "Cuándo conviene"
+   ],
+   "filas": [
+    [
+     "`verify`",
+     "Solo verifica el DEX; no compila",
+     "Instalar rápido y ocupar poco; todo se interpreta o va por JIT"
+    ],
+    [
+     "`speed`",
+     "Verifica y compila todos los métodos",
+     "Máxima velocidad de código, a costa de ocupar más espacio"
+    ],
+    [
+     "`speed-profile`",
+     "Verifica, compila solo los métodos del perfil y optimiza la carga de las clases del perfil",
+     "El equilibrio habitual: compila lo que se usa de verdad"
+    ],
+    [
+     "`quicken`",
+     "Verifica y optimiza algunas instrucciones del DEX para el intérprete (hasta Android 11)",
+     "La documentación lo marca solo para Android 11 o menos"
+    ]
+   ],
+   "cap": "Filtros descriptos en la documentación de configuración de ART (AOSP), leída el 16-11-2026. La documentación dice que desde Android 8 hay cuatro filtros oficiales; quicken aparece marcado para Android 11 o menos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esto tiene una consecuencia para quien publica una app. El perfil de nube sale de lo que hicieron otros usuarios, y eso tarda. Para que **el primer usuario** de una versión nueva ya arranque con lo importante compilado, el desarrollador puede incluir en la app un *Baseline Profile*: una lista de los caminos críticos (el arranque, las pantallas más usadas). Según la documentación de Android, con un perfil base ART puede optimizar esos caminos con compilación anticipada, con mejoras que llegan a cada usuario nuevo y a cada actualización [#mob1002-baseline]. Es una herramienta de optimización avanzada, y la veremos con el rendimiento en [@10-33]."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué una app recién instalada suele abrir más lenta las primeras veces que a la décima?",
+   "resp": "Porque al principio gran parte del código se interpreta o lo compila el JIT; recién cuando el teléfono está inactivo y cargando, el demonio recompila la app con el perfil de lo que se usó. Después de eso, ART tiene más código ya compilado. Con un perfil de nube o un Baseline Profile, ese estado se alcanza antes."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que cambia entre versiones",
+   "x": [
+    "La documentación de arquitectura de Android (AOSP) que usé aquí tiene su última actualización el 9-10-2026, y la de ART describe el flujo de un Pixel como ejemplo de configuración, no como regla universal: cada fabricante puede configurar distinto qué se compila y cuándo. Los nombres de los archivos de salida de `dex2oat` figuran como sujetos a cambio. Lo que no envejece es la idea: bytecode portable, ejecutado por un runtime que combina interpretar, compilar en vivo y compilar por adelantado con perfiles."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Las capas, vistas desde quien programa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con todo lo anterior el esquema de capas deja de ser una lista para memorizar. La arquitectura de AOSP se lee de abajo hacia arriba [#mob1002-arch]: el **kernel** (Linux con parches de Android) habla con el hardware; las **bibliotecas y demonios nativos** (`libc`, `libbinder`, `init`) interactúan con el kernel; la **[[HAL]]** es una interfaz estándar para que cada fabricante implemente el acceso a su hardware sin que cambie lo que hay por encima; **[[ART]]** ejecuta el código de las apps; los **servicios del sistema** (`system_server`, SurfaceFlinger, MediaService) atienden los pedidos; y arriba está el **[[framework de Android]]**, clases en Java y código ya compilado sobre el que se construyen las apps, que corre **dentro del proceso de cada app**."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Tu app",
+     "d": "El DEX de tu APK: tus clases, referenciando el framework por nombre",
+     "k": "cliente"
+    },
+    {
+     "n": "Framework de Android",
+     "d": "Clases como Activity y TextView; corre dentro del proceso de cada app. Su parte pública es la API de Android",
+     "k": "red"
+    },
+    {
+     "n": "Servicios del sistema",
+     "d": "system_server, SurfaceFlinger, MediaService; atienden por Binder lo que pide el framework",
+     "k": "servidor"
+    },
+    {
+     "n": "ART y bibliotecas nativas",
+     "d": "El runtime que ejecuta DEX; libc, libbinder, daemons como init",
+     "k": "datos"
+    },
+    {
+     "n": "HAL",
+     "d": "La interfaz estándar que implementa cada fabricante de hardware",
+     "k": "hw"
+    },
+    {
+     "n": "Kernel de Linux",
+     "d": "Controladores, procesos, memoria, Binder",
+     "k": "os"
+    }
+   ],
+   "cap": "De arriba hacia abajo, lo que toca cada pedido de tu app. Basado en la página de arquitectura de AOSP (última actualización 2026-10-09)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos matices que la propia documentación hace y que a un desarrollador le importan. Primero, hay tres «APIs» distintas: la **API de Android**, pública, para apps de terceros; la **API de sistema** (marcada `@SystemApi` en el código), disponible solo para socios y fabricantes que preinstalan apps; y partes internas del framework que ni siquiera esas apps deberían usar, porque pueden cambiar sin aviso [#mob1002-arch]. Tu app solo puede apoyarse en la primera. Segundo, la regla práctica para cualquier función de hardware, como la cámara: **no llamás a la HAL**. Llamás a la API del framework, que le pide el trabajo a un servicio del sistema por Binder, que a su vez usa la HAL del fabricante para llegar al controlador del kernel."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "cap": "El recorrido de un pedido de hardware. Cada flecha cruza un límite: la primera es entre tu app y el sistema (por Binder), la segunda entre el sistema y el código del fabricante.",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Tu app",
+       "s": "llama a la API pública",
+       "k": "cliente"
+      },
+      {
+       "t": "Framework",
+       "s": "en tu proceso",
+       "k": "red",
+       "e": "clase de la API"
+      },
+      {
+       "t": "Servicio del sistema",
+       "s": "otro proceso",
+       "k": "servidor",
+       "e": "Binder"
+      }
+     ],
+     "baja": "El servicio usa la interfaz estándar del fabricante"
+    },
+    {
+     "nodos": [
+      {
+       "t": "HAL",
+       "s": "implementada por el fabricante",
+       "k": "hw"
+      },
+      {
+       "t": "Controlador",
+       "s": "en el kernel",
+       "k": "os",
+       "e": "llamada al sistema"
+      },
+      {
+       "t": "Hardware",
+       "s": "cámara, sensor, pantalla",
+       "k": "alerta"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El APK instalado: lo que queda en el teléfono"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cerramos con el término que cierra el círculo. El **APK instalado** no es el mismo objeto que el APK que descargaste. El archivo sigue siendo un zip firmado, pero al instalarlo el sistema agrega cosas alrededor, y todo queda bajo el UID de la app ([@02-31]): el código que ART compiló (los `.vdex`, `.odex` y `.art` que viste arriba), las bibliotecas nativas que traiga el paquete, y un directorio de datos privados donde la app guarda lo suyo. Según la documentación de Android, ese almacenamiento específico de la app es solo para su uso y **se elimina cuando el usuario la desinstala** [#mob1002-app-storage]. No te doy rutas exactas: no corrí un teléfono, y la documentación que leí tampoco las fija.",
+    "Una consecuencia práctica es el tamaño. El APK de Senda tiene 15,3 MB de código `.dex` comprimido y 41,3 MB sin comprimir (`docs/PESO.md`): casi 2,7 veces. La cifra que importa para el espacio del teléfono es la segunda, más lo que sume ART al compilar."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pieza",
+    "Quién la produce",
+    "Cuándo",
+    "Para qué sirve"
+   ],
+   "filas": [
+    [
+     "`base.apk` firmado (zip)",
+     "El desarrollador, al compilar",
+     "Antes de publicar",
+     "Contiene el DEX, los recursos, las bibliotecas nativas y el manifiesto"
+    ],
+    [
+     "`.vdex`, `.odex`, `.art`",
+     "`dex2oat` de ART",
+     "Al instalar y cuando el teléfono descansa",
+     "Verificar más rápido, ejecutar código ya compilado y arrancar antes"
+    ],
+    [
+     "Perfil local",
+     "ART, mientras la app corre",
+     "En cada ejecución",
+     "Decir qué métodos son importantes en este teléfono"
+    ],
+    [
+     "Directorio de datos privados",
+     "El sistema, para el UID de la app",
+     "Al instalar",
+     "Guardar los datos de la app; se borra al desinstalar"
+    ]
+   ],
+   "cap": "Resumen según las páginas de AOSP sobre ART y de Android Developers sobre almacenamiento específico de la app, leídas el 16-11-2026. No corrido en un teléfono."
+  },
+  {
+   "t": "senda",
+   "titulo": "En Senda, ART ejecuta una parte y Hermes ejecuta el resto",
+   "x": [
+    "Senda es una app React Native: su lógica y su contenido son JavaScript que se compila a **bytecode de Hermes** al armar el APK (`docs/PESO.md`: 9,8 MB). Ese bytecode no es DEX, no lo ejecuta ART y los perfiles de ART no lo tocan: lo ejecuta Hermes, un motor que viaja dentro de la app (2,5 MB). Lo que ART sí compila es el código `.dex` de 15,3 MB (41,3 MB sin comprimir), que no es de Senda sino de las bibliotecas que usa: React Native, los módulos de Expo, el SDK de anuncios, etc. La documentación de Expo describe a Hermes como un motor de JavaScript que compila a bytecode por adelantado para acelerar el arranque [#mob1002-expo-hermes].",
+    "También se ve en el flujo de compilación. El APK de prueba se arma solo para **arm64** (`-PreactNativeArchitectures=arm64-v8a` en `.github/workflows/apk.yml`) y con la opción `emulador` suma `x86_64`: el código nativo es binario de un procesador concreto, y el DEX no. Esto corresponde al commit `25e08fa` (9 de noviembre de 2026); el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    "docs/PESO.md",
+    "package.json",
+    "index.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Las apps de Android corren en la máquina virtual de Java»",
+   "x": [
+    "Es una verdad a medias, y ahora podés ver por qué. El lenguaje de origen puede ser Java o Kotlin, pero lo que se ejecuta es DEX, otro formato de bytecode, y quien lo ejecuta es ART. Y una app como Senda ni siquiera ejecuta su lógica con ART: la corre Hermes, con otro bytecode. «Corre en una máquina virtual» es cierto; «en la de Java» casi nunca lo es."
+   ]
+  }
+ ],
+ "recap": [
+  "Una app de Android no tiene `main` propio: el proceso arranca en `ActivityThread.main` del framework y el sistema le manda órdenes por Binder; tu código es una pieza que se llama desde afuera.",
+  "El hilo principal vive en un bucle que atiende mensajes de a uno; si tarda más de 5 segundos en responder a un toque, aparece un ANR.",
+  "El DEX comparte pozos de cadenas, tipos y métodos entre todas sus clases y nombra las clases del framework sin copiarlas: por eso una app mínima pesa kilobytes.",
+  "ART interpreta, compila en vivo y compila por adelantado guiado por perfiles (de nube y locales); `dex2oat` deja `.vdex`, `.odex` y `.art`, y un Baseline Profile permite que el primer usuario ya arranque optimizado.",
+  "Tu app solo debe usar la API pública; para el hardware pasa por el framework, un servicio del sistema por Binder y la HAL del fabricante, nunca directamente.",
+  "En Senda, ART ejecuta el `.dex` de las bibliotecas (15,3 MB) y Hermes ejecuta el JavaScript compilado (9,8 MB); el APK de prueba es solo arm64."
+ ],
+ "repaso": [
+  {
+   "p": "Buscás el `main` de una app de Android escrita con una clase que extiende `Activity` y no lo encontrás. ¿Qué pasa en realidad?",
+   "o": [
+    "La app no puede ejecutarse hasta que escribas tu propio `main` y abras la pantalla principal a mano.",
+    "El proceso arranca en `ActivityThread.main`, del framework, que recibe las órdenes del sistema y llama a tu `onCreate`.",
+    "El `main` existe, pero lo genera el compilador de tu app y lo esconde adentro del archivo `classes.dex`.",
+    "El sistema operativo ejecuta tu `onCreate` directamente desde el kernel, sin pasar por ninguna clase."
+   ],
+   "c": 1,
+   "e": "Es inversión de control: el framework arranca y llama a tu código. El código público de Android muestra `ActivityThread.main` con un bucle que atiende mensajes. El kernel no llama a tu `onCreate`, y no hay un `main` oculto en tu DEX."
+  },
+  {
+   "p": "En el DEX de ejemplo hay referencias a `Landroid/app/Activity;` y `Landroid/widget/TextView;`, pero esas clases no están en el archivo. ¿Por qué no hace falta incluirlas?",
+   "o": [
+    "Porque son del framework, que ya está cargado en cada proceso por herencia de Zygote; el DEX solo las nombra.",
+    "Porque el compilador las borra y las reemplaza por texto plano que el sistema reescribe al instalar la app.",
+    "Porque se descargan desde un servidor de Google la primera vez que alguien abre la app en el teléfono.",
+    "Porque el formato DEX no permite incluir clases del framework, aunque el programador quiera copiarlas."
+   ],
+   "c": 0,
+   "e": "El framework es parte del sistema y viene precargado en el proceso por Zygote; el DEX apunta a esas clases por su nombre interno. No se descargan ni se reemplazan, y ninguna regla del formato prohíbe incluir clases propias."
+  },
+  {
+   "p": "Tu app tarda más de 5 segundos en atender un toque porque hace un cálculo pesado en el hilo principal. ¿Qué consecuencia documenta Android?",
+   "o": [
+    "El sistema declara un ANR («la aplicación no responde») y le ofrece al usuario la opción de cerrarla.",
+    "El toque se reenvía automáticamente y la app termina procesándolo dos veces seguidas sin avisar.",
+    "El sistema mueve el cálculo a otro hilo por su cuenta y la app sigue funcionando sin notarlo.",
+    "El hilo de Binder toma el control y termina el cálculo en lugar del hilo principal bloqueado."
+   ],
+   "c": 0,
+   "e": "La documentación de ANR indica que si la app no responde a un evento de entrada en 5 segundos, el sistema la marca como ANR. Android no mueve trabajo entre hilos por su cuenta: eso lo decide el programador."
+  },
+  {
+   "p": "Un equipo quiere que los usuarios de una versión nueva tengan buen arranque desde la primera apertura. ¿Qué herramienta de ART apunta a eso?",
+   "o": [
+    "Un filtro `quicken`, que según la documentación compila toda la app durante la instalación del paquete.",
+    "Un archivo `.art` escrito a mano por el equipo, que reemplaza por completo al compilador de ART.",
+    "Un Baseline Profile, que lista los caminos críticos para que ART los compile por adelantado desde el inicio.",
+    "Un segundo APK con la app ya compilada para el procesador, enviado junto con el primero."
+   ],
+   "c": 2,
+   "e": "El perfil base viaja con la app y le dice a ART qué compilar de entrada. `quicken` es un filtro que la documentación marca para Android 11 o menos y no compila todo; el `.art` lo genera `dex2oat`, no se escribe a mano."
+  },
+  {
+   "p": "Senda es una app React Native y su APK trae 9,8 MB de JavaScript Hermes y 15,3 MB de `.dex`. ¿Qué parte ejecuta ART?",
+   "o": [
+    "Las dos: ART convierte el bytecode de Hermes a DEX durante la instalación y después lo compila.",
+    "El `.dex`, que son las bibliotecas Java o Kotlin que usa; el bytecode de Hermes lo ejecuta el motor Hermes.",
+    "Solo el JavaScript: el `.dex` lo ejecuta Hermes porque es el motor que viaja dentro de la app.",
+    "Ninguna: ART solo ejecuta apps nativas escritas por completo en Kotlin, sin bibliotecas de terceros."
+   ],
+   "c": 1,
+   "e": "El bytecode de Hermes no es DEX: no pasa por ART ni por sus perfiles. ART ejecuta el `.dex` de las bibliotecas de la app, aunque sea de React Native."
+  },
+  {
+   "p": "Una app pide la cámara. ¿Cuál es el camino correcto de un pedido de hardware según la arquitectura de Android?",
+   "o": [
+    "App, framework, servicio del sistema (por Binder), HAL del fabricante, controlador del kernel y hardware.",
+    "App, HAL del fabricante, framework, servicio del sistema y recién después el controlador del kernel.",
+    "App, controlador del kernel y, desde ahí, el servicio del sistema que le habla a la HAL del fabricante.",
+    "App, servicio del sistema y HAL, saltando el framework porque este solo corre en procesos del sistema."
+   ],
+   "c": 0,
+   "e": "La app usa la API del framework (que corre en su proceso), esta pide el trabajo a un servicio del sistema por Binder, y el servicio usa la HAL del fabricante para llegar al controlador. La app nunca llama a la HAL."
+  }
+ ],
+ "feynman": "Explicá con tus palabras, a alguien que conoce un depósito, por qué el programa de una app de Android no tiene `main` y quién lo llama, usando lo que viste del hilo principal, Binder y el DEX que solo nombra al framework.",
+ "para_profundizar": [
+  {
+   "fuente": "mob1002-arch",
+   "nota": "La página de arquitectura de AOSP: las capas con la definición oficial de API de Android, API de sistema y framework; sirve para revisar la tabla de hoy con las palabras del proyecto."
+  },
+  {
+   "fuente": "mob1002-dex-format",
+   "nota": "La especificación completa del formato DEX, con cada campo del encabezado; con ella podés ampliar el lector de 20 líneas y leer clases o instrucciones."
+  },
+  {
+   "fuente": "mob1002-art-configure",
+   "nota": "La configuración de ART: filtros de compilación, el flujo con perfil de nube y las opciones de dex2oat; es la base de lo que viste en la sección de ART."
+  },
+  {
+   "fuente": "mob1002-activitythread",
+   "nota": "El código fuente de ActivityThread: un archivo largo, pero buscando `main`, `attach` y `performLaunchActivity` se sigue de punta a punta lo que dibujó la secuencia de hoy."
+  }
+ ],
+ "videos": [],
+ "terminos": [
+  {
+   "t": "HAL",
+   "d": "Capa de abstracción de hardware: una interfaz estándar que cada fabricante implementa para que Android acceda a su hardware (cámara, sensores) sin que cambie lo que hay por encima."
+  },
+  {
+   "t": "ART",
+   "d": "Android Runtime: el entorno que ejecuta el código DEX de las apps, combinando interpretación, compilación en vivo y compilación anticipada guiada por perfiles."
+  },
+  {
+   "t": "framework",
+   "d": "En Android, el conjunto de clases y código ya compilado sobre el que se construyen las apps; corre dentro del proceso de cada app y llama a tu código en lugar de que vos lo llames."
+  },
+  {
+   "t": "APK instalado",
+   "d": "La copia que deja el sistema al instalar un APK: el zip firmado más lo que se agrega alrededor (código compilado por ART, bibliotecas nativas y un directorio de datos privados, todo bajo el UID de la app)."
+  },
+  {
+   "t": "dex2oat",
+   "d": "Herramienta de ART que toma un APK y genera los archivos de código compilado (.vdex, .odex y a veces .art) que el runtime carga."
+  },
+  {
+   "t": "Baseline Profile",
+   "d": "Lista que un desarrollador incluye en su app con los caminos críticos, para que ART los compile por adelantado desde la instalación y el primer usuario ya arranque optimizado."
+  }
+ ],
+ "siguiente": "Los componentes con los que Android abre tu app (Activity, Service, BroadcastReceiver, Intent) y el archivo AndroidManifest.xml, leído línea por línea.",
+ "fuentes_nuevas": [
+  {
+   "id": "mob1002-activitythread",
+   "t": "ActivityThread.java (código fuente de Android, rama main)",
+   "a": "AOSP",
+   "tipo": "doc",
+   "url": "https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/java/android/app/ActivityThread.java"
+  },
+  {
+   "id": "mob1002-anr",
+   "t": "ANRs (Android Developers)",
+   "a": "Google",
+   "tipo": "doc",
+   "url": "https://developer.android.com/topic/performance/vitals/anr"
+  },
+  {
+   "id": "mob1002-dex-format",
+   "t": "Dalvik Executable format",
+   "a": "AOSP",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/runtime/dex-format"
+  },
+  {
+   "id": "mob1002-multidex",
+   "t": "Enable multidex for apps with over 64K methods",
+   "a": "Google",
+   "tipo": "doc",
+   "url": "https://developer.android.com/build/multidex"
+  },
+  {
+   "id": "mob1002-art-configure",
+   "t": "Configure ART",
+   "a": "AOSP",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/runtime/configure"
+  },
+  {
+   "id": "mob1002-baseline",
+   "t": "Baseline Profiles overview",
+   "a": "Google",
+   "tipo": "doc",
+   "url": "https://developer.android.com/topic/performance/baselineprofiles/overview"
+  },
+  {
+   "id": "mob1002-arch",
+   "t": "Android platform architecture (AOSP)",
+   "a": "AOSP",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/architecture"
+  },
+  {
+   "id": "mob1002-app-storage",
+   "t": "Access app-specific files",
+   "a": "Google",
+   "tipo": "doc",
+   "url": "https://developer.android.com/training/data-storage/app-specific"
+  },
+  {
+   "id": "mob1002-expo-hermes",
+   "t": "Using Hermes engine (Expo)",
+   "a": "Expo",
+   "tipo": "doc",
+   "url": "https://docs.expo.dev/guides/using-hermes/"
+  }
+ ]
+}

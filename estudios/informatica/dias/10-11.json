@@ -1,0 +1,706 @@
+{
+ "id": "10-11",
+ "titulo": "React Native II: la arquitectura nueva",
+ "bajada": "Cómo se hablan hoy el código JavaScript y las vistas nativas sin pasarse notas escritas: JSI, TurboModules, Fabric y Yoga, con lo que corrí y con lo que Senda usa de verdad.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar por qué el puente asíncrono de la arquitectura vieja se volvía un cuello de botella y estimar el costo de serializar un dato según su tamaño.",
+  "Describir qué es JSI y qué cambia cuando JavaScript sostiene una referencia a un objeto nativo en vez de recibir una copia.",
+  "Leer una especificación de TurboModule y predecir qué firma nativa genera Codegen, incluida la diferencia entre llamada sincrónica y con callback.",
+  "Seguir una pantalla por las tres fases de Fabric (render, commit, mount) y ubicar dónde calcula Yoga el layout.",
+  "Distinguir qué afirma la documentación oficial, qué medí yo y qué se verificó en el código de Senda."
+ ],
+ "venis_de": "En el [@10-10] viste las dos mitades de una app React Native: el código JavaScript que corre en su propio hilo y las vistas y módulos nativos que muestran y hacen cosas en el teléfono. Quedó pendiente la pregunta central: cómo se hablan esas dos mitades y a qué costo. Hoy se responde.",
+ "se_apoya_en": [
+  "06-06",
+  "06-17",
+  "10-10",
+  "10-07"
+ ],
+ "gancho": [
+  "Pensá en una app de depósito que lee códigos de barras con la cámara. Cada cuadro de video pesa unos 30 MB y llegan 60 por segundo. Para que se sienta fluida, cada cuadro tiene que atenderse en menos de 16,7 milisegundos (1.000 ms dividido 60). La app tiene dos mitades que no hablan el mismo idioma: JavaScript decide qué hacer con el código leído y la cámara es nativa. Todo depende de cómo se pasan los datos de una a otra.",
+  "Hice una cuenta simple en esta VM. Tomé un bloque de 30 MiB, lo convertí en texto JSON y lo volví a leer, como haría cualquier sistema que solo se pasa mensajes escritos: 390 ms, unas 23 veces el presupuesto de un cuadro y sin haber mirado la imagen. No es el mecanismo real de React Native, es un sustituto para ver la forma del problema. Esa pared es la que la arquitectura nueva vino a derribar, y hoy vas a ver cómo."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Antes: dos mundos que se hablan por escrito"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Repasá lo de ayer. Tu código corre en el [[hilo de JS]]. Lo que ves en pantalla son [[vistas nativas|vista nativa]]. Y cuando hace falta algo del teléfono, como el almacenamiento o la vibración, se llama a un [[módulo nativo]]. La pregunta es cómo cruza la información de un lado a otro.",
+    "En la arquitectura original (la llaman «legacy» o vieja), cada cruce pasaba por un **puente asíncrono**. Según el equipo de React Native, para dibujar un componente o llamar a una función nativa había que **serializar** la llamada (convertirla en datos transportables) y **encolarla**; el otro lado la procesaba más tarde [#rn1011-blog-nueva-arq]. La ventaja era real: ningún hilo se bloqueaba esperando al otro. Pero el diseño tenía límites que la propia documentación enumera:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Serializar costaba.** Con actualizaciones muy frecuentes o con objetos grandes, el puente se volvía un cuello de botella y era difícil sostener 60 cuadros por segundo.",
+    "**Los dos lados se desincronizaban.** Cuando JavaScript y el lado nativo quedaban desfasados no había forma de reconciliarlos en el acto, y aparecían listas con huecos vacíos y saltos visuales.",
+    "**Había una sola copia de la interfaz**, la jerarquía nativa, que se modificaba en el lugar. Por eso el layout solo se podía calcular en un hilo y no se podía leer de forma sincrónica.",
+    "**No se podían usar bien las funciones concurrentes de React**, como las transiciones, que necesitan poder interrumpir un render."
+   ],
+   "ord": false
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La torre de control con notas",
+   "x": [
+    "Es como una torre de control que solo habla con los camiones por notas escritas: anota la orden, la deja en una bandeja, alguien la lleva y vuelve otra nota con la respuesta. Nadie se queda parado, pero cada intercambio tiene la demora de escribir, llevar y leer. Con una orden corta no se nota. Con un pallet entero «escrito» en papel, sí.",
+    "Dónde deja de valer: el puente real no era papel ni tenía bandejas visibles, y yo no medí su tiempo real. La analogía sirve para la idea de escribir, encolar y esperar, no para las cifras."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para ver la forma del problema medí algo que cualquiera puede repetir. Con JSON en Node 22, el mismo dato cuesta distinto según cómo lo pasás:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dato",
+    "Como texto JSON (escribir y leer)",
+    "Por referencia"
+   ],
+   "filas": [
+    [
+     "Lista de 2.000 «versículos» (254.387 bytes)",
+     "1,9 ms",
+     "0,0002 ms"
+    ],
+    [
+     "Un bloque de 30 MiB (41.943.048 bytes en JSON con base64)",
+     "390 ms",
+     "0,0002 ms"
+    ],
+    [
+     "Presupuesto de un cuadro a 60 por segundo",
+     "16,7 ms",
+     "16,7 ms"
+    ]
+   ],
+   "cap": "Medianas en una VM de 4 núcleos, Node 22, el 16-11-2026. Es JSON de JavaScript, no el puente real de React Native: sirve para mostrar que el costo de copiar crece con el tamaño y el de pasar una referencia no."
+  },
+  {
+   "t": "p",
+   "x": "Podés repetir la parte chica acá mismo. Los tiempos cambian con tu equipo; lo que no cambia es la proporción."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const lista = Array.from({ length: 2000 }, (_, i) => ({ id: i, libro: 'Juan', cap: 3, ver: (i % 36) + 1, texto: 'Porque de tal manera amó Dios al mundo, que ha dado a su Hijo unigénito' }));\nconst mediana = (f, n = 15) => { f(); const a = []; for (let i = 0; i < n; i++) { const t = performance.now(); f(); a.push(performance.now() - t); } a.sort((x, y) => x - y); return a[n >> 1]; };\nconst texto = JSON.stringify(lista);\nconsole.log('Lista de 2000 objetos como texto JSON:', texto.length, 'caracteres');\nconsole.log('Escribir y volver a leer (mediana):', mediana(() => JSON.parse(JSON.stringify(lista))).toFixed(2), 'ms');\nconsole.log('Pasarla por referencia (mediana):', mediana(() => { const ref = lista; return ref.length; }).toFixed(4), 'ms');",
+   "cap": "Copiar con JSON contra pasar una referencia. Ejecutable en el navegador.",
+   "ejecutable": true
+  },
+  {
+   "t": "pensa",
+   "x": "Si copiar crece con el tamaño del dato y pasar una referencia no, ¿qué harías en el esquema viejo con una imagen de 30 MB que la app solo necesita mostrar o analizar?",
+   "resp": "Dejarla del lado nativo y pasar a JavaScript solo algo chico, como un identificador o una ruta, para que el procesamiento ocurra donde está el dato. Es el truco que las librerías tenían que usar en la arquitectura vieja. JSI permite además que JavaScript sostenga una referencia directa al dato."
+  },
+  {
+   "t": "h",
+   "x": "JSI: una referencia en vez de una nota"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[JSI]] (JavaScript Interface) es la pieza que reemplaza al puente. El glosario oficial la define como una API liviana para embeber un motor de JavaScript en una aplicación C++ [#rn1011-glosario]. La idea práctica: JavaScript puede sostener una referencia a un objeto C++ y C++ puede sostener una referencia a un objeto JavaScript, de modo que se llaman métodos directamente, sin el costo de serializar [#rn1011-nueva-arq].",
+    "No hace falta leer C++ para ver la forma. El archivo `jsi.h` de React Native 0.86.3 (la versión de Senda) define tres conceptos que alcanzan para entenderla [#cpp-rn-jsi]:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "`Runtime` (línea 705): la clase que representa al motor de JavaScript, con operaciones como evaluar un texto de código (`evaluateJavaScript`, línea 357) o crear objetos. Es abstracta: cada motor la implementa a su manera, y el motor que usa React Native es Hermes [#vm-rn-hermes].",
+    "`HostFunctionType` (línea 217): el tipo de una función escrita en C++ que JavaScript puede llamar como si fuera una función más.",
+    "`HostObject` (línea 222): un objeto C++ que se registra en JavaScript. Cuando JavaScript lee una propiedad suya, el motor llama al método `get` (línea 239) y C++ responde en el momento."
+   ],
+   "ord": false
+  },
+  {
+   "t": "p",
+   "x": "El efecto se ve en el código de aplicación. El blog de la versión 0.76 lo muestra con un ejemplo que copio resumido [#rn1011-blog-nueva-arq]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Puente viejo",
+    "JSI"
+   ],
+   "filas": [
+    [
+     "Respuesta de una función nativa",
+     "Siempre por callback, más tarde",
+     "Puede ser un valor devuelto en el acto"
+    ],
+    [
+     "Qué puede viajar",
+     "Solo datos serializables",
+     "También una referencia a un objeto nativo"
+    ],
+    [
+     "Costo por dato grande",
+     "Crece con el tamaño (serializar)",
+     "No hay copia por el cruce"
+    ],
+    [
+     "Quién espera",
+     "Nadie, pero la respuesta llega después",
+     "Quien llama espera hasta que C++ termine"
+    ]
+   ],
+   "cap": "Resumen propio a partir del blog «The New Architecture is here» (23-10-2024)."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La fotocopia y la llave",
+   "x": [
+    "El puente viejo era como pasarle a un compañero una fotocopia del legajo. JSI se parece más a darle la llave del archivo: no hay copia, ambos miran lo mismo.",
+    "Dónde deja de valer: con una llave compartida aparecen reglas que con la fotocopia no existían. Un comentario del propio `jsi.h` lo dice con claridad: el destructor de un `HostObject` se ejecuta cuando el recolector de basura del motor decide, en un hilo que no controlás, y desde ahí no conviene hacer trabajo pesado [#cpp-rn-jsi]. Compartir es más rápido y también exige más cuidado."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": [
+    "**Mito:** «Activar la arquitectura nueva acelera cualquier app automáticamente.»",
+    "**Realidad:** la documentación oficial es prudente. Habilitarla puede no mejorar de inmediato el rendimiento ni la experiencia, porque tu código quizá necesite cambios para aprovechar las capacidades nuevas, y porque serializar datos puede no haber sido el cuello de botella de tu app [#rn1011-nueva-arq]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "JSI no elimina los hilos ni los junta. Sigue habiendo un hilo de JavaScript y un hilo de interfaz (UI) que son distintos. Lo que cambia es que pueden hablarse directamente y, cuando hace falta, de forma sincrónica [#rn-threading-model]."
+  },
+  {
+   "t": "h",
+   "x": "TurboModules y Codegen: el contrato se escribe primero"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[TurboModule]] es un módulo nativo del sistema nuevo. Está construido sobre JSI, puede escribirse en C++ para que sirva en varias plataformas, y se carga de forma perezosa: se trae a memoria cuando alguien lo usa por primera vez y no al arrancar la app, lo que ayuda al tiempo de inicio [#rn1011-blog-nueva-arq].",
+    "Su otra novedad es el **contrato**. Antes de escribir nada nativo, se declara en TypeScript (o Flow) una especificación con los métodos y los tipos que cruzan la frontera. Una herramienta llamada [[Codegen]] lee esa especificación y genera el código de pegamento para Android e iOS [#rn1011-turbo-modules]. Lo corrí. Escribí la especificación del ejemplo de la documentación (un `localStorage` mínimo):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "ts",
+   "x": "import type { TurboModule } from 'react-native';\nimport { TurboModuleRegistry } from 'react-native';\n\nexport interface Spec extends TurboModule {\n  setItem(value: string, key: string): void;\n  getItem(key: string): string | null;\n  removeItem(key: string): void;\n  clear(): void;\n}\n\nexport default TurboModuleRegistry.getEnforcing<Spec>('NativeLocalStorage');",
+   "cap": "NativeLocalStorage.ts, tomada del ejemplo de la guía oficial de TurboModules."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node @react-native/codegen/lib/cli/combine/combine-js-to-schema-cli.js --platform android schema.json specs/",
+     "s": "(sin salida; escribe schema.json con los 4 métodos y sus tipos)"
+    },
+    {
+     "c": "node @react-native/codegen/lib/cli/generators/generate-all.js schema.json NativeLocalStorageSpec out com.nativelocalstorage",
+     "s": "(sin salida)"
+    },
+    {
+     "c": "find out -type f | wc -l && cat out/java/com/nativelocalstorage/NativeLocalStorageSpec.java | wc -c",
+     "s": "19\n1384"
+    }
+   ],
+   "cap": "@react-native/codegen 0.88.1, corrido en una VM el 16-11-2026. A partir de 12 líneas de TypeScript salieron 19 archivos y unos 20 KB de código nativo; no escribí ninguno."
+  },
+  {
+   "t": "p",
+   "x": "Del lado Android salió una clase Java abstracta que el desarrollador del módulo tiene que completar. Fijate en los dos métodos:"
+  },
+  {
+   "t": "codigo",
+   "lang": "java",
+   "x": "public abstract class NativeLocalStorageSpec extends ReactContextBaseJavaModule implements TurboModule {\n  public static final String NAME = \"NativeLocalStorage\";\n  ...\n  @ReactMethod\n  @DoNotStrip\n  public abstract void setItem(String value, String key);\n\n  @ReactMethod(isBlockingSynchronousMethod = true)\n  @DoNotStrip\n  public abstract @Nullable String getItem(String key);\n  ...",
+   "cap": "Extracto del archivo generado por Codegen. La parte `...` es mía; el resto es el texto generado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay un detalle que enseña mucho. `setItem` no devuelve nada y salió como método común. `getItem` devuelve un texto, y Codegen lo marcó con `isBlockingSynchronousMethod = true`: **llamada sincrónica**. JavaScript espera y recibe el valor en el acto, sin callback. También generó, del lado C++, una función de enlace por método (con la firma JNI de Java, por ejemplo `(Ljava/lang/String;)Ljava/lang/String;` para `getItem`) y un registro que asocia cada nombre de método con su función.",
+    "Probé una segunda especificación para ver las reglas de conversión. Un `number` de TypeScript sale como `double` en Java, un callback sale como `Callback` y un método con valor de retorno vuelve a salir sincrónico:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "En TypeScript",
+    "En Java generado",
+    "Cómo llama JavaScript"
+   ],
+   "filas": [
+    [
+     "`getVolume(): number`",
+     "`double getVolume()`",
+     "Sincrónica, devuelve el número"
+    ],
+    [
+     "`setVolume(level: number): void`",
+     "`void setVolume(double level)`",
+     "Común, no devuelve nada"
+    ],
+    [
+     "`onDone(callback: (ok: boolean) => void): void`",
+     "`void onDone(Callback callback)`",
+     "Común, responde por callback"
+    ]
+   ],
+   "cap": "Salida real de Codegen 0.88.1 sobre una especificación `NativeVolumen` que escribí para esta prueba."
+  },
+  {
+   "t": "p",
+   "x": "Lo más útil del contrato es lo que impide. Cambié `getVolume` por un método que devuelve `Date`, un tipo que no existe en el contrato, y Codegen cortó con el error `Unrecognized generic type 'Date' in NativeModule spec`. Falló al generar, en la computadora del desarrollador, y no en el teléfono de un usuario. La documentación de Fabric cuenta lo mismo para los componentes: una diferencia entre las propiedades declaradas en JavaScript y las del lado nativo provoca un error de compilación [#rn1011-fabric]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Escribí en tu cuaderno la firma Java que esperarías para estos dos métodos de una especificación: `getNombre(): string | null` y `guardar(clave: string, valor: number): void`. Después decí cuál sería sincrónico y cuál no.",
+   "pista": "Mirá la tabla de arriba y el `getItem` del ejemplo: lo que vuelve con valor es sincrónico; `number` es `double`; `string | null` lleva una anotación de que puede ser nulo.",
+   "solucion": "`@Nullable String getNombre()` es sincrónico, igual que `getItem`: devuelve valor y puede ser nulo. `void guardar(String clave, double valor)` es común: no devuelve nada, y el `number` pasa a `double`. Son las reglas que se vieron en las dos especificaciones corridas."
+  },
+  {
+   "t": "pensa",
+   "x": "Una llamada sincrónica devuelve el valor en el acto. ¿Qué riesgo trae si el trabajo nativo tarda 200 ms?",
+   "resp": "Mientras el lado nativo no responde, el hilo de JavaScript queda esperando: no procesa toques ni dibuja nada. Una llamada sincrónica lenta congela la lógica de la app. Por eso conviene reservarlas para consultas muy rápidas y dejar las lentas con callback o promesa."
+  },
+  {
+   "t": "h",
+   "x": "Fabric: de tu JSX a los píxeles"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[Fabric]] es el sistema de renderizado nuevo. Su núcleo está escrito en C++ y lo comparten todas las plataformas: el mismo código decide qué hay en pantalla en Android y en iOS [#rn1011-fabric]. Es lo que toma el árbol de componentes que describe tu código y lo convierte en vistas nativas.",
+    "La documentación oficial divide el trabajo en tres fases [#render10-rn-render-pipeline]. Para `<View><Text>Hola</Text></View>`:"
+   ]
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "Render",
+     "x": "React ejecuta tus componentes y arma un árbol de elementos en JavaScript. A medida que lo hace, el renderizador crea en C++ un nodo de sombra por cada componente que termina en una vista (aquí un `ViewShadowNode` y un `TextShadowNode`). Los componentes que solo componen a otros, como tu `MiPantalla`, no tienen nodo de sombra propio."
+    },
+    {
+     "t": "Commit",
+     "x": "Con el árbol de sombra completo, se calcula el layout (posición y tamaño de cada nodo, y acá trabaja Yoga) y se promueve ese árbol como «el próximo» a mostrar. Esto corre en un hilo de fondo."
+    },
+    {
+     "t": "Mount",
+     "x": "El árbol de sombra, ya con medidas, se convierte en vistas reales de la plataforma. En Android son objetos como `ViewGroup` y `TextView` [#rn1011-glosario]. Es el único paso que toca vistas, y solo el hilo de UI puede hacerlo."
+    }
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Árbol de React",
+       "s": "Elementos en JavaScript",
+       "k": "cliente"
+      },
+      {
+       "t": "Render",
+       "s": "Crea nodos de sombra en C++",
+       "k": "servidor",
+       "e": "JSI"
+      },
+      {
+       "t": "Commit",
+       "s": "Yoga calcula posiciones y tamaños",
+       "k": "datos"
+      }
+     ],
+     "baja": "El árbol ya medido queda listo como «el próximo»"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Mount",
+       "s": "Se crean o actualizan las vistas nativas",
+       "k": "os"
+      },
+      {
+       "t": "Pantalla",
+       "s": "ViewGroup, TextView…",
+       "k": "hw"
+      }
+     ]
+    }
+   ],
+   "cap": "Las tres fases de la documentación oficial. Cada fase puede ejecutarse en un hilo distinto."
+  },
+  {
+   "t": "p",
+   "x": "Hay dos ideas de diseño detrás. La primera es que el árbol de sombra es **inmutable**: para cambiar algo no se modifica un nodo, se crea un árbol nuevo (con clonado para no copiarlo todo). Eso permite varias versiones en preparación a la vez y lo hace seguro entre hilos. La segunda es que el renderizado puede ir por dos caminos según urgencia. Lo habitual es que la fase de render corra en el hilo de JavaScript, pero ante un evento urgente del usuario puede ejecutarse completa y sincrónicamente en el hilo de UI, e incluso interrumpir un render de baja prioridad y retomarlo después [#rn-threading-model]."
+  },
+  {
+   "t": "p",
+   "x": "Con eso se resuelve el ejemplo que da la documentación. Para poner un tooltip sobre una vista hay que medirla y luego ubicarlo. En la arquitectura vieja la medición llegaba por un evento de layout, y si en ese callback se cambiaba el estado, el cambio podía aplicarse después de pintar el cuadro anterior: el usuario veía el tooltip saltar. Con la arquitectura nueva se puede medir dentro de un efecto de layout y la actualización entra en el mismo commit, sin cuadro intermedio [#rn1011-nueva-arq]."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué crear un árbol nuevo en cada cambio, en vez de modificar el viejo, hace más fácil trabajar con varios hilos?",
+   "resp": "Porque un árbol que ya no cambia se puede leer desde varios hilos sin que nadie lo modifique en medio de la lectura. Si dos hilos escribieran sobre la misma copia, habría que coordinarlos con candados. Con árboles inmutables cada hilo trabaja sobre su versión y se promueve una sola al final. El costo es crear nodos nuevos, que Fabric reduce clonando solo lo que cambió."
+  },
+  {
+   "t": "h",
+   "x": "Yoga: quién decide dónde va cada cosa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[Yoga]] es el motor de layout, escrito en C++, que calcula la posición y el tamaño de cada nodo con las reglas de flexbox [#rn1011-yoga]. Ya lo conocés desde el CSS: en el [@06-06] viste cómo `flex`, la dirección y la alineación reparten el espacio. React Native usa las mismas ideas con sus propios valores iniciales (por ejemplo, la dirección principal es vertical).",
+    "Para ver a Yoga trabajando sin un teléfono instalé en una carpeta aparte el paquete `yoga-layout` 3.2.1, que lo expone en JavaScript, y armé la estructura típica de una pantalla de 360 por 640 dp: encabezado de 56, cuerpo que toma lo que sobra (`flex: 1`) y una barra de 5 pestañas de 64 de alto con `flexGrow: 1` cada una. Es la forma que tiene la navegación de Senda (una pila y 5 pestañas, según su mapa técnico)."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node y.mjs",
+     "s": "header  x=0 y=0 ancho=360 alto=56\ncuerpo  x=0 y=56 ancho=360 alto=520\ntabs    x=0 y=576 ancho=360 alto=64\n  pestaña 1 x=0 y=0 ancho=72 alto=64\n  pestaña 2 x=72 y=0 ancho=72 alto=64\n  ...\n  pestaña 5 x=288 y=0 ancho=72 alto=64\n--- apaisado 640x360\ncuerpo  x=0 y=56 ancho=640 alto=240\npestaña 1 x=0 y=0 ancho=128 alto=64"
+    }
+   ],
+   "cap": "yoga-layout 3.2.1 (WebAssembly) en Node 22, el 16-11-2026. El cuerpo vale 640 − 56 − 64 = 520 y las pestañas 360 ÷ 5 = 72. Girar la pantalla no cambia el árbol, solo las restricciones."
+  },
+  {
+   "t": "p",
+   "x": "Giré la pantalla a apaisado sin tocar el árbol, solo las restricciones, y Yoga recalculó: el cuerpo pasó a 240 de alto y cada pestaña a 128 de ancho. Si una de las cinco pestañas tiene `flexGrow: 2`, el reparto se hace sobre 6 partes: 60, 60, 60, 60 y 120, que también corrí. Calcular el layout completo de 2.000 nodos en esa versión de WebAssembly me tomó 0,5 ms en promedio; es una cifra de esta VM y no se traslada a un teléfono, porque React Native usa el Yoga nativo y no esta versión."
+  },
+  {
+   "t": "p",
+   "x": "Hay una excepción que explica por qué Yoga no hace todo. Cuánto ocupa un texto depende de la fuente, el idioma y el motor de texto de cada plataforma. Para `Text` y `TextInput`, Yoga llama a una función que define la plataforma anfitriona para obtener la medida [#render10-rn-render-pipeline]. Yoga manda en las cajas; el sistema operativo manda en el texto."
+  },
+  {
+   "t": "pensa",
+   "x": "Con la pantalla en 360 dp de ancho y 5 pestañas iguales, ¿cuánto mide cada una? ¿Y cuánto mide el cuerpo en apaisado (640 por 360) si el encabezado mide 56 y la barra de pestañas 64?",
+   "resp": "Cada pestaña mide 360 ÷ 5 = 72. En apaisado el alto total es 360, así que el cuerpo mide 360 − 56 − 64 = 240. Son las cifras que devolvió Yoga arriba."
+  },
+  {
+   "t": "h",
+   "x": "Cómo llegamos a hoy"
+  },
+  {
+   "t": "p",
+   "x": "La arquitectura nueva no fue un cambio de un día. Fue un proyecto de años que fue pasando de experimento a única opción. Con las fuentes oficiales, la línea es esta:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Versión o SDK",
+    "Fecha",
+    "Qué cambió"
+   ],
+   "filas": [
+    [
+     "RN 0.68",
+     "sin fecha verificada",
+     "Primera versión con la arquitectura nueva como opción experimental [#rn1011-nueva-arq]"
+    ],
+    [
+     "RN 0.74",
+     "22-04-2024",
+     "Yoga 3.0 y modo «bridgeless» por defecto cuando la arquitectura nueva está activa [#rn1011-blog-074]"
+    ],
+    [
+     "RN 0.76",
+     "23-10-2024",
+     "La arquitectura nueva pasa a ser la predeterminada [#rn1011-blog-nueva-arq]"
+    ],
+    [
+     "RN 0.82",
+     "08-10-2025",
+     "Primera versión que corre solo en la arquitectura nueva: desactivarla se ignora [#rn1011-blog-082]"
+    ],
+    [
+     "RN 0.84",
+     "11-02-2026",
+     "Hermes V1 como motor por defecto; sigue la remoción del código viejo [#rn1011-blog-084]"
+    ],
+    [
+     "Expo SDK 55",
+     "sin fecha verificada",
+     "Siempre arquitectura nueva; para la vieja hay que quedarse en SDK 54 o anterior [#rn1011-expo-nueva-arq]"
+    ]
+   ],
+   "cap": "Fechas de los blogs oficiales; de RN 0.68 la documentación solo dice que fue la primera con adopción experimental voluntaria y no verifiqué la fecha."
+  },
+  {
+   "t": "p",
+   "x": "Dos conceptos para no confundirse. **Bridgeless** es el modo en que la app arranca sin el puente viejo: toda la comunicación pasa por JSI. Y la **capa de interoperabilidad** es un traductor que deja funcionar librerías escritas para el puente viejo dentro de la arquitectura nueva. El equipo dijo que la mantendrá «por el futuro previsible» [#rn1011-blog-082]. Aun así, la guía de Expo advierte que muchas librerías populares ya solo soportan la arquitectura nueva [#rn1011-expo-nueva-arq], así que la capa de interoperabilidad no es excusa para atrasarse."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "La misma guía de Expo informa que, a enero de 2026, alrededor del 83 % de los proyectos de SDK 54 compilados con su servicio de compilación ya usaban la arquitectura nueva, cuando todavía era optativa [#rn1011-expo-nueva-arq]. Es un dato de Expo sobre sus propios usuarios, no de toda la industria."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que puede cambiar",
+   "x": "Estado al 16-11-2026. La última versión de React Native en su documentación es la 0.88 (la plantilla de `create-expo-app` de hoy trae `react-native 0.88.1` con Expo SDK 58, anunciado el 14-10-2026). Senda usa 0.86.3 y SDK 57. La remoción del código viejo continúa en cada versión y los números de línea que cito de `jsi.h` son de la 0.86.3: pueden moverse. Lo que se mantiene es la idea: referencias directas, contrato tipado, árbol inmutable."
+  },
+  {
+   "t": "h",
+   "x": "Lo que Senda usa de todo esto"
+  },
+  {
+   "t": "senda",
+   "titulo": "Una app que corre en la arquitectura nueva por obligación",
+   "x": [
+    "Senda declara `react-native` `0.86.3` y Expo `~57.0.26`, y el `package-lock.json` confirma `0.86.3` y `57.0.26`. En `app.json` no aparece `newArchEnabled`: verificado, no está. Y no hace falta, porque desde React Native 0.82 y Expo SDK 55 esa opción se ignora y la arquitectura nueva es la única. En Senda no es una decisión de producto sino una consecuencia de las versiones elegidas. Además, `docs/ANUNCIOS.md` anota que `react-native-google-mobile-ads` 17.4.0 la exige.",
+    "Senda no escribe módulos nativos propios: busqué `TurboModuleRegistry`, `NativeModules`, `requireNativeComponent` y `codegenNative` en `src/`, `App.tsx` e `index.ts` y no hay coincidencias. Los TurboModules y Fabric están en las librerías que usa. Un ejemplo: AsyncStorage 2.2.0 (donde vive todo lo local de Senda) declara en su `src/NativeAsyncStorageModule.ts` una especificación con `TurboModuleRegistry.get`, y todos sus métodos devuelven por callback, es decir, asincrónicos. Eso lo leí en el paquete descargado con `npm pack`, porque Senda no tiene `node_modules` en este clon. Rive va por otro camino, `react-native-nitro-modules` 0.36.5, que se describe como módulos nativos rápidos y tipados «con enlaces JSI compilados estáticamente»; no pasa por Codegen.",
+    "En el código de la interfaz hay rastros de lo que da la arquitectura nueva. `src/pantallas/Lector.tsx` usa `startTransition` en tres lugares (líneas 208, 949 y 996) y `useDeferredValue` en la 1309: son funciones concurrentes de React. Hay 27 usos de `onLayout` y dos pantallas miden con callbacks (`Jugar.tsx` línea 719 para ubicar el centro de la ruleta, `Album.tsx` línea 381 con `measureInWindow`). No hay ningún `useLayoutEffect`: la lectura sincrónica del layout es una capacidad de la plataforma que Senda no usa hoy. No lo cuento como deuda, solo como lo que hay.",
+    "Sobre el motor: `app.json` no define `jsEngine` y el `package-lock.json` resuelve `hermes-compiler` `250829098.0.17`. Por lo que dice el blog de la 0.84, un proyecto con Hermes toma Hermes V1 de forma automática. Es una inferencia mía, no la comprobé en un APK. Esto corresponde al commit `25e08fa`: el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "package.json",
+    "package-lock.json",
+    "app.json",
+    "docs/ANUNCIOS.md",
+    "src/pantallas/Lector.tsx",
+    "src/pantallas/Jugar.tsx",
+    "src/pantallas/Album.tsx"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": [
+    "**Mito:** «Si la app corre en la arquitectura nueva, entonces ya es rápida y nada se puede trabar.»",
+    "**Realidad:** la arquitectura da herramientas, no garantías. Senda corre en ella y tiene 27 `onLayout` y mediciones por callback; si algún día se ve un salto visual en una pantalla, la causa puede estar en cómo se programó esa pantalla, no en la plataforma. El rendimiento se mide en un teléfono real, que acá no hay, y es tema del [@10-33]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Con esto cerrás el mapa de lo que hay debajo de React Native. Ya sabés que JavaScript y el lado nativo se hablan por JSI, que los módulos nativos declaran su contrato y Codegen genera el pegamento, que Fabric arma las vistas en tres fases con un árbol inmutable y que Yoga reparte el espacio. Mañana se mira lo que se pone alrededor de todo eso para poder construir, probar y publicar una app sin armar a mano cada pieza."
+  }
+ ],
+ "recap": [
+  "El puente viejo serializaba y encolaba cada llamada entre JavaScript y lo nativo. Era asíncrono, y el costo de copiar crece con el tamaño del dato (390 ms con 30 MiB en mi medición, que es un sustituto, no el puente real).",
+  "JSI permite que JavaScript sostenga una referencia a un objeto C++ y llame sus métodos directamente, incluso en forma sincrónica. No elimina los hilos de JS y de UI.",
+  "Un TurboModule declara su contrato en TypeScript y Codegen genera el pegamento. Lo que devuelve valor sale sincrónico; un tipo no soportado hace fallar la generación, no la app en el teléfono.",
+  "Fabric trabaja en tres fases: render (nodos de sombra en C++), commit (Yoga calcula el layout) y mount (vistas nativas). El árbol de sombra es inmutable.",
+  "Yoga calcula flexbox para todos los nodos, salvo que el tamaño del texto lo mide la plataforma.",
+  "Desde RN 0.82 y Expo SDK 55 la arquitectura nueva es la única. Senda la usa por eso, sin declararla, y no escribe módulos nativos propios."
+ ],
+ "repaso": [
+  {
+   "p": "Una app envía a JavaScript un cuadro de cámara de 30 MB 60 veces por segundo. En el esquema viejo, ¿qué decisión de diseño tiene más sentido?",
+   "o": [
+    "Convertir cada cuadro a texto para que cruce el puente completo",
+    "Dejar el cuadro en lo nativo y pasar solo un identificador o una ruta",
+    "Bajar la velocidad de la cámara hasta que el puente alcance",
+    "Mandar el cuadro en varios pedazos y reunirlos del lado de JS"
+   ],
+   "c": 1,
+   "e": "Si el costo de serializar crece con el tamaño, lo sensato es no mover el dato grande: se procesa donde vive y solo viaja algo chico. Convertirlo a texto es el caso lento que medí; reducir los cuadros pierde la calidad que se buscaba y trocearlo sigue copiando los mismos 30 MB."
+  },
+  {
+   "p": "¿Qué describe mejor lo que JSI cambia respecto del puente viejo?",
+   "o": [
+    "Une el hilo de JS y el de UI en un solo hilo para evitar esperas",
+    "Permite referencias directas a objetos nativos y llamadas sin serializar",
+    "Compila el JavaScript a código nativo antes de instalar la app",
+    "Reemplaza a Hermes por un motor escrito por completo en C++"
+   ],
+   "c": 1,
+   "e": "JSI es una interfaz que deja a JavaScript y C++ sostener referencias mutuas. Los hilos siguen siendo distintos, Hermes sigue siendo el motor (JSI es la forma de enchufarlo) y compilar a bytecode es otra cosa."
+  },
+  {
+   "p": "Un TurboModule tiene un método `leerTemperatura(): number`. ¿Cómo lo trata Codegen en Android?",
+   "o": [
+    "Un método común que responde después, devolviendo un `Promise` ya armado",
+    "Un método sincrónico que devuelve un `double`, por tener valor de retorno",
+    "Un método que solo existe para iOS, porque `number` no tiene equivalente",
+    "Un método con `Callback`, igual que cualquier función de un TurboModule"
+   ],
+   "c": 1,
+   "e": "En lo que corrí, un método con valor de retorno sale marcado como bloqueante sincrónico y un `number` se convierte en `double`. El callback aparece solo si la especificación lo declara como parámetro."
+  },
+  {
+   "p": "Para `<View><Text>Hola</Text></View>`, ¿en qué fase se calcula la posición y el tamaño de cada nodo?",
+   "o": [
+    "En render, cuando React ejecuta los componentes en JavaScript",
+    "En commit, cuando Yoga mide el árbol de sombra ya creado",
+    "En mount, cuando Android crea el `ViewGroup` y el `TextView`",
+    "En un paso previo, antes de escribir el código de la pantalla"
+   ],
+   "c": 1,
+   "e": "Render crea nodos de sombra sin medidas, commit los mide con Yoga y los promueve, y mount arma las vistas de la plataforma con esas medidas ya listas. El layout no se decide durante el render ni al montar."
+  },
+  {
+   "p": "Un compañero dice: «Como Senda no declara `newArchEnabled`, debe correr con la arquitectura vieja». ¿Qué le contestás?",
+   "o": [
+    "Tiene razón: sin esa opción se usa la arquitectura vieja",
+    "No, desde RN 0.82 y Expo SDK 55 esa opción se ignora y rige la nueva",
+    "Depende del teléfono: en Android nuevos rige la nueva y en el resto no",
+    "Tiene razón, pero solo hasta la próxima actualización de React"
+   ],
+   "c": 1,
+   "e": "Senda usa RN 0.86.3 y Expo SDK 57, ambos posteriores a esos cortes: la arquitectura nueva es la única, con o sin la opción. La elección no depende del teléfono y la ausencia del flag no significa «vieja»."
+  },
+  {
+   "p": "Dos pantallas de una app muestran un salto visual al medir una vista y mover un tooltip. ¿Qué arreglo apunta a la causa, según la documentación?",
+   "o": [
+    "Medir en un efecto de layout para que el cambio entre en el mismo commit",
+    "Subir la cantidad de cuadros por segundo hasta que el salto no se note",
+    "Pasar la medición por un callback para que llegue más tarde y más suave",
+    "Quitar el tooltip y mostrar la información en un cartel fijo"
+   ],
+   "c": 0,
+   "e": "El salto viene de que la actualización de estado se aplicaba después de pintar el cuadro anterior. Con la arquitectura nueva la medición sincrónica dentro de un efecto de layout se aplica en el mismo commit. Subir los cuadros o retrasar con callbacks mantiene el problema."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin usar las palabras «bridge» ni «JSI», por qué pasar un dato grande entre dos sistemas copiándolo es lento y qué cambia cuando solo se pasa una «llave». Usá un ejemplo propio distinto de la torre de control y decí en qué punto tu ejemplo deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "rn1011-nueva-arq",
+   "nota": "La página oficial de la arquitectura nueva: sirve para repasar los cuatro beneficios con sus ejemplos de tooltip y de transiciones, y para leer cómo se desactivaba antes de 0.82."
+  },
+  {
+   "fuente": "rn1011-blog-nueva-arq",
+   "nota": "El blog de la 0.76 explica el puente viejo, los TurboModules y el renderizador con más detalle del que cabe hoy; leelo después de este día."
+  },
+  {
+   "fuente": "rn1011-turbo-modules",
+   "nota": "La guía paso a paso para escribir un TurboModule (de la especificación al código nativo); es el recorrido que hice, con más lenguajes."
+  },
+  {
+   "fuente": "cpp-rn-jsi",
+   "nota": "El archivo `jsi.h` de la 0.86.3: conviene leer solo los comentarios sobre `HostObject` y `Runtime` para ver el contrato de JSI."
+  }
+ ],
+ "videos": [
+  {
+   "q": "React Native New Architecture explained JSI Fabric TurboModules",
+   "por_que": "Para escuchar otra explicación del mismo mapa y comparar nombres; verificá que la fecha del video sea posterior a la versión 0.82."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "JSI",
+   "d": "JavaScript Interface: API en C++ que permite a un motor de JavaScript y al código nativo sostener referencias mutuas a objetos y llamar a sus métodos directamente, sin serializar los datos."
+  },
+  {
+   "t": "Fabric",
+   "d": "El renderizador nuevo de React Native. Su núcleo en C++ crea un árbol de sombra, lo mide con Yoga y lo convierte en vistas nativas en tres fases: render, commit y mount."
+  },
+  {
+   "t": "TurboModule",
+   "d": "Módulo nativo del sistema nuevo. Se declara con una especificación tipada, se conecta por JSI y se carga cuando se usa por primera vez; puede tener métodos sincrónicos."
+  },
+  {
+   "t": "Yoga",
+   "d": "Motor de layout en C++ que calcula posición y tamaño de cada nodo con las reglas de flexbox. En el texto se apoya en la medición de la plataforma."
+  },
+  {
+   "t": "Codegen",
+   "d": "Herramienta de React Native que lee una especificación en TypeScript o Flow y genera el código de pegamento para Android e iOS. Un tipo no soportado hace fallar la generación."
+  },
+  {
+   "t": "puente asíncrono",
+   "d": "Mecanismo de la arquitectura vieja: cada llamada entre JavaScript y lo nativo se serializaba, se encolaba y se atendía más tarde. Ya no existe como camino de comunicación."
+  },
+  {
+   "t": "bridgeless",
+   "d": "Modo en que la app arranca sin el puente viejo y toda la comunicación pasa por JSI. Es el modo por defecto desde React Native 0.74 con la arquitectura nueva."
+  },
+  {
+   "t": "árbol de sombra",
+   "d": "Representación en C++ de lo que hay que mostrar: un nodo por cada componente que termina en una vista, con sus propiedades y medidas. Es inmutable: un cambio crea un árbol nuevo."
+  },
+  {
+   "t": "capa de interoperabilidad",
+   "d": "Traductor que permite usar en la arquitectura nueva librerías pensadas para el puente viejo. Se mantiene por ahora, pero no reemplaza a migrar las librerías."
+  }
+ ],
+ "siguiente": "Expo: el sistema alrededor de React Native. Qué hace Expo, qué genera `prebuild` y por qué Senda se compila en GitHub y no con el servicio de Expo.",
+ "fuentes_nuevas": [
+  {
+   "id": "rn1011-nueva-arq",
+   "t": "About the New Architecture (React Native)",
+   "a": "Meta Platforms",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/architecture/landing-page"
+  },
+  {
+   "id": "rn1011-blog-nueva-arq",
+   "t": "New Architecture is here (React Native 0.76)",
+   "a": "Meta Platforms",
+   "tipo": "articulo",
+   "anio": "2024",
+   "url": "https://reactnative.dev/blog/2024/10/23/the-new-architecture-is-here"
+  },
+  {
+   "id": "rn1011-blog-074",
+   "t": "React Native 0.74 - Yoga 3.0, Bridgeless New Architecture, and more",
+   "a": "Meta Platforms",
+   "tipo": "articulo",
+   "anio": "2024",
+   "url": "https://reactnative.dev/blog/2024/04/22/release-0.74"
+  },
+  {
+   "id": "rn1011-blog-082",
+   "t": "React Native 0.82 - A New Era",
+   "a": "Meta Platforms",
+   "tipo": "articulo",
+   "anio": "2025",
+   "url": "https://reactnative.dev/blog/2025/10/08/react-native-0.82"
+  },
+  {
+   "id": "rn1011-blog-084",
+   "t": "React Native 0.84 - Hermes V1 by Default",
+   "a": "Meta Platforms",
+   "tipo": "articulo",
+   "anio": "2026",
+   "url": "https://reactnative.dev/blog/2026/02/11/react-native-0.84"
+  },
+  {
+   "id": "rn1011-glosario",
+   "t": "Glossary (React Native architecture)",
+   "a": "Meta Platforms",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/architecture/glossary"
+  },
+  {
+   "id": "rn1011-fabric",
+   "t": "Fabric (React Native architecture)",
+   "a": "Meta Platforms",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/architecture/fabric-renderer"
+  },
+  {
+   "id": "rn1011-turbo-modules",
+   "t": "Native Modules: Introduction (Turbo Native Modules)",
+   "a": "Meta Platforms",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/docs/turbo-native-modules-introduction"
+  },
+  {
+   "id": "rn1011-yoga",
+   "t": "Yoga: a portable layout engine targeting web standards",
+   "a": "Meta Platforms",
+   "tipo": "doc",
+   "url": "https://www.yogalayout.dev/"
+  },
+  {
+   "id": "rn1011-expo-nueva-arq",
+   "t": "React Native's New Architecture (Expo documentation)",
+   "a": "Expo",
+   "tipo": "doc",
+   "url": "https://docs.expo.dev/guides/new-architecture/"
+  }
+ ]
+}

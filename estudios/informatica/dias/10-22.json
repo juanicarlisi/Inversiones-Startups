@@ -1,0 +1,548 @@
+{
+ "id": "10-22",
+ "titulo": "Animaciones y gráficos de alto rendimiento",
+ "bajada": "Por qué una animación fluida tiene que correr fuera de JavaScript, qué herramientas hay para hacerlo y cuáles usa Senda en el lector y en Lany.",
+ "minutos": 25,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Calcular el tiempo disponible por cuadro a 60, 90 y 120 Hz y explicar qué pasa cuando una tarea lo supera.",
+  "Explicar la diferencia entre el hilo de JavaScript y el hilo de UI y por qué una animación calculada en el primero se traba.",
+  "Describir qué es un worklet y qué hace Reanimated con él.",
+  "Distinguir Reanimated, Skia, WebGL móvil y Rive por el problema que resuelve cada uno.",
+  "Leer en el código de Senda dónde usa cada herramienta y cuál descartó."
+ ],
+ "venis_de": "En [@06-14] viste que el navegador tiene un hilo principal y que una tarea larga produce jank, y en [@06-36] cómo se animan transiciones a 60 fps. Hoy pasa lo mismo en el teléfono, con una diferencia: ahí hay dos hilos que pelean por el mismo cuadro.",
+ "se_apoya_en": [
+  "06-14",
+  "06-36",
+  "10-10",
+  "10-11"
+ ],
+ "gancho": [
+  "En una de las primeras pruebas de Senda, el fundador escribió que el pase de hoja del lector «es muy lento, se traba». Era un lector de Biblia donde la hoja sigue al dedo. El código estaba bien: hacía lo que debía. El problema era dónde corría.",
+  "Cada vez que React redibujaba la pantalla, el dedo y la animación tenían que esperar su turno en el mismo hilo donde se arma el resto de la interfaz. La solución no fue escribir mejor código sino mover el trabajo de lugar. Ese traslado, de un hilo a otro, es lo que ordena todo este día: qué se calcula dónde, y con qué herramienta."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El presupuesto de un cuadro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una pantalla se actualiza un número fijo de veces por segundo, medido en hercios (Hz). A 60 Hz hay un [[fotograma]] nuevo cada 16,7 milisegundos. La documentación de Android lo dice directo: para llegar a 60 cuadros por segundo la app debe generar cada cuadro en menos de 16 ms; a 90 fps la ventana baja a 11 ms, y a 120 fps a 8 ms [#mob22-android-render].",
+    "Lo que sorprende es qué pasa si te pasás. Pasarte 1 ms no significa mostrar el cuadro 1 ms tarde: según la misma documentación, el sistema descarta el cuadro entero y la persona ve un tirón. A eso se le llama [[jank]], que viste en [@06-14] para el navegador [#mob22-android-render]. Android además clasifica los cuadros lentos (entre 16 ms y 700 ms) y los congelados (más de 700 ms) [#mob22-android-render]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Frecuencia",
+    "Tiempo por cuadro",
+    "Qué cabe en ese tiempo"
+   ],
+   "filas": [
+    [
+     "60 Hz",
+     "16,7 ms",
+     "Armar el cuadro: calcular posiciones, dibujar y entregarlo"
+    ],
+    [
+     "90 Hz",
+     "11,1 ms",
+     "Lo mismo con un tercio menos de margen"
+    ],
+    [
+     "120 Hz",
+     "8,3 ms",
+     "Lo mismo con la mitad del tiempo que a 60 Hz"
+    ]
+   ],
+   "cap": "Cuentas propias: 1000 ms dividido la frecuencia. Los límites de 16, 11 y 8 ms coinciden con los de la documentación de Android Developers (leída el 16-11-2026)."
+  },
+  {
+   "t": "p",
+   "x": "En la práctica ese tiempo no es únicamente para tu animación. En el mismo cuadro el sistema recibe toques, el framework mide y ubica las vistas, y la GPU dibuja. Tu parte es una porción. Por eso la idea central de una animación fluida no es «hacela rápida» sino «no la hagas competir con lo demás»."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la cinta de un depósito",
+   "x": [
+    "Imaginá una cinta transportadora que avanza una caja cada 16,7 segundos y un operario que tiene que cargar cada caja a tiempo. Si en el medio le piden armar un pedido especial que dura dos minutos, las cajas que pasaron en ese lapso se caen de la cinta: no se cargan tarde, se pierden.",
+    "Donde la analogía deja de valer: en una cinta real las cajas perdidas siguen existiendo en el piso. Un cuadro descartado desaparece, y lo que la persona percibe es que el movimiento dio un salto."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Una pantalla de 120 Hz, ¿le da más trabajo a la app o menos que una de 60 Hz? ¿Y por qué una animación que anda bien a 60 Hz puede trabarse a 120?",
+   "resp": "Le da más trabajo: la app tiene que producir el doble de cuadros por segundo con la mitad de tiempo para cada uno. Una animación que usaba 12 ms por cuadro entraba cómoda en los 16,7 ms de 60 Hz, pero se pasa de los 8,3 ms de 120 Hz y empieza a perder cuadros."
+  },
+  {
+   "t": "h",
+   "x": "Dos hilos para un solo cuadro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@10-10] y [@10-11] viste que una app de React Native corre JavaScript en un hilo y dibuja vistas nativas en otro. La documentación de la arquitectura lo resume así: el **hilo de UI** (a veces llamado principal) es el único que puede manipular las vistas nativas, y el **hilo de JavaScript** es donde se ejecuta la fase de render de React y el cálculo del layout [#rn-threading-model].",
+    "Ahora pensá en una animación hecha «a mano»: cada 16,7 ms un temporizador de JavaScript calcula la nueva posición, se la manda al hilo de UI, y este la dibuja. Mientras JavaScript esté libre, funciona. Pero si JavaScript está armando una pantalla pesada, el temporizador espera, y la animación se detiene aunque el hilo de UI esté libre. Lo medí con un modelo simple."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Modelo (no es una medición): 1 segundo de animación a 60 Hz. Cada 16,67 ms el sistema pide un cuadro nuevo.\nconst hz = 60, paso = 1000 / hz, cuadrosEnUnSegundo = 60;\n// JavaScript queda ocupado entre t = 300 ms y t = 420 ms (por ejemplo, armando una pantalla pesada)\nconst ocupado = { desde: 300, hasta: 420 };\nfunction contar(calculaJS) {\n  let salen = 0;\n  for (let i = 1; i <= cuadrosEnUnSegundo; i++) {\n    const t = i * paso;\n    const jsOcupado = t >= ocupado.desde && t < ocupado.hasta;\n    if (!(calculaJS && jsOcupado)) salen++;\n  }\n  return salen;\n}\nconst jsPuro = contar(true), hiloUI = contar(false);\nconsole.log(\"cuadros esperados en 1 s:\", cuadrosEnUnSegundo);\nconsole.log(\"calculados por el hilo de JS:\", jsPuro, \"(se pierden \" + (cuadrosEnUnSegundo - jsPuro) + \")\");\nconsole.log(\"calculados por el hilo de UI:\", hiloUI, \"(se pierden \" + (cuadrosEnUnSegundo - hiloUI) + \")\");\nconsole.log(\"\");\nfor (const f of [60, 90, 120]) console.log(f + \" Hz -> \" + (1000 / f).toFixed(1) + \" ms por cuadro\");",
+   "cap": "Modelo propio, corrido con Node 22 el 16-11-2026. No mide un teléfono: supone que JavaScript queda ocupado 120 ms y cuenta cuántos de los 60 cuadros de un segundo salen en cada diseño."
+  },
+  {
+   "t": "p",
+   "x": "Son ocho cuadros perdidos de sesenta, el 13 % del segundo, y todos juntos en un bache de 120 ms: eso es lo que se ve como un tirón. La conclusión del modelo es el principio de todo el día: **si la animación se calcula en el hilo de UI, lo que haga JavaScript no la toca**."
+  },
+  {
+   "t": "h3",
+   "x": "Primera solución: el driver nativo"
+  },
+  {
+   "t": "p",
+   "x": "React Native trae un sistema de animación propio, `Animated`. Su idea es que la animación sea una descripción serializable: «llevá este valor de 0 a 1 en 500 ms con esta curva». Con la opción `useNativeDriver: true`, toda esa descripción se envía al lado nativo antes de empezar, y la animación corre en el hilo de UI sin pasar por JavaScript en cada cuadro. La documentación afirma que, una vez iniciada, el hilo de JavaScript se puede bloquear sin afectarla [#ux36-rn-animations]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El límite del driver nativo",
+   "x": "No todo se puede animar así. La documentación indica que solo se pueden animar propiedades que no son de layout: `transform` y `opacity` sí, pero las propiedades de Flexbox y de posición no [#ux36-rn-animations]. Si querés animar el ancho de una barra, el cálculo tiene que pasar por JavaScript."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda: 174 animaciones con driver nativo y 11 que no pueden",
+   "x": [
+    "En `src/` de Senda, 37 archivos usan `useNativeDriver` y hay 174 apariciones de la opción. En 11 está en `false`, y el patrón es el que predice la documentación. En `src/pantallas/Jugar.tsx` el reloj de cada pregunta anima `width: reloj.interpolate(...)`, de `0%` a `100%`: el ancho de una barra es una propiedad de layout, así que no puede ir al driver nativo. Lo mismo pasa con la barra de carga de `src/componentes/presentacion.tsx`.",
+    "Es un buen ejemplo de criterio: no se usa el driver nativo en todo, se usa donde se puede, y en las barras de tiempo se acepta el costo porque son una línea que se mueve despacio. Los datos son del commit 25e08fa."
+   ],
+   "archivos": [
+    "src/pantallas/Jugar.tsx",
+    "src/componentes/presentacion.tsx"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Reanimated y los worklets"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El driver nativo sirve para animaciones que se pueden describir de antemano. Pero un gesto no se puede describir de antemano: la hoja del lector tiene que seguir al dedo en cada cuadro, con la posición que tenga en ese instante. Para eso existe [[Reanimated]], la biblioteca de Software Mansion. Su propuesta, según su documentación, es definir las animaciones en JavaScript corriendo de forma nativa en el hilo de UI, con interacciones fluidas hasta 120 fps y más [#mob22-reanimated].",
+    "El mecanismo se llama [[worklet]]: una función de JavaScript corta que puede ejecutarse en el hilo de UI. La documentación de Reanimated la define como una función de ejecución breve que puede correr en el hilo de UI y también en el de JavaScript, como cualquier otra [#front-reanimated-glossary]. Se marca con la directiva `'worklet'` al principio de la función, y casi siempre se marca sola: el compilador de la biblioteca la detecta cuando la pasás a un hook de Reanimated [#front-reanimated-glossary].",
+    "Vale la pena entender qué significa «correr JavaScript en el hilo de UI». Es otra copia del intérprete, con su propio entorno, que vive junto al hilo de UI. La función se copia ahí junto con los valores que usa, y desde ese momento no depende del hilo de JavaScript principal. Por eso el estado de la animación vive en un tipo especial, el *valor compartido* (`useSharedValue`), que ambos entornos pueden leer."
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "Cómo sigue un dedo sin pasar por JavaScript",
+   "pasos": [
+    {
+     "t": "El dedo toca la pantalla",
+     "x": "El sistema operativo entrega el toque al reconocedor de gestos de la biblioteca Gesture Handler, que también corre en el lado nativo."
+    },
+    {
+     "t": "El reconocedor decide qué gesto es",
+     "x": "Un arrastre horizontal, un toque, una pulsación larga. Lo decide con reglas de movimiento (por ejemplo, «activate si el dedo se movió 12 puntos en horizontal») sin consultar a JavaScript."
+    },
+    {
+     "t": "Se ejecuta el worklet del gesto",
+     "x": "En cada movimiento del dedo corre una función que actualiza un valor compartido, por ejemplo la posición de la hoja."
+    },
+    {
+     "t": "El estilo animado se recalcula",
+     "x": "Una función de estilo (`useAnimatedStyle`) lee ese valor y calcula la transformación de la vista, también en el hilo de UI."
+    },
+    {
+     "t": "Se avisa a React solo cuando hace falta",
+     "x": "Si hay que actualizar el estado de React (por ejemplo, montar la hoja siguiente), el worklet agenda una llamada al hilo de JavaScript. Eso puede tardar sin que la hoja deje de seguir al dedo."
+    }
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda: el lector de la Biblia, en el hilo de UI",
+   "x": [
+    "`src/lector/Libro.tsx` abre con un comentario que cuenta la historia: antes el dedo y la animación pasaban por el hilo de JavaScript, y ahora «el gesto y la animación corren en el hilo nativo (Reanimated + Gesture Handler): la hoja sigue al dedo aunque JavaScript esté ocupado». El archivo usa `useSharedValue` para la posición del pliegue y de las hojas vecinas, `Gesture.Pan().activeOffsetX([-12, 12])` para reconocer el arrastre, y `scheduleOnRN` para avisarle a React cuando hay que montar la hoja que sigue.",
+    "Solo dos archivos de `src/` importan `react-native-reanimated`: el lector (`Libro.tsx`) y `AntesDespues.tsx`, para las entradas animadas de ese juego. Son las dos pantallas donde el movimiento sigue al dedo o se encadena con efectos de entrada. El resto del movimiento va con `Animated` y driver nativo. Versiones en el `package.json`: Reanimated 4.5.1, `react-native-worklets` 0.10.1 y Gesture Handler ~2.32.0."
+   ],
+   "archivos": [
+    "src/lector/Libro.tsx",
+    "src/pantallas/AntesDespues.tsx",
+    "package.json"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Mirá también cómo se arma la animación al soltar. Cuando el dedo suelta la hoja, el código manda `pliegue.value = withTiming(destino, { duration: ..., easing: ARRANQUE })`. Esa línea no calcula nada en ese momento: le dice a Reanimated «llevá este valor hasta el destino con esta duración y esta curva». Una animación de tiempo es, en el fondo, una función de un solo parámetro."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Una animación es una función del tiempo: posición = desde + (hasta - desde) * curva(t / duración)\nconst easeOutCubic = (x) => 1 - Math.pow(1 - x, 3);\nconst duracion = 270, paso = 1000 / 60, ancho = 390; // ms, ms por cuadro, ancho de pantalla en puntos\nconst filas = [];\nfor (let i = 0; i * paso <= duracion + paso; i++) {\n  const x = Math.min(1, (i * paso) / duracion);\n  filas.push(i + \": \" + Math.round(ancho * easeOutCubic(x)));\n}\nconsole.log(filas.length + \" cuadros para 270 ms a 60 Hz (el último ya no se mueve)\");\nconsole.log(filas.slice(0, 8).join(\"  |  \"));\nconsole.log(\"...\");\nconsole.log(filas.slice(-3).join(\"  |  \"));",
+   "cap": "Cuenta propia, corrida con Node 22 el 16-11-2026. Usa una curva de salida suave (ease-out cúbica) y 270 ms, el valor de `DURACION_TOQUE` de `Libro.tsx`; la curva real de Senda es otra (`Easing.bezier(0.2, 0.75, 0.3, 1)`)."
+  },
+  {
+   "t": "p",
+   "x": "En 270 ms a 60 Hz caben unos 16 cuadros, y la mayor parte del recorrido se hace en los primeros cinco: la curva «arranca rápido y frena». Eso es lo que Senda buscaba. Un comentario del propio archivo dice que la curva lenta al empezar hacía sentir que el toque tardaba, y por eso se acortó y se aceleró el arranque."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "Mito: «Reanimated hace que la animación sea más rápida»",
+   "x": "No la hace más rápida en abstracto. La saca del camino de JavaScript. Una animación pesada, que dibuja miles de elementos, sigue siendo pesada en el hilo de UI. Lo que se gana es que lo que pase en JavaScript, un fetch, un render de React, un cálculo largo, no la interrumpe."
+  },
+  {
+   "t": "pensa",
+   "x": "Una pantalla tiene un botón que, al tocarlo, anima una tarjeta y a la vez dispara una consulta a una API. Si la tarjeta va con driver nativo, ¿qué pasa en la animación cuando la respuesta de la API llega y React redibuja una lista larga?",
+   "resp": "La tarjeta sigue su recorrido sin tirones: el driver nativo ya tiene toda la descripción de la animación y corre en el hilo de UI. Lo que sí puede tardar es que la lista nueva aparezca, porque ese redibujado ocurre en el hilo de JavaScript."
+  },
+  {
+   "t": "h",
+   "x": "Cuando hay que dibujar: Skia y WebGL móvil"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Reanimated mueve vistas: las desplaza, las gira, las hace transparentes. No dibuja nada nuevo. Para dibujar cosas que ninguna vista sabe hacer (una hoja que se curva, un degradado animado, partículas, un gráfico) hay que bajar de nivel y trabajar con píxeles.",
+    "[[Skia]] es una biblioteca de gráficos 2D de código abierto; React Native Skia (que mantiene William Candillon, con trabajo previo de Shopify) la lleva a React Native, y su sitio indica hoy que la versión 3 está disponible, basada en Skia Graphite [#mob22-skia]. Con ella dibujás sobre un lienzo con comandos (círculos, caminos, imágenes, efectos con un lenguaje de sombreado). Lo que resuelve: efectos visuales que una vista no puede imitar.",
+    "[[WebGL móvil]] es la otra puerta, más baja. WebGL es la API de gráficos 3D del navegador y, según MDN, se ajusta de cerca a OpenGL ES 2.0, una versión de OpenGL pensada para dispositivos móviles; WebGL 2 corresponde a OpenGL ES 3.0 [#mob22-mdn-webgl]. En el teléfono, `expo-gl` crea una vista que, en sus palabras, funciona como destino de render de OpenGL ES, útil para gráficos 2D y 3D [#mob22-expo-gl]. Encima de esa vista se puede usar una biblioteca como three.js, que habla con WebGL por vos y da escenas, cámaras y modelos."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Herramienta",
+    "Resuelve",
+    "Dónde corre",
+    "Costo"
+   ],
+   "filas": [
+    [
+     "`Animated` con driver nativo",
+     "Mover y desvanecer vistas con una descripción fija",
+     "Hilo de UI",
+     "Casi nulo; límite: sin propiedades de layout"
+    ],
+    [
+     "Reanimated + Gesture Handler",
+     "Animaciones que reaccionan al dedo y se encadenan",
+     "Hilo de UI (worklets)",
+     "Una dependencia nativa y una forma de pensar nueva"
+    ],
+    [
+     "Skia",
+     "Dibujo 2D a medida: curvas, efectos, gráficos",
+     "Lienzo propio, con la GPU",
+     "Dependencia pesada; hay que dibujar y medir"
+    ],
+    [
+     "WebGL / three.js",
+     "Escenas 3D",
+     "Contexto OpenGL ES sobre la GPU",
+     "Mucha carga para el teléfono si hay varias escenas"
+    ],
+    [
+     "Rive",
+     "Personajes e ilustraciones animadas por diseñadores",
+     "Motor nativo de Rive",
+     "Un archivo de arte más el runtime"
+    ]
+   ],
+   "cap": "Síntesis propia a partir de la documentación de cada herramienta (leída el 16-11-2026). La columna «costo» es un criterio mío, no un dato de los proveedores."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda probó Skia y la sacó con una regla de corte",
+   "x": [
+    "La tabla de licencias de Senda (`docs/LEGAL.md`) registra una hoja curva en el lector, hecha con `@shopify/react-native-skia` 2.6.2 y un sombreador propio, y la marca como **retirada en la prueba 47**. El motivo, citado de la propia entrada: el fundador dijo que pasar de hoja era «lentísimo» y que tenía que andar «bien o nada». Se aplicó la regla de corte y volvió el pliegue simple; la dependencia salió de la app (la tabla estima unos 4 a 5 MB menos).",
+    "El comentario de `Libro.tsx` explica la causa técnica: para curvar, cada vuelta sacaba dos fotos de la hoja entera en el hilo de la pantalla y ponía un lienzo encima de todo. Verificado hoy: ni `package.json` ni `src/` tienen Skia, salvo la mención en ese comentario. Es un ejemplo útil porque la herramienta no era mala: era la equivocada para esa función, y lo que importó fue medirlo y volver atrás."
+   ],
+   "archivos": [
+    "docs/LEGAL.md",
+    "src/lector/Libro.tsx",
+    "package.json"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda: three.js y expo-gl, hoy apagado para Lany",
+   "x": [
+    "`package.json` incluye `three` ^0.186.1 y `expo-gl` ~57.0.2. En `src/componentes/lany3d.tsx` hay una escena con `GLView` (con `msaaSamples` en 2 en el teléfono) para el «Lany Master», un personaje en 3D. En `src/arte/Arte.tsx` figura `export const LANY_3D = false`: el comentario dice que, después de ver el APK 42, se decidió que el MVP saliera con la Lany de Rive y que el 3D quedara como evolutivo.",
+    "Siguen usando `GLView` `festejoPieza.tsx` y `pieza3d.tsx`, que dibujan la fiesta de las piezas de la armadura. Es el 3D que se usa hoy."
+   ],
+   "archivos": [
+    "src/arte/Arte.tsx",
+    "src/componentes/lany3d.tsx",
+    "src/componentes/festejoPieza.tsx",
+    "package.json"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Rive: el arte con su propia lógica"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[Rive]] resuelve un problema distinto: cómo hacer que un personaje o una ilustración animada la construya un diseñador en una herramienta visual y la app solo la maneje. El resultado es un archivo `.riv` que contiene el dibujo, los huesos, las animaciones y la lógica que decide cuál sonar y cuándo.",
+    "La pieza clave es la **máquina de estados**. Según la documentación de Rive, una máquina de estados conecta animaciones con lógica: decide cuál se reproduce, cuándo cambia y cómo se mezcla con la siguiente, en función de datos, interacción o tiempo [#mob22-rive-state-machine]. Un ejemplo de ese texto: un botón con animaciones «reposo», «encima» y «apretado», y una máquina que pasa de una a otra según lo que haga el puntero [#mob22-rive-state-machine].",
+    "La app y el archivo conversan mediante *data binding*: propiedades con nombre que la app puede modificar y que las transiciones leen. La documentación recomienda usar data binding para trabajo nuevo y menciona que los archivos más viejos usaban «inputs» [#mob22-rive-state-machine]. Para React Native hay un runtime propio, con su propio componente `RiveView` [#mob22-rive-rn]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "La idea de fondo: la app dice qué pasó, el archivo decide cómo se ve",
+   "x": "Con Rive la pantalla no programa movimientos. Dice «el usuario acertó» y el archivo elige la animación. Eso separa dos trabajos que de otro modo se enredan: el de quien programa la lógica del producto y el de quien hace que el personaje actúe bien. Si el artista mejora la animación, no hay que tocar la app."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda: Lany, una máquina de estados con 137 animaciones",
+   "x": [
+    "La fuente de Lany vive en `rive/lany/lany.rml` (un archivo de texto de unos 8,4 MB que se compila con la herramienta de línea de comandos de Rive) y el resultado es `assets/lani/lani.riv` de 628.548 bytes. Contando en el fuente: un `Artboard` llamado «Lany», una máquina de estados «Lany», 137 `LinearAnimation` (las animaciones sueltas) y un `ViewModel` «Lany» para el data binding.",
+    "En `src/componentes/laniRive.tsx`, el componente carga el archivo una sola vez, crea la instancia del modelo con `createDefaultInstance()` y pinta `<RiveView stateMachineName=\"Lany\" dataBind={modelo} autoPlay />`. En `laniRiveComun.ts`, las funciones `ponerMirada` o `dispararLani` escriben propiedades numéricas y disparan *triggers* del modelo. Y entre la app y esas funciones hay un intermediario, `src/lany/director.ts`: las pantallas emiten eventos con sentido («acierto», «victoria») y el director decide prioridad, enfriamiento y variedad. Ninguna pantalla programa un movimiento.",
+    "Una regla del código lo resume: el director hace que un evento importante interrumpa a uno chico, que el mismo evento no se repita antes de su tiempo mínimo y que una reacción con varias versiones no repita la anterior."
+   ],
+   "archivos": [
+    "src/componentes/laniRive.tsx",
+    "src/componentes/laniRiveComun.ts",
+    "src/lany/director.ts",
+    "rive/lany/rive.yaml"
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un juego de Senda necesita (a) una barra de tiempo que se vacía en 20 segundos, (b) un mazo de cartas que sigue al dedo al arrastrarlas, (c) un confeti al ganar y (d) un personaje que celebra distinto cada vez. Elegí una herramienta de la tabla para cada uno y justificá en una línea.",
+   "pista": "Preguntate en cada caso: ¿se puede describir de antemano? ¿sigue al dedo? ¿es dibujo a medida? ¿lo hace un diseñador?",
+   "solucion": "(a) `Animated` con una interpolación: es una descripción fija, pero como anima el ancho no puede ir al driver nativo; hay que aceptarlo o animar una transformación de escala. (b) Reanimated con Gesture Handler: sigue al dedo en cada cuadro y no debe depender de JavaScript. (c) Un dibujo a medida: Skia si se justifica la dependencia, o una animación de Rive hecha por un diseñador; para pocos elementos, vistas animadas alcanzan. (d) Rive: el diseñador hace las variantes y un director en la app elige cuál sonar."
+  },
+  {
+   "t": "h",
+   "x": "Qué se rompe: errores comunes y costos ocultos"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Animar en el hilo de JavaScript por costumbre.** Funciona en una prueba, y falla justo cuando la app está ocupada: al abrir una pantalla pesada o al llegar datos.",
+    "**Pasar datos entre hilos en cada cuadro.** Una llamada de un hilo a otro tiene costo. Un worklet que avisa a React 60 veces por segundo anula la ventaja.",
+    "**Probar solo en el teléfono de uno.** El presupuesto de 16,7 ms se mide en el aparato más lento que querés soportar, no en el mejor.",
+    "**Ignorar el movimiento reducido.** Muchas personas piden menos animación en el sistema. Senda guarda un ajuste `reducirMovimiento` y el lector tiene un camino «sin animación (movimiento reducido)»; en [@06-36] viste la preferencia equivalente en la web.",
+    "**Sumar una herramienta cada vez que algo se ve mal.** Cada dependencia pesa en el APK y en el mantenimiento. La experiencia de Skia en Senda es el contraejemplo: se probó, se midió y se sacó."
+   ],
+   "ord": false
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y estado al 16-11-2026",
+   "x": "Los números de versión son los de `package.json` de Senda (commit 25e08fa): Reanimated 4.5.1, react-native-worklets 0.10.1, Gesture Handler ~2.32.0, three ^0.186.1, expo-gl ~57.0.2, Rive para React Native 0.5.4. El sitio de React Native Skia indica que la versión 3 ya salió y que la documentación de la 2 sigue aparte [#mob22-skia]. Estas bibliotecas cambian de versión mayor con frecuencia; la idea de los hilos y de qué corre dónde es lo que se mantiene."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Lo que no pude medir acá",
+   "x": "En esta VM no hay teléfono ni emulador con aceleración, así que ninguna cifra de cuadros por segundo es de un dispositivo real. Los dos códigos del día son modelos propios y la parte de Senda es lectura de código. Para medir de verdad hay que usar las herramientas de perfilado de Android (la documentación de Android describe Systrace y Perfetto para encontrar cuadros lentos) en un aparato concreto."
+  }
+ ],
+ "recap": [
+  "A 60, 90 y 120 Hz cada cuadro dura 16,7, 11,1 y 8,3 ms. Si te pasás, el sistema descarta el cuadro entero y se ve un tirón (jank).",
+  "En React Native el hilo de UI es el único que toca las vistas y el de JavaScript hace el render de React. Una animación calculada en JavaScript se detiene cuando JavaScript está ocupado.",
+  "Con `useNativeDriver: true`, `Animated` manda toda la animación al lado nativo; solo sirve para propiedades que no son de layout. Senda lo usa en 37 archivos y en 11 casos no puede, por ejemplo en las barras de ancho.",
+  "Reanimated corre worklets en el hilo de UI, y junto con Gesture Handler hace que la hoja del lector siga al dedo sin pasar por JavaScript. Es lo que Senda usa en `Libro.tsx` y `AntesDespues.tsx`.",
+  "Skia dibuja 2D a medida y WebGL (con three.js sobre expo-gl) dibuja 3D. Senda probó Skia para curvar la hoja y la retiró en la prueba 47; el Lany 3D está apagado con `LANY_3D = false`.",
+  "Rive pone el arte y su lógica en un archivo con una máquina de estados; Senda maneja a Lany con un solo archivo `.riv` (628.548 bytes) y un director que traduce eventos en reacciones."
+ ],
+ "repaso": [
+  {
+   "p": "Una pantalla funciona a 120 Hz y una animación tarda 10 ms por cuadro. ¿Qué pasa?",
+   "o": [
+    "Entra bien, porque 10 ms es menos que los 16,7 ms de la pantalla",
+    "Se ve más suave porque cada cuadro se calcula con más detalle",
+    "Se pasa del tiempo de 8,3 ms y empieza a perder cuadros",
+    "El sistema baja solo los 10 ms a 5 ms para que alcance el tiempo"
+   ],
+   "c": 2,
+   "e": "A 120 Hz hay 8,3 ms por cuadro; 10 ms lo superan, así que se descartan cuadros. Los 16,7 ms son el presupuesto de 60 Hz, no el de 120. Calcular con más detalle gasta tiempo, no lo ahorra, y el sistema no recorta el costo de tu código."
+  },
+  {
+   "p": "Una animación se calcula con un temporizador de JavaScript y la app arma una pantalla pesada durante 120 ms. ¿Qué se ve?",
+   "o": [
+    "Nada raro, porque el hilo de UI sigue libre y dibuja el cuadro siguiente",
+    "La animación se acelera para recuperar el tiempo que quedó sin calcularse",
+    "La app se cierra, porque el sistema considera ese bloqueo como una falla",
+    "La animación se detiene o salta, porque su cálculo espera al hilo de JavaScript"
+   ],
+   "c": 3,
+   "e": "El valor de cada cuadro lo calcula JavaScript; si está ocupado, no hay valor nuevo para dibujar. El hilo de UI libre no ayuda si no recibe nada que dibujar. Una pausa de 120 ms no cierra la app (los cierres por bloqueo son de varios segundos) ni acelera nada."
+  },
+  {
+   "p": "¿Cuál de estas animaciones NO se puede mandar al driver nativo de `Animated`?",
+   "o": [
+    "Una barra cuyo ancho va del 0 % al 100 %",
+    "Un panel que se desplaza con una transformación",
+    "Una tarjeta que se desvanece con la opacidad",
+    "Un ícono que gira con una rotación continua"
+   ],
+   "c": 0,
+   "e": "El driver nativo solo anima propiedades que no son de layout: transform y opacity sí, ancho y posición no. Por eso la barra de tiempo de Jugar.tsx, que anima `width`, usa `useNativeDriver: false`. Desplazar, desvanecer y rotar son transformaciones u opacidad."
+  },
+  {
+   "p": "¿Qué es un worklet en Reanimated?",
+   "o": [
+    "Una pieza de código nativo en Kotlin que reemplaza a JavaScript",
+    "Una función de JavaScript corta que puede ejecutarse en el hilo de UI",
+    "Un tipo de archivo de animación exportado desde una herramienta visual",
+    "Un hilo extra que React crea para renderizar cada pantalla por separado"
+   ],
+   "c": 1,
+   "e": "Según la documentación de Reanimated, un worklet es una función breve que puede correr en el hilo de UI y también en el de JavaScript. No es código Kotlin, ni un archivo de arte (eso sería Rive), ni un hilo de React."
+  },
+  {
+   "p": "Querés una hoja que siga al dedo en cada cuadro aunque React esté redibujando una lista. ¿Qué combinación corresponde?",
+   "o": [
+    "Un temporizador de JavaScript que mueve la hoja cada 16 ms con setState",
+    "Una animación de Rive con un disparador que se activa en cada movimiento",
+    "Reanimated con Gesture Handler, con el estado de la hoja en un valor compartido",
+    "Un lienzo de Skia redibujado desde React en cada uno de los eventos de toque"
+   ],
+   "c": 2,
+   "e": "Un gesto reconocido y procesado del lado nativo, con un valor compartido que lee el estilo animado, no depende de JavaScript. Un temporizador con setState es lo que se traba. Rive es para arte con máquina de estados, no para seguir un arrastre, y redibujar un lienzo desde React sigue pasando por JavaScript."
+  },
+  {
+   "p": "Senda probó Skia para curvar la hoja y la retiró. ¿Cuál es la lección correcta?",
+   "o": [
+    "Skia no sirve en React Native y ninguna app debería incluir esa biblioteca nunca",
+    "Las animaciones curvas son imposibles en un teléfono, por eso se sacó la hoja curva",
+    "Conviene probar siempre cuatro herramientas juntas para elegir cuál queda al final",
+    "Una herramienta puede ser buena y estar mal para esa función, por eso se mide y se vuelve atrás"
+   ],
+   "c": 3,
+   "e": "En Senda, Skia hacía que cada vuelta sacara dos fotos de la hoja entera en el hilo de pantalla, y el fundador la sintió lentísima; se aplicó la regla de corte. No significa que Skia sea mala en general: otros casos de dibujo 2D a medida sí la justifican."
+  },
+  {
+   "p": "En Senda, una pantalla quiere que Lany festeje. ¿Cómo lo hace según el código?",
+   "o": [
+    "Programa el movimiento de brazos directamente dentro del archivo de la pantalla",
+    "Emite un evento al director, que elige una reacción con prioridad y enfriamiento",
+    "Reproduce un video grabado que ocupa todo el cuadro y tapa lo que hay debajo",
+    "Pide a Reanimated que anime cada hueso del personaje desde un worklet"
+   ],
+   "c": 1,
+   "e": "Las pantallas emiten eventos como «victoria» y `src/lany/director.ts` decide qué reacción corresponde (prioridad, enfriamiento, variedad); la animación vive en el archivo de Rive. Las pantallas no programan movimientos, no se usa video y Reanimated no maneja los huesos de Lany."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa por qué una animación puede verse fluida aunque la app esté haciendo otra cosa pesada al mismo tiempo, y por qué a veces igual se traba. Usá un ejemplo propio que no sea la cinta del depósito y decí dónde se queda corto.",
+ "para_profundizar": [
+  {
+   "fuente": "mob22-android-render",
+   "nota": "La página de Android sobre jank: explica el presupuesto de 16 ms, qué es un cuadro lento o congelado y cómo detectarlos con Perfetto; sirve para medir de verdad lo que hoy vimos con modelos."
+  },
+  {
+   "fuente": "rn-threading-model",
+   "nota": "Describe cómo reparte el render de React Native el trabajo entre el hilo de UI y el de JavaScript; es el fundamento de por qué el hilo importa."
+  },
+  {
+   "fuente": "front-reanimated-glossary",
+   "nota": "El glosario de Reanimated con la definición de worklet y de los conceptos que se usan en el código de Libro.tsx."
+  },
+  {
+   "fuente": "mob22-rive-state-machine",
+   "nota": "La descripción de las máquinas de estados de Rive: estados, transiciones, capas y data binding, que son las piezas con las que se maneja a Lany."
+  }
+ ],
+ "videos": [
+  {
+   "q": "react native reanimated worklets ui thread explicado",
+   "por_que": "Para ver con diagramas animados cómo se reparten el trabajo el hilo de JavaScript y el de UI, que acá se describió con texto."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "Reanimated",
+   "d": "Biblioteca de Software Mansion para React Native que define animaciones en JavaScript y las ejecuta en el hilo de UI, de modo que sigan fluidas aunque el hilo de JavaScript esté ocupado. Se usa junto con Gesture Handler para animaciones que siguen al dedo."
+  },
+  {
+   "t": "worklet",
+   "d": "Función de JavaScript corta, marcada con la directiva 'worklet' (o detectada automáticamente), que puede ejecutarse en el hilo de UI además del de JavaScript. Es la pieza que permite a Reanimated reaccionar a un gesto sin pasar por el hilo principal de JavaScript."
+  },
+  {
+   "t": "Skia",
+   "d": "Biblioteca de gráficos 2D de código abierto. React Native Skia la expone para dibujar sobre un lienzo propio: curvas, degradados, efectos y gráficos a medida que una vista común no puede hacer."
+  },
+  {
+   "t": "WebGL móvil",
+   "d": "Forma de dibujar gráficos 2D y 3D con la API de WebGL en un teléfono, a través de una vista de OpenGL ES como la de expo-gl. Se suele usar con bibliotecas como three.js."
+  },
+  {
+   "t": "Rive",
+   "d": "Herramienta y motor de animación interactiva. El diseñador arma el dibujo, las animaciones y una máquina de estados en un archivo .riv, y la app lo reproduce y lo maneja con propiedades y disparadores sin programar cada movimiento."
+  }
+ ],
+ "siguiente": "Mañana: audio y multimedia en el móvil, o cómo una app suena y sigue sonando cuando la pantalla se apaga.",
+ "fuentes_nuevas": [
+  {
+   "id": "mob22-android-render",
+   "t": "Slow rendering (Android vitals)",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://developer.android.com/topic/performance/vitals/render"
+  },
+  {
+   "id": "mob22-reanimated",
+   "t": "React Native Reanimated",
+   "a": "Software Mansion",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.swmansion.com/react-native-reanimated/"
+  },
+  {
+   "id": "mob22-skia",
+   "t": "React Native Skia",
+   "a": "William Candillon y Shopify",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://wcandillon.github.io/react-native-skia/"
+  },
+  {
+   "id": "mob22-expo-gl",
+   "t": "GLView (Expo SDK 57)",
+   "a": "Expo",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.expo.dev/versions/v57.0.0/sdk/gl-view/"
+  },
+  {
+   "id": "mob22-mdn-webgl",
+   "t": "WebGL: 2D and 3D graphics for the web",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API"
+  },
+  {
+   "id": "mob22-rive-state-machine",
+   "t": "State Machine Overview",
+   "a": "Rive",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://rive.app/docs/editor/state-machine/state-machine"
+  },
+  {
+   "id": "mob22-rive-rn",
+   "t": "React Native runtime",
+   "a": "Rive",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://rive.app/docs/runtimes/react-native/react-native"
+  }
+ ]
+}
