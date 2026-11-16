@@ -1739,3 +1739,14 @@ para comparar variantes. **Decisión (técnica, de Claude):** (a) no se apagan a
 «Animaciones: todas» y con «reducidas» en su teléfono. **Regla de corte:** si con «reducidas» las trabas bajan a menos de la mitad, en la
 prueba 57 Lany y los brillos se pausan cuando la pantalla no se toca y en las pestañas que no se ven; si no, se trabaja la pantalla que
 el informe marque como la peor. Capítulo 81 §2.1.1.
+
+## DEC-2026-11-16-2 — Senda: AdMob con clasificación PG en la cuenta y G para adolescentes
+**Decisión del fundador (16-11-2026), con Claude en Chrome:** la cuenta de AdMob queda con clasificación máxima **PG** (no G). Google
+estimaba con G entre -36 % y -69 % de ingresos de la red de AdMob (HECHO: estimación mostrada por la consola de AdMob el 16-11-2026).
+La app pide G a los adolescentes (13 a 17) y PG a los adultos; manda el más estricto; menores de 13, sin anuncios. Bloqueadas 12
+categorías sensibles (citas, estética, política, sexo, casino social, dinero rápido, pérdida de peso, salud sexual, sensacionalismo,
+medicamentos, apuestas, alcohol) y, en generales, astrología, ocultismo y todos los préstamos; «Religión» permitida porque es un solo
+interruptor y bloquearía también los anuncios cristianos. Mensajes RGPD (con «No consentir» en la primera pantalla) y de estados de
+EE. UU. publicados. Perfil de pagos particular con la dirección del DNI (9 de Julio). **Regla de corte:** si aparece un anuncio que no
+encaja con Senda, se bloquea puntual desde la revisión de anuncios; si con gente real el ingreso por mil impresiones es muy bajo, se
+revisan los bloqueos con datos. `docs/ANUNCIOS.md` de la app.
