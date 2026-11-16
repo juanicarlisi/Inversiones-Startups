@@ -1,0 +1,581 @@
+{
+ "id": "14-21",
+ "titulo": "Gestión de configuración y deriva",
+ "bajada": "Corrés un mismo playbook de Ansible dos veces y ves cómo la segunda no cambia nada; después le rompés un archivo a mano y mirás cómo se detecta y se corrige la deriva.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué es la deriva de configuración, de dónde sale y por qué hace que dos servidores «iguales» se comporten distinto.",
+  "Escribir y leer un playbook de Ansible con inventario, tareas y módulos, y correrlo contra una máquina de práctica.",
+  "Demostrar la idempotencia corriendo dos veces el mismo playbook y distinguir un módulo que la respeta de un comando suelto que no.",
+  "Detectar deriva con una corrida en modo de verificación y mostrar qué cambiaría antes de tocar nada.",
+  "Comparar configuración mutable e infraestructura inmutable y decidir cuál conviene según qué se guarda en el servidor."
+ ],
+ "venis_de": "Ayer viste cómo se guardan los secretos ([@14-20]) y antes cómo se declara infraestructura con Terraform ([@14-18], [@14-19]). Terraform crea los servidores y la red. Falta una pregunta: una vez que el servidor existe, ¿cómo te asegurás de que tenga instalado y configurado lo que tiene que tener, y de que siga así?",
+ "se_apoya_en": [
+  "14-04",
+  "14-07",
+  "14-16",
+  "14-18",
+  "14-19"
+ ],
+ "gancho": [
+  "Son las 2 de la mañana y la tienda de la app anda lenta. Tenés tres servidores que hacen lo mismo y detrás de un balanceador reparten los pedidos. Uno de ellos responde en 300 milisegundos y los otros dos en 3 segundos. Entrás por SSH al lento, comparás su configuración con la del rápido y encontrás una línea distinta: `trabajadores=16` en vez de `trabajadores=4`. Alguien la cambió a mano hace tres meses durante otro incidente, y nadie la anotó.",
+  "Ese cambio no está en ningún repositorio, ni en ningún ticket, ni en la memoria de nadie. Es una diferencia silenciosa entre máquinas que deberían ser iguales. Hoy vas a ver cómo se llama (deriva de configuración), cómo se la detecta con una herramienta que describe cómo debe quedar un servidor (Ansible) y la otra salida, más radical: no arreglar los servidores, reemplazarlos. Todo lo que vas a ver lo corrí en esta máquina, contra un directorio de práctica y con datos inventados."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El problema: tres servidores que deberían ser iguales"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un servidor recién instalado es una pizarra limpia. Con el tiempo se le escribe encima: alguien instala un paquete para resolver un apuro, otro cambia un puerto, un tercero edita un archivo con el editor de texto y se olvida. Cada cambio tiene sentido en el momento. El problema aparece cuando se suman: el servidor A y el servidor B arrancaron idénticos y hoy ya no lo son, y no hay una lista de en qué se diferencian.",
+    "Martin Fowler le puso un nombre a ese resultado: el *snowflake server* (servidor copo de nieve). Dice que un servidor así es difícil de reproducir, que si falla el hardware cuesta levantar otro igual, y que con un clúster cuesta mantener todas las instancias sincronizadas [#fowler-snowflake-server]. Lo describe como una mezcla de comandos sueltos, pantallas y archivos de texto editados a mano que deja una máquina única."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué se mira",
+    "Servidor A",
+    "Servidor B",
+    "Servidor C"
+   ],
+   "filas": [
+    [
+     "Trabajadores del servicio",
+     "4",
+     "4",
+     "16"
+    ],
+    [
+     "Nivel de log",
+     "info",
+     "info",
+     "debug"
+    ],
+    [
+     "Versión del paquete de compresión",
+     "1.3.1",
+     "1.3.1",
+     "1.3.0"
+    ],
+    [
+     "Puerto del servicio",
+     "8080",
+     "8080",
+     "8081"
+    ],
+    [
+     "Responde en",
+     "300 ms",
+     "310 ms",
+     "3 s"
+    ]
+   ],
+   "cap": "Un ejemplo inventado para fijar la idea: tres máquinas que alguien describiría como «iguales» y que ya no lo son."
+  },
+  {
+   "t": "p",
+   "x": "Los cambios a mano son una fuente de diferencias, pero no la única. También derivan las máquinas por actualizaciones automáticas que llegan a unas y a otras no, por un script de instalación que falló a mitad de camino en un servidor y quedó a medias, o por un parche aplicado en el apuro a «solo el que estaba fallando». Cada servidor cuenta una historia propia."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Pensá en tres turnos de un depósito que preparan pedidos. Si cada turno aprende a rotular las cajas de memoria, al mes cada turno rotula distinto, y un pedido sale bien o mal según quién lo armó. La cura de logística es una checklist de despacho idéntica para todos los turnos. La analogía se rompe en algo importante: un turno de personas puede entender una instrucción vaga y adaptarse. Un servidor ejecuta exactamente lo que dice el archivo, ni más ni menos, así que la «checklist» tiene que ser exacta y completa.",
+   "titulo": "Los turnos y la checklist"
+  },
+  {
+   "t": "h",
+   "x": "Deriva de configuración: qué es y cómo se manifiesta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La **[[deriva de configuración]]** es la diferencia que se acumula entre el estado en que un sistema debería estar (el declarado, el que figura en el repositorio o en la documentación) y el estado en que realmente está. Dos servidores que arrancaron iguales se separan; o un servidor se aparta de lo que decía su receta. Lo importante es que casi nunca se nota cuando ocurre. Se nota después, cuando algo falla en una máquina y en otra no, y no hay forma obvia de explicar por qué.",
+    "Esto ya lo viste en otra escala. Con Terraform ([@14-19]) la deriva es la diferencia entre lo que dice el [[estado de Terraform]] y lo que existe de verdad en la nube, por ejemplo una regla de firewall que alguien agregó desde la consola web. Hoy hablamos de la capa de abajo: lo que hay *adentro* de la máquina (archivos, paquetes, usuarios, servicios)."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El servidor C de la tabla tiene tres diferencias con A y B. Si decidís corregirlas una por una entrando por SSH, ¿qué problema de fondo queda sin resolver aunque las arregles?",
+   "resp": "Que nada impide que vuelva a pasar. Corregiste el síntoma en una máquina, pero el proceso que generó la diferencia (editar a mano sin dejar registro) sigue intacto, y además no sabés si hay otras diferencias que todavía no miraste. Una corrección manual no es repetible ni verificable."
+  },
+  {
+   "t": "nota",
+   "k": "historia",
+   "x": "La metáfora de «mascotas contra ganado» describe la misma idea desde otro costado. Una mascota tiene nombre, se la cuida cuando se enferma y duele perderla; un servidor mascota es el que nadie se anima a reiniciar. Una cabeza de ganado se identifica por un número, y si falla se la reemplaza. Fowler anota que escuchó la metáfora sin atribuirla a nadie [#fowler-snowflake-server]; no verifiqué su origen en una fuente primaria, así que tomala como una forma de hablar y no como una cita.",
+   "titulo": "Mascotas y ganado"
+  },
+  {
+   "t": "h",
+   "x": "Ansible: describir cómo debe quedar la máquina"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**[[Ansible]]** es una herramienta de código abierto para automatizar la configuración de máquinas. Su documentación la define por tres ideas: sin agente (no instalás ningún programa residente en las máquinas que administrás), simple (los scripts, llamados *playbooks*, se escriben en YAML) y declarativa (describís el estado deseado y Ansible se ocupa de que el sistema quede así) [#ansible-intro]. Que no tenga agente significa que se conecta por [[SSH]] ([@14-04]) a cada máquina, hace su trabajo y se va.",
+    "Hay cuatro piezas para reconocer. El **inventario** es la lista de máquinas y sus grupos. El **playbook** es el archivo YAML con lo que querés que pase. Dentro del playbook, cada **tarea** invoca un **módulo**: una pieza reutilizable que sabe hacer una cosa (crear una carpeta, copiar un archivo, instalar un paquete, asegurar una línea en un archivo). Lo que distingue a un módulo bueno de un comando suelto es que mira el estado actual antes de actuar."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Armé un playbook de práctica contra *mi propia máquina*, con conexión local y dentro de un directorio de pruebas (no toqué `/etc`). Describe un «servidor de la app» mínimo: una carpeta, un archivo de configuración generado desde una plantilla, la garantía de que el nivel de log sea `info`, y una marca que indica que una preparación inicial ya se hizo."
+  },
+  {
+   "t": "codigo",
+   "lang": "yaml",
+   "x": "- name: Un servidor de práctica según lo que queremos\n  hosts: servidores\n  gather_facts: false\n  vars:\n    raiz: \"{{ lookup('env', 'RAIZ_PRACTICA') }}\"\n    puerto: 8080\n    trabajadores: 4\n  tasks:\n    - name: Carpeta de configuración\n      ansible.builtin.file:\n        path: \"{{ raiz }}/etc/app\"\n        state: directory\n        mode: \"0755\"\n\n    - name: Archivo de configuración desde una plantilla\n      ansible.builtin.template:\n        src: app.conf.j2\n        dest: \"{{ raiz }}/etc/app/app.conf\"\n        mode: \"0644\"\n\n    - name: Que el log nunca quede en modo debug\n      ansible.builtin.lineinfile:\n        path: \"{{ raiz }}/etc/app/app.conf\"\n        regexp: '^nivel_log='\n        line: 'nivel_log=info'\n\n    - name: Marca de que la preparación inicial ya se hizo\n      ansible.builtin.command:\n        cmd: touch {{ raiz }}/etc/app/.preparado\n        creates: \"{{ raiz }}/etc/app/.preparado\"\n",
+   "cap": "El playbook completo (versión final). El inventario tiene una sola línea: la máquina «deposito», con `ansible_connection=local`. La plantilla app.conf.j2 son tres líneas con `puerto={{ puerto }}` y `trabajadores={{ trabajadores }}`."
+  },
+  {
+   "t": "p",
+   "x": "Fijate que el playbook no dice «crear la carpeta», dice que la carpeta *tiene que existir* (`state: directory`). Es la diferencia entre una receta de pasos y una descripción del resultado. Para el nivel de log, tampoco dice «reemplazar la línea 4»: dice que tiene que haber una línea que empiece con `nivel_log=` y que valga `info`. Si ya está así, no hay nada que hacer."
+  },
+  {
+   "t": "h",
+   "x": "Idempotencia: correrlo dos veces sin que pase nada"
+  },
+  {
+   "t": "p",
+   "x": "Una operación es **idempotente** si el resultado de hacerla una vez es exactamente el mismo que el de hacerla muchas veces seguidas; así lo define el glosario de Ansible [#ansible-glosario]. Es la propiedad que vuelve seguro correr el playbook todo el tiempo: si ya está bien, no cambia nada. Mirá la primera y la segunda corrida en esta máquina, con Ansible `ansible-core` 2.22.0."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ansible-playbook -i inventario.ini sitio.yml   # corrida 1, máquina limpia",
+     "s": "TASK [Carpeta de configuración] ***\nchanged: [deposito]\nTASK [Archivo de configuración desde una plantilla] ***\nchanged: [deposito]\nTASK [Que el log nunca quede en modo debug] ***\nok: [deposito]\nTASK [Marca de que la preparación inicial ya se hizo] ***\nchanged: [deposito]\nPLAY RECAP ***\ndeposito : ok=4  changed=3  unreachable=0  failed=0"
+    },
+    {
+     "c": "ansible-playbook -i inventario.ini sitio.yml   # corrida 2, sin tocar nada",
+     "s": "TASK [Carpeta de configuración] ***\nok: [deposito]\nTASK [Archivo de configuración desde una plantilla] ***\nok: [deposito]\nTASK [Que el log nunca quede en modo debug] ***\nok: [deposito]\nTASK [Marca de que la preparación inicial ya se hizo] ***\nok: [deposito]\nPLAY RECAP ***\ndeposito : ok=4  changed=0  unreachable=0  failed=0"
+    }
+   ],
+   "cap": "Salida real, abreviada (le quité los encabezados y los asteriscos de relleno). Corrida en una VM de práctica, 16-11-2026. La palabra que importa es `changed`: la primera corrida cambió 3 cosas y la segunda, cero."
+  },
+  {
+   "t": "p",
+   "x": "En mi primer intento el playbook tenía una tarea más: un `command` que ejecutaba `date +%s` sin decirle cuándo ya estaba hecho. En la segunda corrida el recuento fue `changed=1`, aunque yo no había tocado nada. Ansible no puede adivinar qué hace un comando arbitrario, así que lo cuenta siempre como un cambio. La solución es la que está en la versión final: el argumento `creates:` le dice que, si ese archivo existe, el comando no hace falta. Desde ese momento la tarea mira el estado antes de actuar, como un módulo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Un `changed` distinto de cero en una segunda corrida es una alarma, no una molestia. Si el playbook cambia algo cada vez que corre, no podés usar «changed = 0» como señal de que el servidor está en orden, y te quedás sin la herramienta que detecta deriva. Los módulos de Ansible (`file`, `template`, `lineinfile`, instalación de paquetes) respetan la idempotencia; `command` y `shell` solo si les agregás una condición como `creates:`."
+  },
+  {
+   "t": "p",
+   "x": "Para ver que la idea no depende de Ansible, escribí un reconciliador de juguete: compara el estado deseado con el real de tres servidores inventados y solo toca lo que difiere. Corrélo con el botón; en la segunda pasada no debería quedar nada por hacer."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Estado deseado y estado real de tres servidores (inventados).\nconst deseado = { puerto: 8080, trabajadores: 4, nivel_log: \"info\" };\nconst real = {\n  s1: { puerto: 8080, trabajadores: 4, nivel_log: \"info\" },\n  s2: { puerto: 8080, trabajadores: 16, nivel_log: \"info\" },\n  s3: { puerto: 8081, trabajadores: 4, nivel_log: \"debug\" },\n};\nfunction aplicar(nombre, estado) {\n  let cambios = 0;\n  for (const [clave, valor] of Object.entries(deseado)) {\n    if (estado[clave] !== valor) {\n      console.log(`  ${nombre}: ${clave} ${estado[clave]} -> ${valor}`);\n      estado[clave] = valor;\n      cambios++;\n    }\n  }\n  return cambios;\n}\nfor (const pasada of [1, 2]) {\n  console.log(`Pasada ${pasada}`);\n  let total = 0;\n  for (const [n, e] of Object.entries(real)) total += aplicar(n, e);\n  console.log(`  cambios: ${total}`);\n}\n",
+   "cap": "Es la lógica de fondo de cualquier herramienta de configuración: mirar, comparar, y actuar solo si hace falta. Probado en node 22: la pasada 1 hace 3 cambios y la pasada 2, cero."
+  },
+  {
+   "t": "pensa",
+   "x": "Un compañero escribe un playbook cuya tarea agrega al final de un archivo la línea `nivel_log=info` con un `shell: echo nivel_log=info >> archivo`. ¿Qué pasa después de correrlo cinco veces?",
+   "resp": "El archivo termina con cinco líneas iguales. El `echo >>` siempre agrega al final y no mira lo que ya hay, así que no es idempotente. Con `lineinfile` la línea aparecería una sola vez."
+  },
+  {
+   "t": "h",
+   "x": "Detectar la deriva: el modo de verificación"
+  },
+  {
+   "t": "p",
+   "x": "Ahora el caso del gancho, a escala de práctica. Después de las dos corridas, edité a mano el archivo de configuración como lo haría alguien apurado: puse `trabajadores=16` y `nivel_log=debug`. Después corrí el mismo playbook con dos opciones. `--check` no cambia nada, solo informa lo que cambiaría. `--diff` muestra la diferencia línea por línea. El glosario de Ansible lo equipara a un «dry run» y avisa que no contempla fallos inesperados ni efectos en cascada [#ansible-glosario]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "sed -i 's/^trabajadores=4/trabajadores=16/; s/^nivel_log=info/nivel_log=debug/' raiz/etc/app/app.conf",
+     "s": ""
+    },
+    {
+     "c": "ansible-playbook -i inventario.ini sitio.yml --check --diff",
+     "s": "TASK [Archivo de configuración desde una plantilla] ***\n--- before: …/raiz/etc/app/app.conf\n+++ after: …/app.conf.j2\n@@ -1,4 +1,4 @@\n # Gestionado por Ansible. Los cambios a mano se pierden.\n puerto=8080\n-trabajadores=16\n-nivel_log=debug\n+trabajadores=4\n+nivel_log=info\nchanged: [deposito]\nTASK [Que el log nunca quede en modo debug] ***\n@@ -1,4 +1,4 @@\n-nivel_log=debug\n+nivel_log=info\nchanged: [deposito]\nPLAY RECAP ***\ndeposito : ok=4  changed=2  failed=0"
+    },
+    {
+     "c": "ansible-playbook -i inventario.ini sitio.yml   # ahora sí, aplicar",
+     "s": "PLAY RECAP ***\ndeposito : ok=4  changed=1  failed=0"
+    },
+    {
+     "c": "cat raiz/etc/app/app.conf",
+     "s": "# Gestionado por Ansible. Los cambios a mano se pierden.\npuerto=8080\ntrabajadores=4\nnivel_log=info"
+    }
+   ],
+   "cap": "Salida real abreviada (rutas acortadas con «…»). En el modo de verificación ve `changed=2` porque simula cada tarea contra el archivo original; al aplicar de verdad, la plantilla ya corrige las dos líneas y la tarea de `lineinfile` no tiene más trabajo, por eso queda en `changed=1`."
+  },
+  {
+   "t": "p",
+   "x": "Hay dos lecciones. La primera: el modo de verificación convierte a Ansible en un detector. Corrido a diario en un servidor que debería estar en orden, un `changed` mayor que cero es la señal de que alguien tocó algo a mano. La segunda es un límite que Fowler también señala: una herramienta de este tipo solo detecta deriva en las áreas que le definiste [#fowler-phoenix-server]. Si nadie le dijo que mire el archivo de sudoers, no lo va a mirar."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Ansible revierte todo lo que alguien cambió». No: revierte lo que el playbook declara, y solo cuando lo corrés. Si tu playbook no menciona el puerto del firewall, un cambio ahí queda sin detectar. Y si nadie lo ejecuta, tampoco corrige. La corrección automática es un hábito que se arma (una tarea programada que corre el playbook), no una propiedad mágica de la herramienta."
+  },
+  {
+   "t": "h",
+   "x": "Infraestructura inmutable: no se arregla, se reemplaza"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay otra salida que evita el problema en vez de vigilarlo. Una **[[infraestructura inmutable]]** es aquella donde los servidores, una vez desplegados, nunca se modifican: cuando hay que cambiar algo (una actualización, un parche, un ajuste de configuración) se arma una versión nueva y se reemplaza la anterior. Fowler lo define como la conclusión lógica de la configuración automatizada: un servidor que se despliega y no se toca más, solo se sustituye por una instancia actualizada [#fowler-immutable-server].",
+    "Ya conocés el ingrediente principal. Una [[imagen]] de contenedor ([@14-07]) se arma una vez a partir de un [[Dockerfile]] ([@14-08]), se identifica por un hash y no cambia. Si necesitás otra configuración, generás otra imagen con otro hash. La misma idea sirve para máquinas virtuales (imágenes de disco) y para contenedores. Para ver el mecanismo de fondo armé una «imagen» de juguete: empaqueté la carpeta de configuración de arriba en un tar determinístico (nombres ordenados, fecha fija, dueño fijo) y calculé su hash."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "tar --sort=name --mtime='2026-01-01 00:00Z' --owner=0 --group=0 --numeric-owner -cf - -C raiz etc | sha256sum | cut -c1-16",
+     "s": "c63278dd76938118"
+    },
+    {
+     "c": "# lo mismo otra vez, sin tocar nada",
+     "s": "c63278dd76938118"
+    },
+    {
+     "c": "sed -i 's/trabajadores=4/trabajadores=8/' raiz/etc/app/app.conf   # un cambio chico",
+     "s": ""
+    },
+    {
+     "c": "# lo mismo, ahora con un cambio",
+     "s": "38f97f739a8b7477"
+    }
+   ],
+   "cap": "Hash truncado a 16 caracteres. Mismo contenido, mismo hash; un cambio de una línea, otro hash completamente distinto. Eso es lo que permite decir «lo que corre en producción es exactamente la versión c632…» y compararla con lo que había antes."
+  },
+  {
+   "t": "p",
+   "x": "Eso es lo que habilita una operación sin drama. Para actualizar no entrás a ninguna máquina: construís la imagen nueva, la probás, y desplegás con la estrategia de [@14-16] (un *[[rolling update]]*: reemplazar de a una instancia las viejas por las nuevas). Si la versión nueva falla, el [[rollback]] es volver a desplegar el hash anterior, que sigue guardado e intacto. Como ningún servidor se edita, no puede haber deriva entre ellos: las diferencias solo existen entre versiones, y están nombradas."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Configuración mutable (Ansible sobre servidores vivos)",
+    "Infraestructura inmutable (reemplazo)"
+   ],
+   "filas": [
+    [
+     "Cómo se cambia algo",
+     "Se corre el playbook sobre la máquina que ya existe",
+     "Se arma una imagen nueva y se reemplaza la máquina"
+    ],
+    [
+     "Deriva",
+     "Posible: cualquiera puede entrar y tocar; hay que vigilar",
+     "Casi inexistente: nadie edita instancias en marcha"
+    ],
+    [
+     "Volver atrás",
+     "Escribir el playbook inverso y correrlo",
+     "Redesplegar la imagen anterior"
+    ],
+    [
+     "Depurar un problema",
+     "Entrás a la máquina y mirás",
+     "Se reproduce con la misma imagen; entrar a mano es la excepción"
+    ],
+    [
+     "Costo de entrada",
+     "Bajo: una máquina y un playbook",
+     "Mayor: hace falta un proceso de construcción de imágenes"
+    ],
+    [
+     "Dónde vive el estado",
+     "En la máquina, mezclado con la configuración",
+     "Afuera: base de datos, volúmenes, almacenamiento de objetos"
+    ]
+   ],
+   "cap": "Criterio resumido. Ninguna columna gana siempre: la que conviene depende de cuánto estado vive en el servidor."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Si un camión de reparto se rompe en la ruta, podés hacerle un arreglo ahí mismo (mutable) o mandar otro camión del depósito a retomar el recorrido y llevar el roto al taller (inmutable). Lo segundo es más prolijo si tenés camiones de sobra y la carga se puede pasar de uno a otro. La analogía se corta en la carga: un camión no tiene una base de datos adentro. En informática, lo que no se puede reemplazar sin pérdida (los datos de las personas) hay que sacarlo de la máquina antes de adoptar el reemplazo.",
+   "titulo": "El camión roto"
+  },
+  {
+   "t": "h",
+   "x": "Cuándo conviene cada una"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un criterio práctico (una regla mía, no una norma): cuantos más servidores iguales tengas y cuanto más seguido cambien, más ganás con el reemplazo. Con tres máquinas que cambian una vez por trimestre, un playbook corrido de vez en cuando y vigilado con `--check` alcanza y cuesta poco. Con cincuenta instancias que se actualizan por semana, un playbook sobre cada una se vuelve frágil, y el reemplazo es más simple de razonar.",
+    "Las dos cosas no se excluyen. Fowler lo dice así: volver a aplicar configuración es útil porque suele ser más rápido y menos disruptivo que destruir y reconstruir un servidor, y conviene usar ambas estrategias [#fowler-phoenix-server]. Además, Ansible también sirve para *construir* la imagen que después se reemplaza: la configuración deja de correr sobre servidores vivos y pasa a correr una sola vez, al armar la imagen."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para un equipo de una persona, el orden de prioridades que yo seguiría es: primero tener *todo* en un repositorio (incluso si es un script de bash), segundo que se pueda reconstruir un servidor desde cero con un solo comando, y recién tercero elegir entre Ansible, imágenes o ambos. Lo peor no es la herramienta equivocada, es la configuración que existe solo en la cabeza o en el historial de comandos de una máquina."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En la sección anterior viste que el `--check` mostró `changed=2` y la aplicación real mostró `changed=1`. Escribí con tus palabras por qué no coinciden y qué te dice eso sobre confiar ciegamente en el modo de verificación.",
+   "pista": "Pensá en que `--check` simula cada tarea por separado contra el estado original, sin que una tarea haya corregido nada todavía.",
+   "solucion": "En el modo de verificación nada se modifica, así que la tarea de `lineinfile` ve la línea `nivel_log=debug` original y dice que cambiaría. Al aplicar de verdad, la tarea anterior (la plantilla) ya reescribió el archivo entero, y cuando le toca a `lineinfile` la línea ya está bien: `ok`. Lo que aprendés es que `--check` es una estimación de lo que va a pasar, útil para detectar que *hay* deriva, pero el recuento exacto de cambios puede diferir cuando una tarea afecta lo que otra lee."
+  },
+  {
+   "t": "h",
+   "x": "Senda: no hay servidores que configurar (y por qué importa)"
+  },
+  {
+   "t": "p",
+   "x": "Un hallazgo que sirve para calibrar: Senda no usa Ansible ni nada parecido, porque no tiene servidores propios que mantener. Las tareas de armado se ejecutan en máquinas de GitHub Actions, y la documentación de GitHub dice que cada runner alojado es una máquina virtual nueva [#gha-runners-alojados]. Eso es infraestructura inmutable *de hecho*: la máquina nace, trabaja y se descarta, así que no puede acumular deriva."
+  },
+  {
+   "t": "senda",
+   "titulo": "La configuración se repite en cada corrida",
+   "x": [
+    "Los diez flujos de trabajo usan la etiqueta `ubuntu-latest`. Cada vez que corre el armado del APK hay que dejar la máquina limpia en el estado que necesita: Node 22, Java 17 (distribución zulu), `npm ci` (que instala exactamente lo que dice `package-lock.json`) y un paso que instala el NDK de Android versión `27.1.12297006` con tres reintentos. Es una receta declarada en el repositorio, ejecutada sobre una máquina descartable.",
+    "Una nota de criterio: `ubuntu-latest` es una etiqueta que GitHub puede mover a otra versión de Ubuntu. Las versiones de Node, Java, NDK y de la CLI de Supabase (3.0.0, en `supabase.yml`) están fijadas, pero el sistema de abajo no. Es una deriva posible, de las que se resuelven fijando la etiqueta a una versión concreta. Esto corresponde al commit 25e08fa de `senda-app`; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/supabase.yml",
+    ".github/workflows/aab.yml",
+    "package-lock.json"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que no existe en el código",
+   "x": [
+    "No hay Ansible, Terraform, Dockerfile ni Compose en `senda-app`: no son una deuda sino una consecuencia de usar servicios administrados (Supabase para la base) y una app que corre en el teléfono de cada persona. Si algún día Senda suma un servidor propio, esa será la primera pregunta de hoy: ¿cómo se reconstruye con un comando, y cómo se sabe que sigue igual?"
+   ],
+   "archivos": [
+    "eas.json",
+    "app.json"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué se confunde"
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "**Configuración y datos no son lo mismo.** Un playbook declara cómo está configurada la máquina (paquetes, archivos, servicios). Los datos que cambian solos (filas de una base, archivos subidos por usuarios, logs) no pertenecen al playbook y no se «arreglan» corriéndolo. Si mezclás las dos cosas en el servidor, el reemplazo inmutable se vuelve imposible, porque al reemplazar perdés los datos."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "**Idempotente no significa «no hace nada».** Significa que repetir no cambia el resultado. La primera corrida sí hace cosas (en mi laboratorio, tres cambios). Lo que se espera es que a partir de la segunda no haya más."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Inmutable» no quiere decir que la aplicación nunca cambia. Quiere decir que *el servidor en marcha* no se edita. La aplicación cambia todo el tiempo, pero lo hace por sustitución: nueva imagen, nueva instancia, la vieja se retira."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Estado al 16-11-2026. Última versión de `ansible-core` en PyPI: 2.22.0, publicada el 2-11-2026 y con requisito de Python 3.13 o superior; el paquete completo `ansible` estaba en la 14.6.0 (4-11-2026) [#pypi-ansible-core]. Es la que corrí hoy. Las cifras y las opciones de línea de comando de Ansible cambian entre versiones mayores; la idea de describir el estado deseado y la idempotencia no. Qué etiqueta de Ubuntu es `ubuntu-latest` en GitHub Actions cambia cuando GitHub decide, y la lista vigente está en su documentación de runners [#gha-runners-alojados]."
+  }
+ ],
+ "recap": [
+  "La deriva de configuración es la diferencia que se acumula entre lo que un servidor debería ser y lo que es, o entre servidores que deberían ser iguales; casi siempre nace de cambios hechos a mano sin registro.",
+  "Ansible no usa agente: se conecta por SSH, recorre un inventario y ejecuta tareas hechas con módulos que describen el estado deseado, no los pasos.",
+  "Idempotente quiere decir que repetir no cambia el resultado; se demuestra corriendo dos veces el playbook y viendo `changed=0` la segunda. Un `command` sin `creates:` rompe esa propiedad.",
+  "`--check --diff` muestra qué cambiaría sin tocar nada y funciona como detector de deriva, pero solo ve lo que el playbook declara.",
+  "La infraestructura inmutable evita la deriva reemplazando en vez de editar: nueva imagen, nueva instancia, el hash identifica la versión y el rollback es redesplegar la anterior.",
+  "Lo que no se puede reemplazar (los datos) tiene que vivir fuera de la máquina para que el reemplazo funcione."
+ ],
+ "repaso": [
+  {
+   "p": "Tenés tres servidores y uno responde diez veces más lento. Entrás y encontrás que su archivo de configuración tiene un valor distinto al de los otros dos, cambiado a mano hace meses. ¿Cuál es el problema de fondo?",
+   "o": [
+    "Hay una diferencia entre máquinas sin registro ni dueño, que es lo que se llama deriva",
+    "El servidor lento tiene menos memoria que los otros dos y eso explica todo",
+    "Los archivos de configuración deberían ser de solo lectura y por eso falló",
+    "Se usó un puerto distinto, y ese es el único motivo de lentitud posible"
+   ],
+   "c": 0,
+   "e": "Lo que describe el caso es deriva: una diferencia acumulada que nadie anotó. La memoria o el puerto no aparecen en el enunciado, y hacer los archivos de solo lectura no explica la diferencia que ya existe ni evita que alguien la introduzca con permisos."
+  },
+  {
+   "p": "Corrés un playbook y la segunda vez aparece `changed=1` en una tarea que usa `command` para ejecutar un script. Nadie tocó el servidor. ¿Qué explica el `changed`?",
+   "o": [
+    "El servidor derivó entre las dos corridas, solo que nadie lo notó",
+    "El comando no declara cuándo ya está hecho, y Ansible lo cuenta como cambio",
+    "Ansible tiene un error y hay que reinstalarlo en la máquina de control",
+    "La segunda corrida siempre muestra al menos un cambio en cualquier playbook"
+   ],
+   "c": 1,
+   "e": "Con `command` o `shell`, Ansible no sabe si el resultado ya existe y marca el cambio siempre. `creates:` o `changed_when` se lo aclaran. No hay deriva ni error de instalación, y no es cierto que toda segunda corrida cambie algo: con módulos idempotentes da cero."
+  },
+  {
+   "p": "Un compañero dice: «Con Ansible me olvido de la deriva, porque cualquier cambio manual se revierte solo». ¿Qué le contestás?",
+   "o": [
+    "Tiene razón: Ansible monitorea la máquina todo el tiempo y revierte cambios",
+    "Solo revierte cambios que alguien hizo desde la propia herramienta",
+    "Revierte lo que el playbook declara, y únicamente cuando alguien lo corre",
+    "No sirve para eso: Ansible solo instala paquetes y no maneja archivos"
+   ],
+   "c": 2,
+   "e": "Ansible no es un vigilante permanente ni mira lo que no declaraste: corrige lo que el playbook describe en el momento de la corrida. Por eso se programa la ejecución y se lo usa con `--check` para detectar. Sí maneja archivos, y no distingue quién hizo el cambio."
+  },
+  {
+   "p": "Una empresa pasa de actualizar servidores con un playbook a desplegar imágenes nuevas y reemplazar instancias. ¿Qué tiene que resolver antes sí o sí?",
+   "o": [
+    "Cambiar el lenguaje de programación de la aplicación a uno compilado",
+    "Reemplazar el inventario por un archivo de configuración más grande",
+    "Pasar todo el tráfico por un solo servidor para simplificar el reemplazo",
+    "Sacar de las instancias los datos que no pueden perderse al reemplazarlas"
+   ],
+   "c": 3,
+   "e": "Reemplazar una máquina descarta todo lo que tenía adentro. Si guarda datos de las personas, se pierden. Las otras opciones no tienen relación: el lenguaje no importa, el inventario sigue sirviendo, y concentrar todo en un servidor elimina la ventaja del reemplazo gradual."
+  },
+  {
+   "p": "Calculaste el hash de una carpeta de configuración y diste `c63278dd`. Cambiás una sola línea y volvés a calcular. ¿Qué esperás?",
+   "o": [
+    "Un hash casi igual al anterior, que cambia solo en los últimos caracteres",
+    "Exactamente el mismo hash, porque el cambio de una línea es demasiado chico",
+    "Un hash completamente distinto, porque cualquier cambio altera todo el resultado",
+    "No se puede calcular un hash de una carpeta, solo de un archivo suelto"
+   ],
+   "c": 2,
+   "e": "Una función de hash criptográfica cambia por completo ante cualquier modificación (en el laboratorio, de c63278dd… a 38f97f73…). Los hashes parecidos no existen para entradas parecidas. Y una carpeta se puede empaquetar en un tar determinístico y hashear, como se hizo."
+  },
+  {
+   "p": "Tenés cuatro servidores que cambian una vez por trimestre. ¿Qué enfoque tiene sentido para empezar?",
+   "o": [
+    "Un playbook en el repositorio, corrido con `--check` periódico para detectar deriva",
+    "Construir una plataforma de imágenes con firma y promoción entre entornos",
+    "No documentar nada, porque cuatro máquinas se recuerdan de memoria",
+    "Reinstalar los cuatro cada semana para que ninguno tenga tiempo de derivar"
+   ],
+   "c": 0,
+   "e": "Con pocas máquinas y poco movimiento, un playbook versionado alcanza y cuesta poco. Montar una plataforma de imágenes es costo de entrada desproporcionado, la memoria humana es la fuente de la deriva, y reinstalar cada semana es esfuerzo sin necesidad."
+  }
+ ],
+ "feynman": "Explicale a alguien que administra un depósito, sin usar la palabra «servidor», qué es la deriva de configuración, por qué la segunda corrida de una checklist idempotente no debería cambiar nada y cuándo conviene reemplazar en vez de reparar.",
+ "para_profundizar": [
+  {
+   "fuente": "ansible-intro",
+   "para": "La introducción oficial: sin agente, playbooks y estado deseado. Leela antes de instalar nada."
+  },
+  {
+   "fuente": "fowler-snowflake-server",
+   "para": "Dos páginas cortas de Martin Fowler (Snowflake y Phoenix) para ver de dónde salen las ideas de deriva y de servidores que se reconstruyen."
+  },
+  {
+   "fuente": "fowler-immutable-server",
+   "para": "El texto breve de Kief Morris sobre servidores inmutables y qué cambia cuando se reemplaza en vez de editar."
+  },
+  {
+   "fuente": "ansible-glosario",
+   "para": "El glosario oficial: idempotencia, inventario y modo de verificación en pocas líneas cada uno."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Ansible idempotencia playbook explicado en español",
+   "por_que": "Para ver a alguien correr dos veces un playbook y leer el recuento de cambios, como hiciste hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "Ansible",
+   "d": "Herramienta de código abierto para configurar máquinas. No instala agente: se conecta por SSH, recorre un inventario y ejecuta las tareas de un playbook, escrito en YAML, que describe el estado deseado."
+  },
+  {
+   "t": "deriva de configuración",
+   "d": "Diferencia que se va acumulando entre el estado declarado de un sistema y el real, o entre servidores que deberían ser iguales. Suele venir de cambios manuales sin registro."
+  },
+  {
+   "t": "infraestructura inmutable",
+   "d": "Forma de operar donde los servidores, una vez desplegados, no se modifican: para cambiar algo se arma una versión nueva y se reemplaza la anterior."
+  },
+  {
+   "t": "playbook",
+   "d": "Archivo YAML de Ansible con la lista de tareas que se ejecutan sobre un grupo de máquinas para llevarlas al estado deseado."
+  },
+  {
+   "t": "inventario",
+   "d": "Lista de máquinas y grupos sobre los que Ansible trabaja, normalmente en un archivo de texto simple."
+  },
+  {
+   "t": "módulo de Ansible",
+   "d": "Pieza reutilizable que sabe hacer una cosa concreta (crear un archivo, instalar un paquete) y mira el estado actual antes de actuar."
+  },
+  {
+   "t": "idempotencia",
+   "d": "Propiedad de una operación: repetirla da el mismo resultado que hacerla una sola vez. Permite correr una configuración todo el tiempo sin efectos secundarios."
+  },
+  {
+   "t": "modo de verificación",
+   "d": "Corrida con `--check` que informa qué cambiaría sin modificar nada; con `--diff` muestra la diferencia línea por línea."
+  },
+  {
+   "t": "servidor copo de nieve",
+   "d": "Servidor configurado a mano durante años, único y difícil de reproducir (término de Martin Fowler)."
+  }
+ ],
+ "siguiente": "Hasta acá todo fue de servidores. Mañana: la entrega de una app móvil, donde no controlás la máquina de quien la usa, y por eso hay trenes de lanzamiento, congelamientos y despliegues escalonados.",
+ "fuentes_nuevas": [
+  {
+   "id": "ansible-intro",
+   "t": "Introduction to Ansible (Ansible Community Documentation)",
+   "a": "Ansible Project",
+   "tipo": "doc",
+   "url": "https://docs.ansible.com/ansible/latest/getting_started/introduction.html"
+  },
+  {
+   "id": "ansible-glosario",
+   "t": "Glossary (Ansible Community Documentation)",
+   "a": "Ansible Project",
+   "tipo": "doc",
+   "url": "https://docs.ansible.com/ansible/latest/reference_appendices/glossary.html"
+  },
+  {
+   "id": "fowler-snowflake-server",
+   "t": "SnowflakeServer",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": 2012,
+   "url": "https://martinfowler.com/bliki/SnowflakeServer.html"
+  },
+  {
+   "id": "fowler-phoenix-server",
+   "t": "PhoenixServer",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": 2012,
+   "url": "https://martinfowler.com/bliki/PhoenixServer.html"
+  },
+  {
+   "id": "fowler-immutable-server",
+   "t": "ImmutableServer",
+   "a": "Kief Morris (en martinfowler.com)",
+   "tipo": "articulo",
+   "anio": 2013,
+   "url": "https://martinfowler.com/bliki/ImmutableServer.html"
+  },
+  {
+   "id": "pypi-ansible-core",
+   "t": "ansible-core (PyPI)",
+   "a": "Ansible Project",
+   "tipo": "doc",
+   "url": "https://pypi.org/project/ansible-core/"
+  },
+  {
+   "id": "gha-runners-alojados",
+   "t": "GitHub-hosted runners (GitHub Docs)",
+   "a": "GitHub",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/actions/reference/runners/github-hosted-runners"
+  }
+ ]
+}

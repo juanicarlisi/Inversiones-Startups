@@ -1,0 +1,610 @@
+{
+ "id": "13-08",
+ "titulo": "Almacenamiento I: objetos, bloques y archivos",
+ "bajada": "Las tres formas en que la nube guarda datos (objetos, bloques y archivos de red), con pedidos HTTP reales a un servidor S3 local y un volumen de bloques abierto byte por byte.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Distinguir objetos, bloques y archivos de red por cómo se direccionan, quién los ve y qué operaciones admiten.",
+  "Leer un pedido real a un servidor compatible con S3 (PUT, GET, HEAD, LIST, DELETE) y explicar la firma, los encabezados y los códigos de respuesta.",
+  "Explicar por qué en S3 no existen las carpetas y por qué cambiar un byte obliga a reemplazar el objeto entero.",
+  "Calcular en qué bloque y en qué posición cae un byte de un volumen, y ver cómo el sistema de archivos traduce un nombre a bloques.",
+  "Elegir entre S3, un volumen de bloques y un sistema de archivos de red para una tarea concreta, y ubicar el equivalente en AWS, Google Cloud y Azure."
+ ],
+ "venis_de": "En [@07-16] subiste archivos a un almacén de objetos y en [@09-40] comparaste guardarlos dentro de la base o afuera. En [@02-11] viste cómo un sistema de archivos reparte nombres sobre bloques de disco. Hoy se junta todo: la nube vende esas tres capas por separado, y elegir mal una sale caro o no funciona.",
+ "se_apoya_en": [
+  "02-11",
+  "02-12",
+  "07-16",
+  "09-40"
+ ],
+ "gancho": [
+  "Un depósito de logística guarda cosas de tres maneras. Los bultos van en estantes con una etiqueta: pedís «el bulto A-4471» y te lo traen entero, y para cambiarle algo lo devolvés y te dan otro. El piso del depósito tiene posiciones numeradas, sin nombre, y cada operario decide qué pone en cada una. Y la oficina tiene un fichero compartido donde todos abren las mismas carpetas con los mismos nombres de siempre.",
+  "La nube vende exactamente esas tres cosas. Se llaman almacenamiento de objetos, de bloques y de archivos, y no son intercambiables. Hoy vas a ver las tres, y para la primera vas a poder mirar los pedidos HTTP uno por uno, porque levanté en esta máquina un servidor que habla el mismo idioma que S3."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Tres formas de guardar, tres preguntas"
+  },
+  {
+   "t": "p",
+   "x": "Antes de entrar en cada una conviene tener a mano las tres preguntas que las distinguen: **¿cómo se señala un dato?**, **¿quién lo puede ver a la vez?** y **¿qué se le puede hacer?** Las respuestas son distintas y de ahí sale cuándo conviene cada una."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Objetos",
+    "Bloques",
+    "Archivos de red"
+   ],
+   "filas": [
+    [
+     "Cómo se señala un dato",
+     "Por un nombre (clave) dentro de un contenedor",
+     "Por un número de bloque del volumen",
+     "Por una ruta, como `/uploads/foto.jpg`"
+    ],
+    [
+     "Quién lo ve",
+     "Cualquiera con permiso, por HTTP, desde cualquier lugar",
+     "Una instancia por vez (con excepciones)",
+     "Muchas instancias a la vez"
+    ],
+    [
+     "Qué se le puede hacer",
+     "Subir, bajar, listar, borrar; reemplazar entero",
+     "Leer y escribir bloques sueltos",
+     "Abrir, leer y escribir en cualquier posición, renombrar, bloquear"
+    ],
+    [
+     "Quién pone el orden",
+     "La nube, con claves planas",
+     "Vos: formateás un sistema de archivos",
+     "El servidor de archivos"
+    ],
+    [
+     "AWS",
+     "S3",
+     "EBS",
+     "EFS"
+    ],
+    [
+     "Google Cloud",
+     "Cloud Storage",
+     "Hyperdisk y Persistent Disk",
+     "Filestore"
+    ],
+    [
+     "Azure",
+     "Blob Storage",
+     "Managed disks",
+     "Azure Files"
+    ]
+   ],
+   "cap": "Equivalentes según la documentación oficial de cada proveedor, leída el 16-11-2026 [#nube1308-ebs-volumes][#nube1308-efs-what][#nube1308-gcs-intro][#nube1308-gcp-filestore][#nube1308-azure-storage-intro]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El depósito de tres maneras",
+   "x": [
+    "Los objetos son los bultos en estantes con etiqueta: se piden por código, se traen enteros y, para cambiar algo, se devuelve el bulto y se recibe otro. Los bloques son las posiciones numeradas del piso, y cada operario decide qué poner en cada una. Los archivos de red son el fichero de la oficina, que todos abren con los mismos nombres.",
+    "Dónde deja de valer: en un depósito físico alguien tiene que mover los bultos, mientras que en la nube la propia plataforma los copia en varios lugares sin que lo pidas, y los tres servicios se pagan con medidas distintas."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Objetos: S3 y su idioma HTTP"
+  },
+  {
+   "t": "p",
+   "x": "[[S3]] (*Simple Storage Service*) es el servicio de almacenamiento de objetos de AWS. Lo lanzaron el 14 de marzo de 2006 con dos operaciones, PUT para guardar un objeto y GET para recuperarlo [#aws-s3-20]. Hoy es el modelo que copiaron todos: Google tiene Cloud Storage, Microsoft tiene Blob Storage, y hay decenas de servidores de terceros que hablan el mismo protocolo, entre ellos el que usa Supabase Storage [#nube1308-supabase-s3]. Esto es lo que ya conocés de [@07-16] como [[almacenamiento de objetos]], visto ahora como producto."
+  },
+  {
+   "t": "p",
+   "x": "El modelo de datos entra en cuatro palabras. Un **bucket** es un contenedor con nombre; para los buckets de uso general el nombre tiene que ser único entre todas las cuentas de la partición de AWS [#nube1308-s3-buckets]. Un **objeto** es un contenido más sus metadatos, como el tipo de contenido o campos propios. La **clave** es el nombre del objeto dentro del bucket, de hasta 1.024 bytes [#nube1308-s3-keys]. Y la **región** donde vive el bucket se elige al crearlo. Con eso se arma cualquier dirección: `remitos/2026/11/remito-0001.json` es la clave del objeto dentro del bucket `remitos`."
+  },
+  {
+   "t": "p",
+   "x": "Para ver todo esto sin cuenta de ninguna nube, levanté en esta máquina un servidor llamado Versity S3 Gateway (versión 1.11.0, licencia Apache 2.0, compilado con Go) que implementa el protocolo de S3 y guarda los objetos en un directorio [#nube1308-versitygw]. Lo elegí porque el binario oficial de MinIO, la opción más conocida, dio un error 410 «Gone» al intentar bajarlo el 16-11-2026. No es S3 de Amazon, es otro programa que habla el mismo protocolo, y por eso sirve para ver la forma de los pedidos y no para medir nada de la nube real. Las credenciales son inventadas para esta demo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "S='curl -s --aws-sigv4 aws:amz:us-east-1:s3 --user AKDEMOLOCAL:secretdemolocal'   # firma cada pedido",
+     "s": ""
+    },
+    {
+     "c": "$S -i -X PUT http://127.0.0.1:25871/remitos | head -1",
+     "s": "HTTP/1.1 200 OK"
+    },
+    {
+     "c": "$S -i -X PUT http://127.0.0.1:25871/remitos/2026/11/remito-0001.json -H 'x-amz-meta-cliente: ejemplo' -H 'Content-Type: application/json' --data-binary @r1.json | grep -i -E '^HTTP|etag'",
+     "s": "HTTP/1.1 200 OK\nETag: \"0728b28dff6a8a6a5ce35a98ce20c8e2\""
+    },
+    {
+     "c": "$S -i http://127.0.0.1:25871/remitos/2026/11/remito-0001.json",
+     "s": "HTTP/1.1 200 OK\nContent-Type: application/json\nContent-Length: 41\nx-amz-meta-cliente: ejemplo\nx-amz-storage-class: STANDARD\nLast-Modified: Mon, 16 Nov 2026 02:32:25 GMT\nETag: \"0728b28dff6a8a6a5ce35a98ce20c8e2\"\naccept-ranges: bytes\n\n{\"remito\":1,\"origen\":\"CABA\",\"bultos\":12}"
+    },
+    {
+     "c": "$S -I http://127.0.0.1:25871/remitos/2026/11/remito-0001.json | grep -i -E \"^HTTP|content-length|etag\"",
+     "s": "HTTP/1.1 200 OK\nContent-Length: 41\nETag: \"0728b28dff6a8a6a5ce35a98ce20c8e2\""
+    },
+    {
+     "c": "$S -i http://127.0.0.1:25871/remitos/no-existe.json | head -1; $S http://127.0.0.1:25871/remitos/no-existe.json",
+     "s": "HTTP/1.1 404 Not Found\n<Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message>…"
+    },
+    {
+     "c": "curl -s -i http://127.0.0.1:25871/remitos/2026/11/remito-0001.json | head -1   # el mismo GET, sin firma",
+     "s": "HTTP/1.1 403 Forbidden"
+    }
+   ],
+   "cap": "Pedidos reales a un servidor local compatible con S3, corridos el 16-11-2026. Un PUT crea, un GET trae el objeto con sus metadatos, un HEAD trae solo los encabezados, y sin firma el servidor responde 403."
+  },
+  {
+   "t": "p",
+   "x": "Los códigos HTTP son los de [@05-18]: 200 salió bien, 404 la clave no existe, 403 no tenés permiso. El `ETag` es una huella del contenido que usa el cliente para saber si cambió. Y el HEAD es el pedido que no trae el cuerpo sino solo los encabezados, útil para preguntar tamaño y fecha de un objeto de 5 GB sin bajarlo."
+  },
+  {
+   "t": "h",
+   "x": "Cómo se firma un pedido sin mandar la contraseña"
+  },
+  {
+   "t": "p",
+   "x": "Con `-X PUT` y `-v` se puede ver el pedido tal como viaja. Lo que sigue es lo que mandó curl, con la firma recortada."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "$S -v -X PUT http://127.0.0.1:25871/remitos/2026/11/remito-0001.json -H \"Content-Type: application/json\" --data-binary @r1.json 2>&1 | grep \"^> \"",
+     "s": "> PUT /remitos/2026/11/remito-0001.json HTTP/1.1\n> Host: 127.0.0.1:25871\n> Authorization: AWS4-HMAC-SHA256 Credential=AKDEMOLOCAL/20261116/us-east-1/s3/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=<64 hex>\n> X-Amz-Date: 20261116T023348Z\n> x-amz-content-sha256: 8ef98b92e9e3a1a2d0bf6b35afa87eb10971ac1b82c257a43660b466b063192a\n> Content-Type: application/json\n> Content-Length: 41"
+    }
+   ],
+   "cap": "La firma (recortada acá a propósito) es lo que reemplaza a la contraseña."
+  },
+  {
+   "t": "p",
+   "x": "La línea `Authorization` tiene tres partes. `Credential` dice quién pide (la clave de acceso, que no es secreta), con la fecha, la región y el servicio. `SignedHeaders` lista qué encabezados quedaron cubiertos por la firma. Y `Signature` es una huella [[firma HMAC]] ([@08-05]) calculada sobre el método, la ruta, los encabezados y el hash del contenido, usando una clave derivada de la contraseña. La contraseña no viaja nunca. El servidor repite el cálculo con su copia y compara. Si alguien cambia un byte del pedido en el camino, la firma ya no coincide, y como incluye la fecha, un pedido capturado deja de servir pasado un rato. Este esquema se llama Signature Version 4 y es el que usa S3. Las [[URL firmada]]s de [@07-16] son la misma firma puesta en la dirección en vez de en un encabezado."
+  },
+  {
+   "t": "pensa",
+   "x": "El pedido de arriba lleva el hash del contenido dentro de la firma. ¿Qué ataque evita eso, que no evitaría una firma que solo cubriera la ruta?",
+   "resp": "Evita que alguien que ve pasar el pedido reemplace el cuerpo por otro contenido manteniendo la misma ruta. Con el hash del cuerpo firmado, cualquier cambio en el contenido invalida la firma."
+  },
+  {
+   "t": "h",
+   "x": "Lo que un objeto no es: no es un archivo"
+  },
+  {
+   "t": "p",
+   "x": "Se parece a un archivo, y por eso engaña. Probé lo que sigue con el mismo servidor, y cada línea marca una diferencia con un disco."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "$S -i -H 'Range: bytes=2-9' http://127.0.0.1:25871/remitos/2026/11/remito-0001.json | grep -i -E '^HTTP|content-range'",
+     "s": "HTTP/1.1 206 Partial Content\nContent-Range: bytes 2-9/41"
+    },
+    {
+     "c": "echo '{\"remito\":1,\"bultos\":13}' | $S -i -X PUT http://127.0.0.1:25871/remitos/2026/11/remito-0001.json --data-binary @- | grep -i -E \"^HTTP|etag\"",
+     "s": "HTTP/1.1 200 OK\nETag: \"a80e137d7cbbc8efdabfe531096cd45b\""
+    },
+    {
+     "c": "$S -i -X PUT http://127.0.0.1:25871/remitos/2026/11/remito-0001-v2.json -H 'x-amz-copy-source: /remitos/2026/11/remito-0001.json' | head -1",
+     "s": "HTTP/1.1 200 OK"
+    },
+    {
+     "c": "$S -i -X DELETE http://127.0.0.1:25871/remitos/2026/11/remito-0001.json | head -1",
+     "s": "HTTP/1.1 204 No Content"
+    },
+    {
+     "c": "$S \"http://127.0.0.1:25871/remitos?list-type=2&delimiter=/&prefix=2026/\"  # lista con delimitador",
+     "s": "<Prefix>2026/</Prefix> … <Delimiter>/</Delimiter>\n<CommonPrefixes><Prefix>2026/11/</Prefix></CommonPrefixes>\n<CommonPrefixes><Prefix>2026/12/</Prefix></CommonPrefixes>"
+    }
+   ],
+   "cap": "Leer una parte (206), reemplazar entero (el ETag cambió), «renombrar» como copiar y borrar, y las carpetas como ilusión de la lista."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Se lee por partes, pero no se escribe por partes.** El pedido con `Range` trae 8 bytes del medio (respuesta 206). No existe el equivalente para escribir: un PUT reemplaza el objeto completo, y por eso el `ETag` cambió. No hay «agregar una línea al final» ni «cambiar un byte».",
+    "**No hay renombrar.** Para cambiar la clave se copia el objeto con la clave nueva y después se borra el viejo: son dos pedidos y la copia la hace el servidor, sin pasar los datos por tu máquina.",
+    "**No hay carpetas.** La documentación de S3 lo dice sin vueltas: el modelo es plano, hay buckets y objetos, sin subcarpetas; lo que las consolas muestran como carpetas se deduce de los prefijos y de un delimitador [#nube1308-s3-keys]. En la última línea, el servidor devolvió `2026/11/` y `2026/12/` porque pedí agrupar las claves por la barra, y nada más.",
+    "**Cada operación cuesta un pedido entero.** Medí un GET de un objeto de 41 bytes contra este servidor local (sin red, con la conexión reusada) y tardó una mediana de 0,29 a 0,48 ms en tres tandas de 300 pedidos. Leer 4 KiB de un archivo ya en memoria, en la misma VM, tardó 0,0018 ms. Es una diferencia de 150 a 270 veces, con todo local; con una red de por medio y un servicio de verdad la distancia es mayor. Son datos de una sola VM, no de la nube real."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Tenés un registro de 2 GB en S3 y querés corregir una sola línea de adentro. ¿Qué tenés que hacer, y qué diseño evitaría el problema?",
+   "resp": "Reemplazar el objeto entero (bajarlo, modificarlo y subir los 2 GB de nuevo, o armar uno nuevo copiando por partes). El diseño que lo evita es no tener un objeto que se edite por dentro: guardar un objeto por hora o por lote, que se escribe una vez y se lee entero, y corregir lo que haga falta reemplazando uno pequeño."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«S3 solo es consistente al final»",
+   "x": "Los tutoriales viejos dicen que después de escribir un objeto puede pasar un rato antes de verlo. La documentación actual de AWS afirma lo contrario: S3 da consistencia fuerte de lectura después de escritura para los PUT y DELETE de objetos en todas las regiones, y una actualización a una misma clave es atómica: quien lee ve el dato viejo o el nuevo, nunca uno a medias [#arch716-aws-s3-intro]. No todos los servicios compatibles con S3 dan esa garantía, y hay que mirar la de cada uno."
+  },
+  {
+   "t": "h",
+   "x": "Bloques: el disco que vive en la red"
+  },
+  {
+   "t": "p",
+   "x": "Un [[volumen de bloques]] es un disco virtual que la nube mantiene en la red y que se conecta a una máquina como si fuera un disco físico: la máquina lo ve como un dispositivo y le escribe bloques. Amazon EBS lo describe como un dispositivo de almacenamiento a nivel de bloque, durable, que se asocia a una instancia y se usa como un disco rígido [#nube1308-ebs-volumes]. En Google Cloud son Hyperdisk y Persistent Disk, dispositivos conectados por la red de Google [#nube1308-gcp-disks]; en Azure, los managed disks, que son discos duros virtuales [#nube1308-azure-storage-intro]."
+  },
+  {
+   "t": "p",
+   "x": "Para ver qué significa «a nivel de bloque» armé un volumen de 16 MiB en esta máquina: un archivo común de 4.096 bloques de 4.096 bytes, que el sistema trata como un dispositivo. En la nube el dispositivo está al otro lado de la red; para el sistema operativo es lo mismo. Todo salió de esta VM el 16-11-2026."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "dd if=/dev/zero of=volumen.img bs=4096 count=4096   # 4096 bloques de 4096 bytes = 16 MiB",
+     "s": ""
+    },
+    {
+     "c": "printf 'REMITO 0001 bultos=12' | dd of=volumen.img bs=4096 seek=100 conv=notrunc   # escribir en el bloque 100",
+     "s": ""
+    },
+    {
+     "c": "dd if=volumen.img bs=4096 skip=100 count=1 | od -A d -c | head -2",
+     "s": "0000000   R   E   M   I   T   O       0   0   0   1       b   u   l   t\n0000016   o   s   =   1   2  \\0  \\0  \\0  \\0  \\0  \\0  \\0  \\0  \\0  \\0  \\0"
+    },
+    {
+     "c": "mkfs.ext4 -q -F volumen.img && mount -o loop volumen.img mnt   # ahora sí, un sistema de archivos",
+     "s": ""
+    },
+    {
+     "c": "echo 'REMITO 0002 bultos=7' > mnt/remito.txt; sync; debugfs -R 'blocks /remito.txt' volumen.img",
+     "s": "1291"
+    },
+    {
+     "c": "dd if=volumen.img bs=4096 skip=1291 count=1 | od -A d -c | head -2   # leer ese bloque sin usar el nombre",
+     "s": "0000000   R   E   M   I   T   O       0   0   0   2       b   u   l   t\n0000016   o   s   =   7  \\n  \\0  \\0  \\0  \\0  \\0  \\0  \\0  \\0  \\0  \\0  \\0"
+    }
+   ],
+   "cap": "Un volumen son bloques numerados y nada más. El nombre `remito.txt` existe porque ext4 ([@02-11]) lo anota en sus tablas y lo asocia al bloque 1291."
+  },
+  {
+   "t": "p",
+   "x": "La escena tiene dos mitades. En la primera, escribí en el bloque 100 sin que existiera ningún nombre: el volumen solo sabe de posiciones. En la segunda, el sistema de archivos ext4 puso un directorio y una tabla de [[inodo]]s encima, y el archivo `remito.txt` quedó en el bloque 1291, que se puede leer saltando el nombre. Esa traducción de nombre a bloque la hace **tu** sistema operativo, no la nube. La nube te da el disco; el sistema de archivos, el formato y los permisos son cosa tuya, igual que con un disco físico."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En un volumen con bloques de 4.096 bytes, ¿en qué bloque (empezando a contar desde 0) cae el byte número 1.000.000 y en qué posición dentro de ese bloque?",
+   "pista": "Dividí 1.000.000 entre 4.096 y quedate con la parte entera; el resto es la posición dentro del bloque.",
+   "solucion": "1.000.000 / 4.096 = 244,14. El bloque es el 244. Su primer byte es el 244 × 4.096 = 999.424, así que el byte 1.000.000 está en la posición 576 dentro del bloque."
+  },
+  {
+   "t": "p",
+   "x": "Hay tres consecuencias prácticas. Primera: un volumen de EBS vive en una zona de disponibilidad, y la documentación exige que el volumen y la instancia estén en la misma zona [#nube1308-ebs-volumes]; para moverlo a otra se saca una copia puntual (un *snapshot*) y se restaura allá. Segunda: se asocia a una instancia por vez, con excepciones como Multi-Attach en algunos tipos. La razón es la de siempre en los sistemas de archivos comunes: si dos máquinas escriben en los mismos bloques sin coordinarse, el formato se corrompe. Tercera: es lo que necesita una base de datos, porque escribe páginas sueltas en posiciones concretas ([@01-29] tiene los [[IOPS]] que los miden)."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Durabilidad documentada de EBS",
+   "x": "La documentación de EBS dice que los datos de un volumen se replican entre varios servidores de la misma zona y da cifras de durabilidad: 99,999 % para io2 Block Express y entre 99,8 % y 99,9 % para los otros tipos, con una tasa anual de falla de 0,1 % a 0,2 % [#nube1308-ebs-what]. Compará con los «once nueves» de S3 de mañana, que es otra clase de promesa."
+  },
+  {
+   "t": "h",
+   "x": "Archivos de red: la carpeta que ven todos"
+  },
+  {
+   "t": "p",
+   "x": "Un [[sistema de archivos de red]] es un servidor que expone un árbol de carpetas por la red, para que varias máquinas lo monten en un punto ([@02-12]) y lo usen con las llamadas de siempre: abrir, leer, escribir en cualquier posición, renombrar, bloquear. El protocolo más conocido es NFS (*Network File System*); el de Windows es SMB. Amazon EFS habla NFS versión 4.1 y 4.0, y la documentación lo ofrece a instancias de EC2, contenedores de ECS y EKS, a Fargate y a Lambda [#nube1308-efs-what]. Google lo llama Filestore, descrito como servidores de archivos totalmente administrados [#nube1308-gcp-filestore], y Azure lo llama Azure Files, con acceso por SMB, por NFS y por una API REST [#nube1308-azure-storage-intro]."
+  },
+  {
+   "t": "p",
+   "x": "Se usa cuando varias máquinas tienen que ver **la misma carpeta con rutas normales**: un sitio con cinco servidores que comparten las imágenes subidas, un lote de procesos que leen los mismos modelos, o una aplicación vieja que espera un directorio y no sabe hablar HTTP. Los sistemas regionales de EFS guardan los datos repartidos en varias zonas de disponibilidad, y los «One Zone» en una sola, con el riesgo de perderlos si esa zona falla [#nube1308-efs-what]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Qué no pude mostrar",
+   "x": "En esta VM el núcleo no trae cliente NFS y no pude levantar un servidor de prueba, así que esta parte la conté desde la documentación y no con una demo. Lo que sí vale como criterio, y marco como criterio mío y no como cifra, es esto: cada operación sobre un archivo de red implica un viaje por la red, y los programas que hacen miles de lecturas y escrituras chicas, como una base de datos, se llevan mejor con un volumen de bloques."
+  },
+  {
+   "t": "h",
+   "x": "Cómo elegir"
+  },
+  {
+   "t": "p",
+   "x": "La decisión se arma con las tres preguntas del principio y con lo que se hace con el dato."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Si tenés…",
+    "Conviene…",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "Fotos, PDF, copias de respaldo, un sitio estático: se escriben una vez y se leen enteros",
+     "Objetos (S3)",
+     "Es lo más barato por GB, cualquiera lo lee por HTTP y no hay disco que administrar"
+    ],
+    [
+     "El disco de una máquina o los datos de una base de datos",
+     "Volumen de bloques",
+     "Necesita escribir posiciones sueltas con baja latencia y la maneja una sola máquina"
+    ],
+    [
+     "Cinco servidores que comparten una carpeta con rutas normales",
+     "Sistema de archivos de red",
+     "Todos montan la misma carpeta y usan las llamadas de archivo de siempre"
+    ],
+    [
+     "Un registro que crece todo el día",
+     "Objetos por lote (uno por hora)",
+     "Un objeto no se edita por dentro: se escriben nuevos y se lee el conjunto"
+    ]
+   ],
+   "cap": "Criterio práctico, no una regla universal: los tres servicios se combinan, y las bases administradas ([@13-12]) esconden la decisión."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que cambia con el tiempo (consultado el 16-11-2026)",
+   "x": [
+    "El tope de tamaño de un objeto de S3 pasó de 5 GB en 2006 a 50 TB, según el blog oficial de los veinte años de S3 [#aws-s3-20], y la documentación de carga actual da 5 GB por PUT simple y hasta 50 TB con carga por partes [#nube1308-s3-upload]. Además, S3 ya tiene cuatro tipos de bucket (uso general, de directorio, de tablas y de vectores) [#arch716-aws-s3-intro].",
+    "Los nombres y las variantes de EBS, Hyperdisk, EFS, Filestore y Azure Files cambian cada pocos años: Google recomienda Hyperdisk por sobre Persistent Disk [#nube1308-gcp-disks]. Los precios se ven mañana, con fecha. Tomá todo esto como fotografía fechada."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: un solo bucket, y ningún disco"
+  },
+  {
+   "t": "p",
+   "x": "Senda no tiene servidores propios y por eso no tiene volúmenes de bloques ni archivos de red: no hay máquinas donde montarlos. De las tres formas usa **una**: el almacenamiento de objetos de Supabase Storage, que según la documentación de Supabase ofrece acceso compatible con S3, una API REST y subidas reanudables [#nube1308-supabase-s3]. Hay un único bucket privado, `sermones`, para el PDF de un sermón que el líder de un grupo comparte."
+  },
+  {
+   "t": "senda",
+   "titulo": "El bucket «sermones»",
+   "x": [
+    "La migración lo crea privado, con un tope de 6.291.456 bytes (6 MiB) por archivo y solo `application/pdf`. La clave es `<id del grupo>/<id de la trivia>.pdf`, o sea: una carpeta por grupo que, como viste hoy, es solo un prefijo. Las políticas dicen que solo el líder sube, reemplaza o borra, y que los miembros descargan únicamente si la trivia está lista y el PDF es público. Para eso el cliente pide una URL firmada de una hora, la idea de la firma de hoy aplicada a la dirección.",
+    "Esto corresponde al código de la rama actual el 16-11-2026, y el mapa del commit 25e08fa describe la misma forma: el código cambia, la forma permanece. Que reemplazar un PDF sea reemplazar el objeto entero encaja con lo que viste: nadie edita un PDF por dentro, y el diseño de objetos sale gratis."
+   ],
+   "archivos": [
+    "supabase/migrations/20261120000000_sermon_pdf.sql",
+    "src/util/sermon.ts",
+    "supabase/functions/borrar-cuenta/index.ts",
+    "supabase/functions/trivia-sermon/index.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "La nube vende tres formas de guardar: **objetos** (por nombre, HTTP), **bloques** (por número, un disco para una máquina) y **archivos de red** (por ruta, compartidos).",
+  "En **S3** los datos son objetos dentro de buckets, con clave, contenido y metadatos. Un pedido va firmado: la contraseña no viaja, viaja una firma calculada sobre el pedido.",
+  "Un objeto se lee por partes pero se escribe **entero**; no hay renombrar (se copia y se borra) ni carpetas (son prefijos con delimitador).",
+  "Un **volumen de bloques** son bloques numerados; el nombre del archivo lo agrega el sistema de archivos que formateás vos. Vive en una zona y se asocia a una instancia por vez.",
+  "Un **sistema de archivos de red** (NFS, SMB) deja que muchas máquinas monten la misma carpeta con rutas normales, a cambio de un viaje de red por operación.",
+  "La regla práctica: se escribe una vez y se lee entero, objetos; lo edita un programa por posición, bloques; lo comparten varias máquinas con rutas, archivos de red."
+ ],
+ "repaso": [
+  {
+   "p": "Un registro de 2 GB está guardado como un solo objeto en S3 y hay que corregir una línea del medio. ¿Qué pasa?",
+   "o": [
+    "Se reemplaza el objeto completo con una versión nueva",
+    "Se escribe solo el rango de bytes que cambió en el objeto",
+    "Se renombra el objeto para que la plataforma lo regenere",
+    "Se edita la línea desde el volumen de bloques asociado"
+   ],
+   "c": 0,
+   "e": "Un PUT reemplaza el objeto entero: S3 permite leer por rangos pero no escribir por rangos. Renombrar no existe como operación, y un bucket no tiene un volumen de bloques asociado."
+  },
+  {
+   "p": "Un servidor de base de datos en una máquina virtual necesita un disco donde escribir páginas sueltas con baja latencia. ¿Qué forma de almacenamiento encaja mejor?",
+   "o": [
+    "Un bucket de objetos que se monta como carpeta",
+    "Un volumen de bloques asociado a esa instancia",
+    "Un sistema de archivos de red compartido con otras",
+    "Un objeto por tabla que se reemplaza cada hora"
+   ],
+   "c": 1,
+   "e": "La base escribe posiciones concretas y la usa una sola máquina, justo lo que da un volumen de bloques. Un objeto se reemplaza entero y un archivo de red suma un viaje por cada operación chica."
+  },
+  {
+   "p": "Cinco servidores web tienen que leer y escribir las mismas fotos subidas, con rutas de archivo normales. ¿Qué conviene?",
+   "o": [
+    "Un volumen de bloques asociado a los cinco a la vez",
+    "Una carpeta distinta en cada servidor, sincronizada a mano",
+    "Un sistema de archivos de red montado en los cinco",
+    "Un solo objeto con todas las fotos dentro de él"
+   ],
+   "c": 2,
+   "e": "Un sistema de archivos de red existe para que varias máquinas vean la misma carpeta. Un volumen común se asocia a una instancia por vez y la sincronización manual deja las copias distintas."
+  },
+  {
+   "p": "En el bucket `remitos` hay una clave `2026/11/remito-0001.json`. ¿Qué es en realidad el «2026/11/» que muestra la consola como carpeta?",
+   "o": [
+    "Un directorio con su propio inodo dentro del bucket",
+    "Un bucket anidado que hereda los permisos del padre",
+    "Un objeto vacío que S3 crea sin que se pida",
+    "Parte de la clave, agrupada por prefijo y barra"
+   ],
+   "c": 3,
+   "e": "El modelo de S3 es plano: la barra es un carácter más de la clave, y la consola agrupa por prefijo y delimitador. Un directorio con inodo o un bucket anidado no existen en S3."
+  },
+  {
+   "p": "Un volumen de EBS está en la zona de disponibilidad A y la instancia que lo necesita está en la B. ¿Qué dice la documentación?",
+   "o": [
+    "Se asocia igual, solo que con algo más de latencia",
+    "No se puede asociar: deben estar en la misma zona",
+    "Se asocia si el volumen es del tipo de mayor durabilidad",
+    "Se asocia pagando una tarifa de transferencia entre zonas"
+   ],
+   "c": 1,
+   "e": "La documentación exige que volumen e instancia estén en la misma zona. Para usar los datos en otra se saca un snapshot y se restaura allá. La latencia y la tarifa no son el criterio, y el tipo de volumen no cambia la regla."
+  },
+  {
+   "p": "Una app sube un objeto a S3 con un PUT que devuelve 200 y enseguida lo lee con un GET. ¿Qué garantiza la documentación actual de AWS?",
+   "o": [
+    "Puede devolver la versión vieja durante unos segundos",
+    "Devuelve el dato nuevo: la lectura es consistente",
+    "Devuelve parte del dato viejo y parte del nuevo",
+    "Devuelve el dato nuevo solo desde la misma región"
+   ],
+   "c": 1,
+   "e": "Para PUT y DELETE de objetos, S3 da consistencia fuerte de lectura después de escritura en todas las regiones, y una actualización a una clave es atómica. La versión mixta o vieja describe tutoriales antiguos."
+  }
+ ],
+ "feynman": "Explicale a alguien que maneja un depósito qué diferencia hay entre guardar algo como objeto, como bloque y como archivo de red, y por qué una carpeta en S3 no es una carpeta. Usá un ejemplo tuyo y decí en qué punto se rompe la comparación con el depósito.",
+ "para_profundizar": [
+  {
+   "fuente": "arch716-aws-s3-intro",
+   "nota": "La introducción oficial a S3. Leé las secciones de buckets, objetos, claves y de consistencia, que son las de hoy."
+  },
+  {
+   "fuente": "nube1308-s3-keys",
+   "nota": "La página sobre claves de objeto: el modelo plano, los prefijos, el límite de 1.024 bytes y los caracteres que piden cuidado."
+  },
+  {
+   "fuente": "nube1308-ebs-volumes",
+   "nota": "La descripción oficial de un volumen de EBS, sus tipos y la regla de la misma zona de disponibilidad."
+  },
+  {
+   "fuente": "aws-s3-20",
+   "nota": "El repaso de AWS a los veinte años de S3, con cifras de cómo creció desde 2006 y los cinco principios del servicio."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Amazon S3 vs EBS vs EFS object block file storage explained",
+   "por_que": "Para ver las tres formas en diagramas y comparar con lo que mostraron los pedidos y el volumen de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "S3",
+   "d": "Amazon Simple Storage Service: servicio de almacenamiento de objetos de AWS, lanzado en 2006. Guarda objetos con clave y metadatos dentro de buckets y se usa con pedidos HTTP firmados."
+  },
+  {
+   "t": "volumen de bloques",
+   "d": "Disco virtual mantenido por la nube en la red y conectado a una máquina como un dispositivo de bloques. El sistema de archivos lo pone quien lo usa, y suele asociarse a una instancia por vez."
+  },
+  {
+   "t": "sistema de archivos de red",
+   "d": "Servidor que expone un árbol de carpetas por la red para que varias máquinas lo monten y usen las operaciones de archivo de siempre. Los protocolos más conocidos son NFS y SMB."
+  },
+  {
+   "t": "bucket",
+   "d": "Contenedor con nombre donde S3 y servicios parecidos guardan objetos. Es plano: no tiene subcarpetas."
+  },
+  {
+   "t": "clave de objeto",
+   "d": "Nombre completo de un objeto dentro de su bucket, como remitos/2026/11/remito-0001.json. La barra es un carácter más; la consola la usa para mostrar carpetas."
+  },
+  {
+   "t": "snapshot",
+   "d": "Copia de un volumen de bloques en un momento dado, que existe aparte del volumen y sirve para respaldarlo o restaurarlo, también en otra zona."
+  }
+ ],
+ "siguiente": "Almacenamiento II: durabilidad, clases y costos de salida: qué quiere decir «once nueves», por qué el mismo objeto cuesta distinto según cuánto lo leés y qué se cobra cuando los datos salen de la nube.",
+ "fuentes_nuevas": [
+  {
+   "id": "nube1308-s3-keys",
+   "t": "Creating object key names (Amazon S3 User Guide)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html"
+  },
+  {
+   "id": "nube1308-s3-buckets",
+   "t": "General purpose buckets overview (Amazon S3 User Guide)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingBucket.html"
+  },
+  {
+   "id": "nube1308-s3-upload",
+   "t": "Uploading objects (Amazon S3 User Guide)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/upload-objects.html"
+  },
+  {
+   "id": "nube1308-ebs-volumes",
+   "t": "Amazon EBS volumes (Amazon EBS User Guide)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volumes.html"
+  },
+  {
+   "id": "nube1308-ebs-what",
+   "t": "What is Amazon EBS? (Amazon EBS User Guide)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/ebs/latest/userguide/what-is-ebs.html"
+  },
+  {
+   "id": "nube1308-efs-what",
+   "t": "What is Amazon Elastic File System? (Amazon EFS User Guide)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/efs/latest/ug/whatisefs.html"
+  },
+  {
+   "id": "nube1308-gcs-intro",
+   "t": "Cloud Storage introduction",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cloud.google.com/storage/docs/introduction"
+  },
+  {
+   "id": "nube1308-gcp-disks",
+   "t": "About disks: Hyperdisk and Persistent Disk (Compute Engine)",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cloud.google.com/compute/docs/disks"
+  },
+  {
+   "id": "nube1308-gcp-filestore",
+   "t": "Filestore overview",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cloud.google.com/filestore/docs/overview"
+  },
+  {
+   "id": "nube1308-azure-storage-intro",
+   "t": "Introduction to Azure Storage",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://learn.microsoft.com/en-us/azure/storage/common/storage-introduction"
+  },
+  {
+   "id": "nube1308-supabase-s3",
+   "t": "S3 compatibility (Supabase Storage docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/docs/guides/storage/s3/compatibility"
+  },
+  {
+   "id": "nube1308-versitygw",
+   "t": "Versity S3 Gateway (versitygw)",
+   "a": "Versity",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://pkg.go.dev/github.com/versity/versitygw"
+  }
+ ]
+}

@@ -1,0 +1,597 @@
+{
+ "id": "14-17",
+ "titulo": "Migraciones de base de datos en el despliegue",
+ "bajada": "El código se despliega de a poco y la base es una sola: aprendés en qué orden va cada cambio, qué tiene que soportar cada versión y cuándo conviene no volver atrás.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar por qué, durante un despliegue gradual, la base tiene que ser compatible con dos versiones de la aplicación a la vez.",
+  "Decidir el orden de despliegue (migrar antes o después del código) para un cambio dado y justificarlo con una tabla de compatibilidad.",
+  "Evitar que dos instancias apliquen la misma migración a la vez usando un candado consultivo.",
+  "Distinguir una migración reversible de una irreversible, y elegir entre volver atrás y corregir hacia adelante.",
+  "Leer el flujo de migraciones de Senda e identificar qué protege y qué deja sin proteger."
+ ],
+ "venis_de": "En [@09-31] aprendiste a escribir migraciones que no traban la base: locks, `NOT VALID`, índices concurrentes y el patrón [[expand-contract]]. En [@14-16] viste cómo se reemplaza una versión por otra, de a poco ([[rolling update]]), de golpe ([[blue/green]]) o a una porción de usuarios ([[canary]]). Hoy se juntan las dos cosas: el cambio en la base y el cambio en el código ocurren en momentos distintos, y en el medio hay un rato en que conviven.",
+ "se_apoya_en": [
+  "09-31",
+  "09-18",
+  "04-21",
+  "14-11",
+  "14-13",
+  "14-15",
+  "14-16"
+ ],
+ "gancho": [
+  "Un martes a las 17:40, alguien del equipo de un operador logístico (el caso es inventado, pero el error es de manual) renombra en la base la columna `peso` a `peso_kg`, porque hacía meses que la gente confundía gramos con kilos. La migración tarda un milisegundo. El despliegue del código nuevo, el que ya dice `peso_kg`, empieza dos minutos después y tarda otros cuatro, porque se reemplazan las cuatro instancias de a una.",
+  "Durante esos seis minutos, cada pedido que cae en una instancia vieja pide una columna que ya no existe, y cada pedido que cae en una nueva funciona. Nadie hizo nada mal por separado: la migración estaba bien escrita y el código nuevo también. Lo que falló fue pensar que el cambio ocurre en un instante, cuando ocurre en una ventana.",
+  "Hoy vas a medir esa ventana en una base de verdad, con tres órdenes de despliegue distintos, y a ver por qué la respuesta correcta casi nunca es «migrar primero» ni «desplegar primero», sino partir el cambio en pasos que sobrevivan a cualquier orden."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El problema: una base, dos versiones del código"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un despliegue gradual ([@14-16]) reemplaza las instancias de a una. Mientras dura, hay instancias de la versión vieja (v1) y de la nueva (v2) atendiendo pedidos contra **la misma base**. Acá la compatibilidad de esquema ([@09-31]) suma el tiempo: la **[[compatibilidad en dos versiones]]** es la propiedad de que, en cada instante de un despliegue, la forma de la base funcione tanto para la versión que se va como para la que llega.",
+    "Pensalo como un depósito que cambia el formato de las etiquetas. Los camiones que ya salieron siguen llegando con la etiqueta vieja durante días, y los nuevos llegan con la nueva. Si recepción solo entiende un formato, los del otro quedan en la puerta."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Aceptar los dos formatos",
+   "x": "La solución logística es aceptar las dos etiquetas durante la transición. La analogía vale hasta cierto punto: un camión con etiqueta vieja espera en la puerta, pero un pedido que falla le devuelve un error a una persona que está mirando la pantalla."
+  },
+  {
+   "t": "p",
+   "x": "Para razonar sin adivinar, armé una tabla chiquita. Creé en una base PostgreSQL 16.15 (en esta VM, un servidor propio) una tabla `bultos` con 1.000 filas y dos versiones de aplicación de juguete: v1 lee y escribe la columna `peso`; v2 lee y escribe `peso_kg`. Después probé cada versión contra tres formas de la tabla y anoté si funcionó."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Forma de la base",
+    "v1 (usa peso)",
+    "v2 (usa peso_kg)"
+   ],
+   "filas": [
+    [
+     "Antes: solo `peso`",
+     "funciona",
+     "falla: column «peso_kg» does not exist"
+    ],
+    [
+     "Expandida: `peso` y `peso_kg`, con un trigger que las mantiene iguales",
+     "funciona",
+     "funciona"
+    ],
+    [
+     "Contraída: solo `peso_kg`",
+     "falla: column «peso» does not exist",
+     "funciona"
+    ]
+   ],
+   "cap": "Medido en PostgreSQL 16.15, tabla de 1.000 filas, lectura y escritura de cada versión. La única fila donde las dos versiones conviven es la del medio."
+  },
+  {
+   "t": "p",
+   "x": "La tabla es el mapa completo del problema. Un despliegue es un recorrido por esas filas, y el recorrido es seguro solo si **cada vez que hay instancias de una versión en pie, la base está en una forma donde esa versión funciona**. En la fila «Antes» no puede haber v2; en la fila «Contraída» no puede haber v1. Solo la fila del medio admite las dos."
+  },
+  {
+   "t": "pensa",
+   "x": "Si el despliegue tarda seis minutos y la migración un milisegundo, ¿importa que la migración sea rápida para que el despliegue sea seguro?",
+   "resp": "No. La velocidad de la migración resuelve otro problema (no trabar la base, el de [@09-31]). La seguridad del despliegue depende de si existe una forma de la base compatible con las dos versiones durante los seis minutos. Un `rename` instantáneo no la tiene; una copia de la columna en dos pasos, que tarda más, sí."
+  },
+  {
+   "t": "h",
+   "x": "Orden de despliegue: migrar antes, migrar después o partir el cambio"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El **[[orden de despliegue]]** es la secuencia en que se aplican los cambios de la base y los del código. Hay dos órdenes obvios, y los probé los dos, más uno tercero.",
+    "Simulé un parque de cuatro instancias que se reemplazan una por una. En cada paso mandé 20 pedidos repartidos por turno entre las instancias (la simulación es determinista: un reparto parejo, no tráfico real) y conté cuántos fallaron."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# Plan A: migrar primero con rename, desplegar después",
+     "s": "estado inicial                  v1=4 v2=0  errores  0 de 20\n-- rename aplicado\nmigrado, sin desplegar          v1=4 v2=0  errores 20 de 20\ndesplegando                     v1=3 v2=1  errores 15 de 20\ndesplegando                     v1=2 v2=2  errores 10 de 20\ndesplegando                     v1=1 v2=3  errores  5 de 20\nterminado                       v1=0 v2=4  errores  0 de 20"
+    },
+    {
+     "c": "# Plan B: desplegar primero, migrar al final",
+     "s": "desplegando (esquema viejo)     v1=3 v2=1  errores  5 de 20\ndesplegando (esquema viejo)     v1=2 v2=2  errores 10 de 20\ndesplegando (esquema viejo)     v1=1 v2=3  errores 15 de 20\ndesplegado (esquema viejo)      v1=0 v2=4  errores 20 de 20\n-- rename aplicado\nmigrado                         v1=0 v2=4  errores  0 de 20"
+    },
+    {
+     "c": "# Plan C: expandir, desplegar, contraer",
+     "s": "-- expandida (agrega peso_kg, la copia y un trigger)\nexpandida, sin desplegar        v1=4 v2=0  errores  0 de 20\ndesplegando                     v1=3 v2=1  errores  0 de 20\ndesplegando                     v1=2 v2=2  errores  0 de 20\ndesplegando                     v1=1 v2=3  errores  0 de 20\ndesplegado                      v1=0 v2=4  errores  0 de 20\n-- contraída (borra el trigger y la columna peso)\ncontraída                       v1=0 v2=4  errores  0 de 20"
+    }
+   ],
+   "cap": "Tres corridas sobre PostgreSQL 16.15 en esta VM, 20 pedidos por paso (los datos son de una sola máquina y de una simulación pareja, no de tráfico real). En A y en B se pierden 50 pedidos de 120 durante la ventana; en C, ninguno."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate la simetría: A y B fallan **la misma cantidad**, pero con los papeles invertidos. En A, la migración le saca el piso a v1; en B, v2 aparece buscando algo que todavía no existe. Elegir el orden «correcto» entre los dos solo decide *quién* sufre. Lo que lo arregla es el plan C: ninguno de sus pasos deja la base en una forma donde alguna versión en pie falle, así que da igual cuánto tarde el despliegue.",
+    "De ahí sale la regla práctica de la que se deriva casi todo lo demás: **cada paso de un despliegue tiene que poder ejecutarse, y quedarse así durante horas, sin romper a nadie.** Si un paso solo funciona porque el siguiente llega enseguida, es una apuesta."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Dos versiones, no una",
+   "x": "Acá no alcanza con que el código nuevo entienda la base vieja: también el código **viejo** tiene que entender la base **nueva**, porque hay un rato en que la base ya cambió y quedan instancias viejas. Y si el despliegue sale mal y hacés rollback, el código viejo vuelve a mirar una base que ya cambió."
+  },
+  {
+   "t": "p",
+   "x": "Con eso se puede armar una guía de orden según el tipo de cambio. Es una regla práctica (criterio mío, apoyado en la tabla de arriba), no una ley:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cambio",
+    "Orden seguro",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "Agregar una columna que se puede dejar vacía",
+     "Migración primero, código después",
+     "El código viejo ignora la columna nueva; el nuevo ya la encuentra"
+    ],
+    [
+     "Agregar una columna obligatoria (`NOT NULL`) sin valor por defecto",
+     "Partir en pasos: columna vacía, código que la llena, relleno, y recién ahí la obligatoriedad",
+     "La v1 inserta sin esa columna y la base la rechazaría"
+    ],
+    [
+     "Dejar de usar una columna",
+     "Código primero, migración después",
+     "Mientras quede una instancia que la lee, borrarla rompe"
+    ],
+    [
+     "Renombrar una columna",
+     "Nunca en un paso: agregar con el nombre nuevo, migrar el código, borrar el viejo",
+     "Ninguna forma intermedia sirve a las dos versiones si es un solo `rename`"
+    ],
+    [
+     "Cambiar el tipo de una columna",
+     "Columna nueva con el tipo nuevo y el mismo procedimiento que el `rename`",
+     "Un cambio de tipo suele reescribir la tabla y confunde a la versión vieja"
+    ]
+   ],
+   "cap": "Un criterio de trabajo, no un reglamento. El detalle de los locks de cada comando está en [@09-31]."
+  },
+  {
+   "t": "pensa",
+   "x": "Querés agregar la columna `zona` con `NOT NULL` y sin valor por defecto, y tu código v1 inserta bultos sin mencionarla. ¿Qué pasa si migrás primero? ¿Y si desplegás v2 primero?",
+   "resp": "Si migrás primero, cada insert de v1 falla porque la columna obligatoria queda sin valor (violación de `NOT NULL`). Si desplegás primero, v2 intenta escribir `zona` en una columna que todavía no existe. Los dos órdenes rompen a alguien. Hay que agregarla vacía, desplegar el código que la llena, rellenar las filas viejas y por último declararla obligatoria."
+  },
+  {
+   "t": "h",
+   "x": "Quién corre la migración, y qué pasa si corren dos a la vez"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay tres lugares donde suele vivir la ejecución de las migraciones. Uno, **un paso del [[pipeline]]** antes (o después) del paso que despliega el código, como hace Senda. Dos, **un trabajo aparte** que corre una vez, por ejemplo en el orquestador ([@14-11]); es práctica habitual, aunque no la verifiqué en su documentación. Tres, **cada instancia al arrancar**: la app, antes de abrir el puerto, aplica lo que falte. El factor XII de los Doce Factores [#dep1417-12factor-admin] pide tratar las migraciones como un proceso administrativo puntual, que se lanza una vez con el mismo código y el mismo entorno que la app y no como parte de atender pedidos.",
+    "La tercera es la más cómoda y la más peligrosa, porque con un reemplazo gradual arrancan varias instancias casi juntas. Lo probé con un **[[migrador]]** ingenuo: mira en la tabla `schema_migrations` si falta la migración 2, la aplica y la anota. Dos instancias arrancan a la vez, y la migración 2 inserta una zona:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# migrador ingenuo, dos instancias a la vez",
+     "s": "A: psql:ingenuo.sql:5: ERROR:  duplicate key value violates unique constraint \"schema_migrations_pkey\"\nA: DETAIL:  Key (version)=(2) already exists.\nzonas: 2 filas; versiones anotadas: 1"
+    },
+    {
+     "c": "# con un candado consultivo (pg_advisory_lock)",
+     "s": "A: aplicó la migración 2\nB: ya estaba aplicada; no hace nada\nzonas: 1 filas; versiones anotadas: 1"
+    }
+   ],
+   "cap": "Misma migración, no idempotente, con una pausa de 1 segundo dentro. Sin candado, las dos miraron «falta» al mismo tiempo; una falló al anotar, pero **ya había insertado la fila**. El orden de los mensajes A/B depende de quién ganó la carrera."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El arreglo es un **[[candado consultivo]]** (*advisory lock*): PostgreSQL permite tomar un candado con un número que elegís vos, y no impone qué significa; es una convención entre procesos que se ponen de acuerdo [#back0708-postgres-advisory]. Todos los migradores piden el mismo número antes de mirar `schema_migrations`; el primero entra, los demás esperan, y cuando entran ven que ya está hecho. Eso fue lo que hizo la segunda corrida: la instancia B esperó un segundo y no hizo nada.",
+    "El detalle fino: a nivel de sesión, el candado queda tomado hasta que lo soltás o se cierra la conexión, incluso si la transacción se deshace [#back0708-postgres-advisory]. Por eso hay que soltarlo siempre, y por eso se usa una conexión dedicada al migrador. Que una herramienta concreta (Flyway, la CLI de Supabase, la de tu framework) haga algo así por vos es algo que **tenés que verificar en su documentación**: yo no lo comprobé para ninguna."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Idempotente no reemplaza al candado, pero ayuda",
+   "x": "Una migración **idempotente** (se puede correr dos veces con el mismo resultado: `create table if not exists`, `add column if not exists`) no hace daño si la carrera la ejecuta dos veces. Una que inserta datos, como la de la demo, sí. Escribir migraciones idempotentes es un seguro barato, y el candado es el seguro que no depende de la disciplina de quien escribe."
+  },
+  {
+   "t": "h",
+   "x": "Falla a medias: atómica o no"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Otra pregunta del día del despliegue: si la migración tiene tres comandos y el tercero falla, ¿qué queda? Probé en PostgreSQL una migración que agrega dos columnas y después intenta un `update` que divide por cero. Primero sin transacción (cada comando se confirma solo) y después envuelta en `begin; … commit;`."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -f m3.sql      # sin transacción",
+     "s": "psql:m3.sql:3: ERROR:  division by zero\n# columnas de bultos ahora: id peso zona destino"
+    },
+    {
+     "c": "psql -f m3t.sql     # begin; … commit;",
+     "s": "psql:m3t.sql:4: ERROR:  division by zero\n# columnas de bultos ahora: id peso"
+    },
+    {
+     "c": "psql -c \"alter table bultos add column zona text\"   # reintentar la migración a mano",
+     "s": "ERROR:  column \"zona\" of relation \"bultos\" already exists"
+    }
+   ],
+   "cap": "PostgreSQL 16.15. En el primer caso la base quedó a medio camino: dos columnas nuevas, la migración sin anotar como aplicada y un reintento que ahora falla por un motivo nuevo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "PostgreSQL permite que casi todos los comandos de estructura (DDL) vivan dentro de una transacción, y entonces una migración fallida se deshace entera. No todos los motores de base de datos se comportan así, y dentro de PostgreSQL hay comandos que no pueden ir en una transacción, como `create index concurrently` ([@09-31]). Es decir: **«si falla se deshace sola» es una propiedad que hay que verificar para tu motor y para cada comando**, no un supuesto.",
+    "Y reintentar a mano choca con lo que quedó: por eso la idempotencia importa justo cuando algo sale mal."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Volver atrás: reversible, irreversible y «hacia adelante»"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **[[migración reversible]]** es la que viene con su inversa: el *up* que aplica el cambio y un *down* que lo deshace. Algunas herramientas piden escribir los dos. Suena a seguro de vida, pero el *down* solo devuelve la **forma**, no los **datos**. Lo probé con una tabla de 1.000 bultos, 600 con una nota («frágil»):"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select count(notas) from bultos;",
+     "s": "600"
+    },
+    {
+     "c": "alter table bultos drop column notas;   -- el up\nalter table bultos add column notas text;  -- el down",
+     "s": ""
+    },
+    {
+     "c": "select count(notas) from bultos;",
+     "s": "0"
+    }
+   ],
+   "cap": "PostgreSQL 16.15. El down restituyó una columna del mismo nombre y tipo, y la base volvió a «tener la forma de antes». Las 600 notas no volvieron."
+  },
+  {
+   "t": "p",
+   "x": "Por eso conviene clasificar cada migración por lo que se puede recuperar, no por si tiene *down*:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo de cambio",
+    "¿Se deshace?",
+    "Cómo se vuelve atrás"
+   ],
+   "filas": [
+    [
+     "Agregar columna o tabla nueva sin datos",
+     "Sí, sin pérdida",
+     "Borrarla (si nadie escribió ahí todavía; si ya escribieron, se pierde lo escrito)"
+    ],
+    [
+     "Agregar un índice",
+     "Sí",
+     "Borrarlo; solo se pierde tiempo de cómputo"
+    ],
+    [
+     "Borrar una columna o tabla",
+     "Solo la forma",
+     "Restaurar un respaldo: los datos de esa columna no vuelven solos"
+    ],
+    [
+     "Transformar datos (unir, partir, convertir unidades)",
+     "Depende de si la transformación se puede invertir",
+     "Guardar el original hasta estar seguro, o aceptar que no hay vuelta"
+    ]
+   ],
+   "cap": "Lo que importa de cada fila es la tercera columna: casi siempre, volver atrás de verdad es restaurar, no ejecutar un down."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahí aparece la alternativa: **[[roll-forward]]**, que es arreglar con una migración nueva en lugar de deshacer la vieja. Si la migración 17 dejó algo mal, se escribe la 18 que lo corrige y se despliega por el mismo camino de siempre. Tiene tres ventajas: el historial queda lineal, no depende de tener un *down* que nadie probó, y se ejercita el mismo proceso que usás todos los días. Su costo es que el arreglo hay que escribirlo bajo presión.",
+    "Lo que hace posible volver con tranquilidad es el patrón del plan C. Con la base expandida, **el rollback del código es gratis**: si v2 tiene un bug, volvés a v1 y funciona, porque la base sigue sirviendo a las dos. Lo único que no podés hacer es contraer (borrar lo viejo) el mismo día que desplegás: la contracción es el paso que cierra la puerta de atrás, y por eso va *después* de un período en que v2 demostró estar sana, que puede ser de días. El rollback de código y el de datos son dos preguntas distintas, y mucho del trabajo de ordenar migraciones es mantenerlas separadas."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si tengo down, puedo volver siempre»",
+   "x": "El *down* solo es una garantía para los cambios que no destruyen información. Para el resto, la red de seguridad real es un respaldo reciente y un procedimiento de restauración **que probaste**. Un respaldo que nunca se restauró es una hipótesis."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Blue/green comparte la base",
+   "x": "En [@14-16] viste que blue/green mantiene dos entornos completos y cambia el tráfico de uno al otro. Pero las dos «mitades» suelen apuntar a **la misma base**: la base es la parte que no se duplica. Entonces el cambio de color también tiene una ventana en que azul y verde coexisten, y todo lo de hoy vale igual. Lo mismo para un canary: el 5 % de usuarios en v2 y el 95 % en v1 es, para la base, exactamente el parque de cuatro instancias de arriba."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu equipo tiene una migración que borra la tabla `viajes_2019` y el *down* la vuelve a crear vacía. ¿Es reversible?",
+   "resp": "Es reversible en la forma pero no en los datos. Un ejercicio honesto es etiquetarla como irreversible, exigir un respaldo verificado antes de correrla y, si se puede, retrasar el borrado (renombrar o mover la tabla a un esquema de archivo y borrarla semanas después)."
+  },
+  {
+   "t": "h",
+   "x": "Senda: cómo migra su base"
+  },
+  {
+   "t": "p",
+   "x": "Lo que sigue sale de leer el repositorio de Senda y del mapa técnico verificado (confirmación `25e08fa`; el código cambia, la forma permanece). Distingo lo que está **implementado** de lo que sería una mejora posible."
+  },
+  {
+   "t": "senda",
+   "titulo": "El flujo de migraciones de Senda, paso a paso",
+   "x": [
+    "El flujo `supabase.yml` se dispara con un `push` a `main` que toque `supabase/migrations/**` o `supabase/functions/**`, o a mano. Tiene dos trabajos en cadena. **`probar`** levanta un PostgreSQL descartable, aplica **todas** las migraciones y corre el recorrido de la base (`pruebas/nube/correr.sh`, unas 188 comprobaciones según el mapa). Solo si pasa, **`migrar`** (con `needs: probar`) fija la CLI de Supabase en la 3.0.0, hace `supabase link`, aplica con `supabase db push --remote --include-all --yes` y recién después despliega las tres funciones de borde.",
+    "Dos cosas buenas, en términos de lo de hoy: las migraciones se **ensayan antes** de tocar la base real, y el orden es *base primero, funciones después*, que es el orden seguro cuando la función nueva necesita la forma nueva de la base. Y una cosa que se desprende de leer el archivo: si `db push` falla, el paso de las funciones no corre (los pasos siguientes se saltean por defecto cuando uno falla)."
+   ],
+   "archivos": [
+    ".github/workflows/supabase.yml",
+    "pruebas/nube/correr.sh"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que no hay: ni down, ni drop column, ni ejecución única",
+   "x": [
+    "Conté en `supabase/migrations/` (42 archivos): **cero** `drop column` y **cero** `rename`; los cambios de columnas son `add column` (23 apariciones, todas con `if not exists`). Es decir, en la práctica Senda ya trabaja solo con la mitad *expandir* del patrón, que es la mitad segura. Tampoco hay archivos *down*: las correcciones se hacen con una migración nueva, o sea, **roll-forward**. De los 41 `create table` que empiezan línea, 7 no llevan `if not exists`, de modo que no todas las migraciones son idempotentes; el comentario del flujo dice que sí, y esa frase es más fuerte que lo que mostró mi conteo.",
+    "Lo que **no** hay en `supabase.yml`: una cláusula `concurrency`. Dos `push` a `main` seguidos que toquen la base pueden lanzar dos corridas de `migrar` casi a la vez. No verifiqué qué hace la CLI de Supabase en ese caso, así que no sé si protege con un candado como el de hoy; es una pregunta para la documentación de la herramienta y una prueba con una base descartable. Lo que sí vi es que la prueba ensaya las migraciones en una base **vacía**, con los roles mínimos que imita la prueba, no en una copia con el tamaño ni los datos de la real."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261109000000_limpieza.sql"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay un tercer matiz, del mismo tipo que el «falla a medias» de antes. Las migraciones que programan tareas con `pg_cron` envuelven la llamada en un bloque `do $$ … exception when others then raise notice … end $$` (por ejemplo, en `20261101000000_juntos.sql` y en `20261109000000_limpieza.sql`). Es razonable para no fallar en una base sin la extensión, pero deja un resultado nuevo: la migración **termina bien y la tarea no queda programada**. El único rastro es un aviso (*notice*) que nadie lee en una corrida automática. Es otro modo de «migración a medias», y lo sano es una comprobación posterior, por ejemplo una consulta que confirme que las tareas existen.",
+    "Y el cliente más difícil de actualizar no es una instancia de servidor, sino un teléfono. El `app.json` del repositorio declara `versionCode` 41, y el mapa técnico señala que no existe un control de «versión mínima soportada» (en `src/` no encontré nada con ese nombre). Un teléfono con una versión de hace tres meses sigue llamando a la base con las firmas de entonces. En una app móvil, la «ventana de mezcla» no dura minutos sino meses: el motivo para no borrar nada que un cliente viejo todavía pueda usar. Que 5 migraciones de Senda hagan `drop function` de una firma vieja (por ejemplo `miembros_de` en `20261130000005_grupos_grandes.sql`) es justamente donde mirar: en ese caso la función nueva conserva la llamada de un solo parámetro porque los agregados tienen valor por defecto, como contó [@09-31], pero lo que no ensayé es si el comportamiento sigue igual para el cliente viejo."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que ya existe como seguro",
+   "x": "El recorrido de `pruebas/nube` es un ensayo general: aplica las 42 migraciones en una base descartable y ejecuta la lógica como lo haría la app, algo parecido a un entorno efímero ([@14-13]) para la base. Lo que le falta para ser un ensayo de despliegue es la tabla de hoy: correr un cliente **viejo** contra el esquema **nuevo**; no encontré una prueba que lo haga.",
+   "archivos": [
+    "pruebas/nube/correr.sh",
+    "supabase/config.toml"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "La lista antes de mergear una migración"
+  },
+  {
+   "t": "pasos",
+   "titulo": "Seis preguntas",
+   "pasos": [
+    {
+     "t": "¿Qué dos versiones conviven?",
+     "x": "Escribí cuál es la más vieja que sigue en pie (una instancia que se está reemplazando, un teléfono sin actualizar) y cuál es la nueva."
+    },
+    {
+     "t": "¿La forma nueva sirve a las dos?",
+     "x": "Hacé la tabla de compatibilidad de la primera sección. Si hay una celda que falla, partí el cambio."
+    },
+    {
+     "t": "¿Qué orden de despliegue aplica?",
+     "x": "Agregar: migración primero. Quitar: código primero. Cambiar: expandir, migrar el código, contraer."
+    },
+    {
+     "t": "¿Se puede correr dos veces, y a la vez?",
+     "x": "Idempotencia y candado. Si una carrera inserta datos dos veces, el problema es de la migración."
+    },
+    {
+     "t": "¿Qué pasa si falla en el medio?",
+     "x": "¿Va en una transacción? ¿Cada comando acepta estar en una? Si no, cuál es el estado intermedio y quién lo limpia."
+    },
+    {
+     "t": "¿Cuál es el plan de vuelta?",
+     "x": "Rollback del código (gratis si solo expandiste), roll-forward con una migración nueva, o restauración de un respaldo probado para lo destructivo."
+    }
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una tabla `usuarios` tiene la columna `nombre_completo`. El equipo quiere reemplazarla por `nombre` y `apellido`, en una app que se despliega por rolling update. Escribí los pasos en orden, indicando en cada uno si es una migración o un despliegue, y señalá en qué paso es seguro volver atrás.",
+   "pista": "Es un cambio incompatible: no existe una sola migración que lo resuelva. Usá el mismo esquema de la tabla de compatibilidad: ¿qué columnas existen en cada paso?",
+   "solucion": "1) Migración: agregar `nombre` y `apellido`, nullable. 2) Migración: trigger o lógica que mantenga las tres coherentes y relleno en tandas de las filas viejas. 3) Despliegue de v2, que escribe y lee las columnas nuevas (y sigue escribiendo `nombre_completo`). 4) Esperar hasta que ya no haya instancias v1 ni clientes viejos. 5) Despliegue de v3, que deja de escribir `nombre_completo`. 6) Migración: borrar `nombre_completo` y el trigger. Los pasos 1 a 5 se pueden deshacer con un rollback del código, porque la columna vieja sigue existiendo; el paso 6 es el único que destruye información, así que antes de ese paso conviene un respaldo verificado."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué verifiqué y qué no (16-11-2026)",
+   "x": [
+    "Todo lo que mostré se corrió en una VM de práctica con PostgreSQL 16.15 (paquete de Ubuntu 24.04), bases descartables y aplicaciones de juguete. Los tiempos y recuentos son de una sola máquina. Los principios (compatibilidad en dos versiones, expand-contract, candados consultivos) valen en cualquier versión con soporte; lo que cambia con el tiempo son las herramientas.",
+    "No verifiqué el comportamiento de la CLI de Supabase ante dos corridas simultáneas, ni cómo envuelve cada archivo en transacciones, ni el tamaño real de la base de Senda en producción. Las guías oficiales de Supabase sobre migraciones [#bd0931-supabase-migraciones] y sobre `db push` [#bd0931-supabase-cli-push] son el lugar donde confirmarlo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Un caso real de otra escala"
+  },
+  {
+   "t": "p",
+   "x": "Stripe publicó en febrero de 2017 cómo migraba millones de objetos de una tabla a otra sin cortar el servicio [#dep1417-stripe-online-migrations]: escribir en las dos tablas a la vez, pasar las lecturas a la nueva, pasar las escrituras y borrar la vieja. Es el expand-contract de [@09-31] con otro nombre. Cambia cuánto tarda cada fase (el relleno puede llevar días), no la estructura. Lo leí en la fuente original; no reproduzco sus cifras."
+  }
+ ],
+ "recap": [
+  "Un despliegue gradual no es un instante: durante la ventana conviven dos versiones del código contra una sola base, y la forma de la base tiene que servir a las dos (compatibilidad en dos versiones).",
+  "Con un `rename` en un solo paso, migrar antes y desplegar después fallaron 50 de 120 pedidos simulados, y desplegar antes y migrar después, otros 50: el orden solo decide quién falla. Partir en expandir, desplegar y contraer dio cero.",
+  "Regla práctica: agregar va con la migración primero; dejar de usar va con el código primero; cambiar algo de lugar exige las dos cosas en pasos separados.",
+  "Si varias instancias pueden migrar a la vez, hace falta un candado consultivo (y migraciones idempotentes); sin candado, una carrera insertó una fila de más en la demo.",
+  "Un down devuelve la forma, no los datos (600 notas pasaron a 0). Para lo destructivo, la red de seguridad es un respaldo probado; para el resto, el rollback del código es gratis mientras no hayas contraído.",
+  "En Senda, las migraciones se ensayan en una base descartable antes de la real y solo se expande (cero `drop column`), con roll-forward. Faltan una cláusula de concurrencia y una prueba de cliente viejo contra esquema nuevo."
+ ],
+ "repaso": [
+  {
+   "p": "Un servicio tiene cuatro instancias que se reemplazan de a una. El equipo renombra una columna con un solo `rename` y despliega el código nuevo justo después. ¿Qué describe mejor lo que pasa?",
+   "o": [
+    "Mientras queden instancias viejas, los pedidos que les caen fallan",
+    "Nada falla porque el rename tarda menos de un milisegundo en aplicarse",
+    "Falla solo el código nuevo hasta que termina el despliegue completo",
+    "Falla todo por igual hasta que se reinicia la base de datos entera"
+   ],
+   "c": 0,
+   "e": "El rename es instantáneo, pero el código viejo sigue pidiendo el nombre anterior y la base ya no lo tiene: fallan los pedidos que caen en instancias v1. Que el cambio sea rápido no lo hace compatible, el código nuevo en este orden sí funciona y no hace falta reiniciar la base."
+  },
+  {
+   "p": "¿Qué es lo que hace que un plan de despliegue sea seguro frente a cualquier duración de la ventana de mezcla?",
+   "o": [
+    "Que cada paso deje la base en una forma que sirva a la versión en pie",
+    "Que el despliegue sea lo bastante corto como para que casi no se note",
+    "Que la migración se aplique siempre antes que el código en todos los casos",
+    "Que exista un script down escrito para cada una de las migraciones"
+   ],
+   "c": 0,
+   "e": "La seguridad viene de que no haya ningún paso en que una versión en pie falle. Un despliegue corto solo reduce el daño de un plan inseguro, migrar siempre primero rompe al quitar columnas y un down no protege durante la ventana, solo después."
+  },
+  {
+   "p": "Querés dejar de usar la columna `telefono_viejo` y borrarla. ¿Qué orden respeta la compatibilidad en dos versiones?",
+   "o": [
+    "Primero migrar para borrarla y luego desplegar el código sin ella",
+    "Desplegar el código que no la usa y recién después borrar la columna",
+    "Borrar la columna y desplegar a la vez, con un solo pipeline paralelo",
+    "Dejarla para siempre porque nunca es seguro borrar una columna"
+   ],
+   "c": 1,
+   "e": "Mientras queden instancias que la leen, borrarla las rompe: por eso el código va primero y la migración, después (lo opuesto de agregar). Borrar y desplegar a la vez no garantiza el orden entre instancias, y «nunca borrar» es exagerado: es seguro cuando nada la usa."
+  },
+  {
+   "p": "Dos instancias arrancan a la vez y cada una, antes de abrir el puerto, aplica las migraciones pendientes. Ninguna toma un candado. ¿Cuál es el riesgo más concreto?",
+   "o": [
+    "Que las dos apliquen la misma migración y se dupliquen sus efectos",
+    "Que la base rechace la segunda conexión y se caiga el servicio",
+    "Que el candado consultivo se tome solo y se bloquee todo siempre",
+    "Que PostgreSQL ejecute la migración a la mitad de velocidad en total"
+   ],
+   "c": 0,
+   "e": "Sin candado, las dos miran «falta la migración 2» a la vez y las dos la aplican: en la demo quedaron 2 filas en lugar de 1. PostgreSQL no rechaza conexiones por eso, el candado consultivo no se toma solo y no hay efecto sobre la velocidad."
+  },
+  {
+   "p": "Una migración borra una columna con 600 notas y su down la vuelve a crear. Tras aplicar el down, ¿qué es cierto?",
+   "o": [
+    "La columna existe de nuevo, pero está vacía: los datos no volvieron",
+    "La columna existe de nuevo con las 600 notas recuperadas intactas",
+    "La columna no existe porque un down no puede crear nada nuevo",
+    "La columna existe y PostgreSQL restaura los datos desde el historial"
+   ],
+   "c": 0,
+   "e": "El down puede recrear la estructura, pero la información se perdió en el up: en la demo, de 600 notas se pasó a 0. Los datos solo vuelven con un respaldo. No hay historial automático que los restaure y crear una columna es perfectamente posible."
+  },
+  {
+   "p": "Con la base en forma «expandida» (columna vieja y nueva con un trigger), el código nuevo tiene un bug grave. ¿Qué es lo más razonable?",
+   "o": [
+    "Volver al código anterior y dejar la base como está, sin tocarla",
+    "Ejecutar el down de la expansión para devolver la forma anterior",
+    "Esperar al siguiente despliegue y no cambiar nada hasta entonces",
+    "Borrar la columna nueva a mano para que v2 deje de fallar"
+   ],
+   "c": 0,
+   "e": "Con la forma expandida la base sirve a las dos versiones, así que el rollback del código es gratis y no hay que tocar nada más. Ejecutar el down podría perder lo que v2 escribió en la columna nueva, esperar deja el bug en producción y borrarla a mano rompe aún más a v2."
+  },
+  {
+   "p": "¿Por qué en Senda la «ventana de mezcla» puede durar mucho más que en un servidor web típico?",
+   "o": [
+    "Porque los teléfonos con versiones viejas siguen llamando a la base",
+    "Porque Supabase tarda semanas en terminar de aplicar cada migración",
+    "Porque el flujo de migraciones se ejecuta una vez por mes",
+    "Porque PostgreSQL no admite más de una versión de esquema a la vez"
+   ],
+   "c": 0,
+   "e": "No hay un mecanismo de versión mínima: un cliente sin actualizar llama con las firmas de su época durante meses. Las otras tres opciones inventan causas: la migración tarda segundos, el flujo corre en cada push y PostgreSQL no limita versiones de aplicación."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística por qué cambiar el formato de las etiquetas de un depósito necesita un período en que se aceptan los dos formatos, y qué equivale en software a «dejar de aceptar el viejo». Usá un ejemplo propio y decí en qué momento sería seguro cerrar la puerta.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0931-fowler-parallel-change",
+   "nota": "El artículo corto de Martin Fowler que nombra el patrón expand-contract (parallel change) en tres fases. Sirve para tener a mano el vocabulario con el que otros equipos describen lo que hiciste hoy con la columna `peso`."
+  },
+  {
+   "fuente": "dep1417-stripe-online-migrations",
+   "nota": "«Online migrations at scale» (Stripe, febrero de 2017): las cuatro fases de escribir en dos lugares, leer, cambiar y borrar aplicadas a millones de objetos. Leé las fases de lectura y de escritura para ver cómo se decide cuándo avanzar."
+  },
+  {
+   "fuente": "dep1417-12factor-admin",
+   "nota": "El factor XII de los Doce Factores: por qué las migraciones se tratan como un proceso puntual con el mismo código y entorno que la app. Es corto y fija el criterio de «quién corre la migración»."
+  },
+  {
+   "fuente": "back0708-postgres-advisory",
+   "nota": "La sección de bloqueo explícito de PostgreSQL sobre candados consultivos: qué garantizan, la diferencia entre nivel sesión y nivel transacción y cuándo se liberan. Es lo que necesitás para escribir tu propio migrador sin carreras."
+  }
+ ],
+ "videos": [
+  {
+   "q": "expand and contract pattern database migrations zero downtime explicado",
+   "por_que": "Para ver en pantalla el patrón paso a paso con otro ejemplo, y comparar con el `peso` a `peso_kg` de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "orden de despliegue",
+   "d": "Secuencia en que se aplican los cambios de la base y los del código durante un despliegue. La regla práctica: agregar va con la migración primero, dejar de usar va con el código primero, y los cambios incompatibles se parten en pasos."
+  },
+  {
+   "t": "migración reversible",
+   "d": "Migración que viene con su inversa (un down que deshace el up). Devuelve la forma de la base, pero no los datos que el up haya destruido; para eso hace falta un respaldo."
+  },
+  {
+   "t": "compatibilidad en dos versiones",
+   "d": "Propiedad de la forma de la base de servir a la versión vieja y a la nueva del código a la vez, durante la ventana de un despliegue gradual o frente a un rollback. Es la condición que hace seguro el plan expandir, migrar, contraer."
+  },
+  {
+   "t": "roll-forward",
+   "d": "Corregir un problema escribiendo y desplegando una migración nueva, en vez de deshacer la anterior. Mantiene el historial lineal y usa el mismo camino de siempre."
+  },
+  {
+   "t": "candado consultivo",
+   "d": "Candado de PostgreSQL con un número que elige la aplicación: la base no impone qué significa y los procesos se ponen de acuerdo en respetarlo. Sirve para que una sola instancia aplique las migraciones."
+  },
+  {
+   "t": "migrador",
+   "d": "El programa o paso que mira qué migraciones faltan, las aplica en orden y anota cuáles ya se aplicaron. Puede ser un paso del pipeline, un trabajo aparte o parte del arranque de la app."
+  }
+ ],
+ "siguiente": "Ya sabés cambiar la base sin romper la versión que está corriendo. Mañana, el paso anterior a todo despliegue: describir la infraestructura (servidores, redes, bases) como código, con Terraform, y ver qué muestra un plan antes de tocar nada.",
+ "fuentes_nuevas": [
+  {
+   "id": "dep1417-12factor-admin",
+   "t": "The Twelve-Factor App: XII. Admin processes",
+   "a": "Adam Wiggins",
+   "tipo": "articulo",
+   "url": "https://12factor.net/admin-processes"
+  },
+  {
+   "id": "dep1417-stripe-online-migrations",
+   "t": "Online migrations at scale",
+   "a": "Jacqueline Xu (Stripe)",
+   "tipo": "articulo",
+   "anio": "2017",
+   "url": "https://stripe.com/blog/online-migrations"
+  }
+ ]
+}

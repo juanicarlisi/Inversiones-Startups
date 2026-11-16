@@ -1,0 +1,862 @@
+{
+ "id": "14-07",
+ "titulo": "Docker I: imágenes y contenedores",
+ "bajada": "Abrís una imagen real y ves que son tres archivos con hashes, levantás un contenedor y lo encontrás como un proceso común de tu máquina, y subís capas a un registro propio.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué contiene una imagen (manifiesto, configuración y capas) y por qué cada pieza se identifica con un hash de su contenido.",
+  "Distinguir una imagen de un contenedor y ubicar a un contenedor en ejecución como un proceso del anfitrión, con sus namespaces y su cgroup.",
+  "Leer la salida de `docker history` y de un `docker push` para saber qué capas se reutilizan y cuáles se vuelven a subir.",
+  "Describir qué hace un registro de imágenes y por qué una etiqueta puede moverse pero un digest no.",
+  "Calcular a mano qué pesa y qué se descarga cuando dos imágenes comparten capas."
+ ],
+ "venis_de": "En [@02-24] viste qué es un contenedor por dentro: un proceso con una vista recortada del sistema (namespaces), un tope de recursos (cgroups) y una carpeta como raíz. Todo eso lo armaste a mano con `runc`. Hoy usás la herramienta que lo hace todos los días, Docker, y mirás con lupa dos cosas que entonces quedaron a medias: de qué está hecha esa carpeta (la imagen) y de dónde sale (el registro). Mañana se agrega cómo se escribe una imagen propia.",
+ "se_apoya_en": [
+  "02-24",
+  "02-23",
+  "03-27",
+  "02-04",
+  "02-11",
+  "05-18"
+ ],
+ "gancho": [
+  "Alguien del equipo te dice: «en mi máquina anda». La app necesita Node 22, una librería del sistema en cierta versión y tres variables de entorno. En el servidor hay otra versión de todo y nadie sabe bien por qué. Pasás la tarde comparando listas de paquetes.",
+  "Los contenedores nacieron para cerrar esa discusión. En logística conocés la idea: antes del contenedor de carga estándar, cada mercadería se estibaba a mano y de manera distinta, y el puerto tenía que saber qué traía cada bulto. Con la caja normalizada, la grúa no mira adentro. En software, la caja normalizada es la **imagen**, y la grúa es un programa que la ejecuta sin preguntarse qué lleva. La analogía sirve hasta cierto punto: un contenedor de carga es una caja de acero que viaja; una imagen es una receta con ingredientes ya cocinados que se copia y se arranca. Esa diferencia se va a notar enseguida.",
+  "Todo lo que ves hoy lo corrí en esta máquina con un Docker Engine 29.9.2 levantado a propósito, con datos inventados. Los tiempos y los tamaños son de una sola máquina virtual compartida. Vas a abrir una imagen real, a encontrar un contenedor como un proceso más, y a subir capas a un registro propio."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué es una imagen: tres piezas y nada más"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **[[imagen]]** es un paquete de solo lectura que contiene todo lo necesario para arrancar un programa: sus archivos, las librerías de las que depende y la descripción de cómo ejecutarlo. No es un proceso ni está corriendo. Es un molde. Con un molde podés fabricar tantos contenedores como quieras, y el molde no cambia.",
+    "El formato lo define la Open Container Initiative (OCI), un estándar abierto. Eso explica que una imagen armada con Docker la pueda ejecutar otra herramienta que cumpla el mismo estándar. Según la especificación, una imagen se compone de tres piezas: un **manifiesto** que lista qué la compone, una **configuración** con los datos para ejecutarla, y una o más **capas** con los archivos [#dk07-oci-manifest] [#dk07-oci-config]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Una **[[capa]]** es un conjunto de diferencias sobre el sistema de archivos: qué archivos se agregaron, cuáles cambiaron y cuáles se borraron respecto de la capa anterior. Físicamente es un archivo `tar` comprimido con gzip. La imagen final se obtiene apilando las capas en orden sobre una carpeta vacía [#ctr-oci-image-layer]."
+  },
+  {
+   "t": "p",
+   "x": "En vez de describirlo, abrámosla. Bajé `alpine:3.22` de Docker Hub, que es una distribución de Linux muy chica que se usa de base para muchas imágenes, y la guardé en un archivo con `docker save`. Esto es lo que había adentro (la lista está tal cual; solo acorté los hashes largos con puntos suspensivos)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "docker pull alpine:3.22 && docker save alpine:3.22 -o a.tar && tar tvf a.tar",
+     "s": "Digest: sha256:49340b34...e898f\nStatus: Downloaded newer image for alpine:3.22\n-r--r--r-- blobs/sha256/41efde52...      5053\n-r--r--r-- blobs/sha256/49340b34...      9218\n-r--r--r-- blobs/sha256/710f3da1...   3794375\n-r--r--r-- blobs/sha256/812e9931...       611\n-r--r--r-- blobs/sha256/9db29348...      1022\n-r--r--r-- blobs/sha256/a1b39fea...       838\n-r--r--r-- blobs/sha256/d8882042...       241\n-r--r--r-- blobs/sha256/f270d3a8...     80375\n-rw-r--r-- index.json                      419\n-rw-r--r-- manifest.json                   210\n-r--r--r-- oci-layout                       30"
+    }
+   ],
+   "cap": "Lo que hay dentro de una imagen guardada en disco, medido el 16-11-2026. Son ocho archivos con nombre de hash, tres archivos de índice y nada más. El archivo de 3.794.375 bytes es la única capa con archivos del sistema."
+  },
+  {
+   "t": "p",
+   "x": "De los ocho blobs, uno es grande: 3.794.375 bytes (unos 3,8 MB), el sistema de archivos. Los otros son documentos JSON de entre 241 y 9.218 bytes, dos de ellos «atestaciones» (metadatos de procedencia que agrega el constructor moderno; hoy no los usamos). Un `tar` comprimido y un puñado de textos: eso es una imagen."
+  },
+  {
+   "t": "h",
+   "x": "Los documentos: índice, manifiesto y configuración"
+  },
+  {
+   "t": "p",
+   "x": "Los JSON forman una cadena. Cada uno apunta al siguiente por su hash. Se lee de arriba hacia abajo:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Etiqueta",
+       "s": "alpine:3.22",
+       "k": "cliente"
+      },
+      {
+       "t": "Índice",
+       "s": "9.218 bytes · 16 entradas",
+       "k": "red",
+       "e": "se resuelve a"
+      },
+      {
+       "t": "Manifiesto",
+       "s": "1.022 bytes · linux/amd64",
+       "k": "servidor",
+       "e": "elige tu plataforma"
+      }
+     ],
+     "baja": "el manifiesto apunta a dos cosas:"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Configuración",
+       "s": "611 bytes · comando, variables",
+       "k": "datos"
+      },
+      {
+       "t": "Capa 1",
+       "s": "3.794.375 bytes · tar.gz",
+       "k": "datos"
+      }
+     ]
+    }
+   ],
+   "cap": "Cómo se llega de un nombre a los archivos. Cada flecha es un hash: lo que sigue se pide por su huella, no por un nombre."
+  },
+  {
+   "t": "p",
+   "x": "**El índice** existe porque una misma etiqueta sirve para varias plataformas. El de `alpine:3.22` tiene 16 entradas: ocho plataformas (amd64, arm en dos variantes de 32 bits, arm64, 386, ppc64le, riscv64 y s390x) y un manifiesto de atestación por cada una. Tu máquina elige la suya: la misma orden `docker pull alpine:3.22` baja cosas distintas en un servidor x86 y en un Mac con procesador ARM."
+  },
+  {
+   "t": "p",
+   "x": "**El manifiesto** de la variante amd64 (1.022 bytes) dice dos cosas: hash y tamaño de la configuración, y la lista ordenada de capas, también con hash y tamaño. Las capas se aplican en el orden de la lista, de `layers[0]` en adelante [#dk07-oci-manifest]:"
+  },
+  {
+   "t": "codigo",
+   "lang": "json",
+   "x": "{\n  \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n  \"config\": {\n    \"digest\": \"sha256:812e99317af7009fea987b5ad913e63f8494c2d6e596b59b6ac8b8f91f7766e8\",\n    \"size\": 611\n  },\n  \"layers\": [\n    {\n      \"mediaType\": \"application/vnd.oci.image.layer.v1.tar+gzip\",\n      \"digest\": \"sha256:710f3da1112f360bed5d2908205aeee86b9d04ecd471354cf7049a2f0bdb5c72\",\n      \"size\": 3794375\n    }\n  ]\n}",
+   "cap": "Manifiesto de alpine:3.22 para linux/amd64 (versión 3.22.8, creada el 05-11-2026 según su propia anotación). Omití las anotaciones para que entre en pantalla."
+  },
+  {
+   "t": "p",
+   "x": "**La configuración** es lo que el contenedor necesita para arrancar. La de Alpine es corta: una variable de entorno `PATH`, el comando por defecto `/bin/sh`, el directorio de trabajo `/` y un historial. Dentro tiene además una lista llamada `diff_ids` con una huella por capa, y enseguida vemos para qué sirve."
+  },
+  {
+   "t": "codigo",
+   "lang": "json",
+   "x": "{\n  \"architecture\": \"amd64\",\n  \"os\": \"linux\",\n  \"config\": {\n    \"Env\": [\"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"],\n    \"Cmd\": [\"/bin/sh\"],\n    \"WorkingDir\": \"/\"\n  },\n  \"history\": [\n    {\"created_by\": \"ADD alpine-minirootfs-3.22.8-x86_64.tar.gz / # buildkit\"},\n    {\"created_by\": \"CMD [\\\"/bin/sh\\\"]\", \"empty_layer\": true}\n  ],\n  \"rootfs\": {\n    \"type\": \"layers\",\n    \"diff_ids\": [\"sha256:fdc5834cb53a4bde074c41b5baf85f9d5cece29df379fecafea8c396ba8c29d9\"]\n  }\n}",
+   "cap": "Configuración de alpine:3.22 (campos principales; quité las fechas). Cada línea de `history` corresponde a una instrucción con la que se construyó la imagen. La segunda tiene `empty_layer`: es solo un dato, no agrega archivos."
+  },
+  {
+   "t": "pensa",
+   "x": "La configuración tiene dos entradas en `history`, pero `rootfs.diff_ids` tiene una sola huella. ¿Cómo puede ser?",
+   "resp": "Porque no toda instrucción produce una capa. `ADD ... /` copió archivos y creó una capa. `CMD [\"/bin/sh\"]` solo anota qué ejecutar por defecto: no cambia ningún archivo, así que se marca como `empty_layer` y no agrega nada a la lista de capas."
+  },
+  {
+   "t": "h",
+   "x": "El hash como dirección: dos huellas para una misma capa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada pieza tiene un nombre que es el resultado de aplicar SHA-256 a su contenido. Es una [[función hash]]: de cualquier archivo saca una cadena de 64 caracteres hexadecimales, y si cambia un solo bit, la cadena cambia por completo [@03-27]. A esto se le llama direccionar por contenido: el nombre es el contenido resumido, así que dos archivos con el mismo nombre son idénticos y nadie puede cambiar un archivo sin que cambie su nombre.",
+    "Lo comprobé con tres comandos. Primero, el archivo de la capa se llama como su propio hash. Segundo, si lo descomprimo y calculo el hash del `tar` crudo, sale otro valor, y ese es el que figura en `diff_ids` de la configuración."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "sha256sum 710f3da1...5c72",
+     "s": "710f3da1112f360bed5d2908205aeee86b9d04ecd471354cf7049a2f0bdb5c72  710f3da1...5c72"
+    },
+    {
+     "c": "zcat 710f3da1...5c72 | sha256sum",
+     "s": "fdc5834cb53a4bde074c41b5baf85f9d5cece29df379fecafea8c396ba8c29d9  -"
+    },
+    {
+     "c": "zcat 710f3da1...5c72 | wc -c",
+     "s": "8587264"
+    },
+    {
+     "c": "zcat 710f3da1...5c72 | tar t | wc -l",
+     "s": "519"
+    }
+   ],
+   "cap": "Hash del archivo comprimido (el que usa el manifiesto), hash del tar sin comprimir (el que usa la configuración), tamaño descomprimido y cantidad de entradas. Corrido el 16-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "Hay dos huellas porque cumplen dos tareas. El **digest** de la capa comprimida es lo que viaja por la red y permite verificar lo descargado. El **diff_id** identifica el contenido sin comprimir, aunque se lo comprima de otro modo. La capa pesó 3.794.375 bytes por la red y 8.587.264 desarmada (la compresión la dejó en un 44 %), con 519 entradas: `busybox`, `/etc`, `/bin`, `/lib`. No es una computadora completa: es una carpeta."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "El digest funciona como el número de precinto de un contenedor de carga: si el precinto coincide con el del remito, nadie abrió la caja. La analogía se rompe en algo: un precinto se puede violar sin que quede huella, y un hash no, porque cualquier cambio produce otro nombre.",
+   "titulo": "Un precinto, con un límite"
+  },
+  {
+   "t": "h",
+   "x": "Capas en acción: construir sobre una base"
+  },
+  {
+   "t": "p",
+   "x": "Ahora hagamos una imagen propia, mínima, y fijémonos en lo que se agrega. El Dockerfile (mañana lo explicamos línea por línea, por ahora alcanza con leerlo en voz alta) parte de Alpine, escribe un archivo con un comando y copia otro desde mi carpeta:"
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "FROM alpine:3.22\nRUN echo \"capa dos\" > /dos.txt\nCOPY saludo.txt /saludo.txt\nCMD [\"cat\", \"/saludo.txt\"]",
+   "cap": "Dockerfile del laboratorio. `saludo.txt` contiene una línea: «hola desde la capa tres»."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "docker build -t lab1407:v1 .",
+     "s": "#8 exporting layers 0.1s done\n#8 naming to docker.io/library/lab1407:v1 done\n#8 DONE 0.3s"
+    },
+    {
+     "c": "docker history lab1407:v1",
+     "s": "IMAGE          CREATED        CREATED BY                                      SIZE\n922b3c2d0d63   1 second ago   CMD [\"cat\" \"/saludo.txt\"]                       0B\n<missing>      1 second ago   COPY saludo.txt /saludo.txt # buildkit          8.19kB\n<missing>      1 second ago   RUN /bin/sh -c echo \"capa dos\" > /dos.txt # …   8.19kB\n<missing>      10 days ago    CMD [\"/bin/sh\"]                                 0B\n<missing>      10 days ago    ADD alpine-minirootfs-3.22.8-x86_64.tar.gz /…   8.97MB"
+    },
+    {
+     "c": "docker run --rm lab1407:v1",
+     "s": "hola desde la capa tres"
+    }
+   ],
+   "cap": "Construcción de la imagen y su historial, corridos el 16-11-2026. Las dos instrucciones de arriba y de abajo con tamaño 0B no crean capa. La base creció 10 días atrás: no la reconstruí, la reutilicé."
+  },
+  {
+   "t": "p",
+   "x": "Con `docker save` abrí la imagen. Su manifiesto lista tres capas: la primera es **exactamente la misma** de Alpine (`710f3da1…`) y las otras dos son nuevas y diminutas: 111 y 127 bytes comprimidas, con un único archivo cada una (`dos.txt`, 9 bytes; `saludo.txt`, 24). Cada tar ocupa 2.048 bytes: un encabezado, un bloque de datos y el cierre del formato."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Capa",
+    "Qué instrucción la creó",
+    "Bytes por la red",
+    "Qué archivos agrega"
+   ],
+   "filas": [
+    [
+     "1 (710f3da1…)",
+     "ADD del sistema Alpine, ya hecha",
+     "3.794.375",
+     "519 entradas: el sistema mínimo"
+    ],
+    [
+     "2 (18dae68d…)",
+     "RUN echo ... > /dos.txt",
+     "111",
+     "dos.txt (9 bytes)"
+    ],
+    [
+     "3 (d56afaa3…)",
+     "COPY saludo.txt",
+     "127",
+     "saludo.txt (24 bytes)"
+    ]
+   ],
+   "cap": "Las tres capas de lab1407:v1, medidas en esta máquina el 16-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "Esto cambia cómo se piensa el costo. Si tenés cien imágenes distintas construidas sobre `alpine:3.22`, el disco guarda esa capa de 3,8 MB una sola vez, y cada imagen suma solo lo suyo. Lo mismo vale al descargar: si tu servidor ya tiene la capa 1, el segundo pull solo trae las diferencias."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una empresa tiene 5 servicios, cada uno con una imagen basada en la misma capa base de 3,8 MB comprimidos. Cada servicio agrega una capa propia de 40 MB comprimidos. a) ¿Cuántos MB se descargan para tener los 5 servicios en un servidor limpio? b) ¿Y si la base fuera distinta en cada uno (5 bases de 3,8 MB)?",
+   "pista": "En (a) la capa base se descarga una sola vez. Sumá una base y cinco capas propias.",
+   "solucion": "a) 3,8 + 5 × 40 = 203,8 MB. b) 5 × 3,8 + 5 × 40 = 219 MB. La diferencia es 15,2 MB, que son las cuatro descargas de la base que se evitan. Con una base chica la ganancia es modesta; con una base de 400 MB sería de 1.600 MB. Es un cálculo ilustrativo con cifras inventadas, no una medición."
+  },
+  {
+   "t": "h",
+   "x": "Etiquetas y digests: un nombre se mueve, una huella no"
+  },
+  {
+   "t": "p",
+   "x": "`alpine:3.22` tiene dos partes: el nombre del repositorio (`alpine`) y la **etiqueta** (`3.22`). Una etiqueta es un apodo que apunta a un manifiesto. Y los apodos se pueden reasignar. Lo probé: subí `v1`, después construí otra versión y volví a subirla con la misma etiqueta `v1`. Fijate qué pasó con el digest."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "docker push localhost:26407/lab/envios:v1",
+     "s": "v1: digest: sha256:922b3c2d0d63dc4212b3993140d7d463706f078b1e30117202a32ca6ceb88a31 size: 855"
+    },
+    {
+     "c": "(cambio saludo.txt, construyo y subo con la misma etiqueta)\ndocker push localhost:26407/lab/envios:v1",
+     "s": "v1: digest: sha256:336781da2e91e31c8071aade1a626a754953749e9f6eaecbcf18dad68299af0e size: 855"
+    },
+    {
+     "c": "docker run --rm localhost:26407/lab/envios:v1",
+     "s": "hola, versión dos"
+    },
+    {
+     "c": "docker run --rm localhost:26407/lab/envios@sha256:922b3c2d...a31",
+     "s": "hola desde la capa tres"
+    }
+   ],
+   "cap": "La etiqueta `v1` apunta ahora a otra imagen, pero el digest original sigue devolviendo la primera. Registro propio en el puerto 26407 de esta máquina, 16-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "La etiqueta se movió sin avisar y el digest viejo siguió devolviendo la imagen original. Por eso en producción, donde importa saber exactamente qué corre, se suele fijar el digest. Una etiqueta como `latest` no significa «la más nueva»: es un nombre más, que se usa cuando no se dice otra cosa, y quien publica puede apuntarlo a lo que quiera."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Un servidor que arranca `miapp:latest` o `miapp:v1` puede estar corriendo hoy una imagen distinta de la de ayer, sin que nadie haya tocado el servidor. Para repetir exactamente un despliegue (o para volver atrás) conviene guardar el digest que corrió, no solo la etiqueta.",
+   "titulo": "El error que cuesta noches"
+  },
+  {
+   "t": "h",
+   "x": "Del molde al proceso: un contenedor en ejecución"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **[[contenedor en ejecución]]** es una imagen puesta a andar: el motor le arma una raíz con las capas apiladas, le agrega arriba una capa de escritura vacía, le recorta la vista con namespaces, le pone topes con un cgroup y lanza el programa. Todo eso lo viste a mano en [@02-24]. La documentación de Docker lo resume así: un contenedor es una instancia ejecutable de una imagen, y cuando se lo elimina desaparece cualquier cambio de su estado que no esté en almacenamiento persistente [#ctr-docker-overview].",
+    "Lo más útil es verlo desde afuera, desde el anfitrión. Arranqué un contenedor con un tope de 64 MiB de memoria y medio procesador, que solo ejecuta `sleep 600`, y busqué quién era en la máquina."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "docker run -d --name c1407 --memory 64m --cpus 0.5 --network none alpine:3.22 sleep 600",
+     "s": "b86500c520915db158e9c34a6682fb80d1b1680ef7055037467d2cbf968d0db8"
+    },
+    {
+     "c": "docker inspect -f '{{.State.Pid}}' c1407",
+     "s": "6933"
+    },
+    {
+     "c": "ps -o pid,ppid,cmd -p 6933",
+     "s": "  PID  PPID CMD\n 6933  6908 sleep 600"
+    },
+    {
+     "c": "ps -o pid,ppid,cmd -p 6908 | cut -c1-90",
+     "s": "  PID  PPID CMD\n 6908     1 /usr/bin/containerd-shim-runc-v2 -namespace moby -id b86500c52091..."
+    },
+    {
+     "c": "grep NSpid /proc/6933/status",
+     "s": "NSpid:\t6933\t1"
+    },
+    {
+     "c": "docker exec c1407 ps",
+     "s": "PID   USER     TIME  COMMAND\n    1 root      0:00 sleep 600\n    7 root      0:00 ps"
+    }
+   ],
+   "cap": "El mismo proceso con dos números: el 6933 que ve el anfitrión y el 1 que ve el contenedor. Su padre es un programa auxiliar (el shim) que lo vigila. Salida de esta máquina el 16-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "Ahí está: un contenedor es un proceso común. El anfitrión lo ve con el PID 6933, un hijo de `containerd-shim-runc-v2` (un pequeño programa que se queda mirándolo y avisa cuando termina). El contenedor, en cambio, se ve a sí mismo con el PID 1 y no ve nada más que a su vecino `ps`. La línea `NSpid` lo confirma: el mismo proceso tiene dos números según el [[namespace]] de PID desde el que se lo mire."
+  },
+  {
+   "t": "p",
+   "x": "Después comparé los namespaces del proceso con los de mi shell. Difieren ipc, mnt, net, pid y uts (también el de tiempo, que no puse en la tabla); los de usuario y de cgroup son los mismos del anfitrión."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Namespace",
+    "Mi shell (anfitrión)",
+    "El contenedor",
+    "¿Aislado?"
+   ],
+   "filas": [
+    [
+     "pid",
+     "4026531836",
+     "4026532269",
+     "sí"
+    ],
+    [
+     "net",
+     "4026531833",
+     "4026532270",
+     "sí"
+    ],
+    [
+     "mnt",
+     "4026531832",
+     "4026532266",
+     "sí"
+    ],
+    [
+     "uts (nombre de la máquina)",
+     "4026531838",
+     "4026532267",
+     "sí"
+    ],
+    [
+     "ipc",
+     "4026531839",
+     "4026532268",
+     "sí"
+    ],
+    [
+     "user",
+     "4026531837",
+     "4026531837",
+     "no"
+    ],
+    [
+     "cgroup",
+     "4026531835",
+     "4026531835",
+     "no"
+    ]
+   ],
+   "cap": "Números de namespace leídos de `/proc/PID/ns` el 16-11-2026. Un número distinto significa un namespace propio. Que `user` coincida quiere decir que el «root» del contenedor es el mismo usuario 0 del anfitrión."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "El dato de la última fila es el que más se pasa por alto. Con la configuración por defecto, el root de un contenedor **es** el root del anfitrión: el kernel los trata igual, y lo que protege es el recorte de lo que ve el proceso, no una identidad distinta. Por eso se recomienda correr los programas como un usuario sin privilegios dentro de la imagen, y existen opciones para mapear usuarios. La documentación de seguridad de Docker lo trata en detalle [#ctr-docker-security].",
+   "titulo": "Root dentro, root afuera"
+  },
+  {
+   "t": "p",
+   "x": "Los topes también están a la vista. En esta máquina los cgroups son de la versión 1 (lo mostraba el archivo `/proc/6933/cgroup`, con una línea por controlador), así que leí los archivos de la jerarquía que le toca a ese contenedor:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat /sys/fs/cgroup/memory/docker/b86500c5.../memory.limit_in_bytes",
+     "s": "67108864"
+    },
+    {
+     "c": "cat /sys/fs/cgroup/cpu/docker/b86500c5.../cpu.cfs_quota_us\ncat /sys/fs/cgroup/cpu/docker/b86500c5.../cpu.cfs_period_us",
+     "s": "50000\n100000"
+    }
+   ],
+   "cap": "67.108.864 bytes son 64 MiB. Una cuota de 50.000 microsegundos cada 100.000 es medio procesador. Son los números que Docker escribió al leer `--memory 64m --cpus 0.5`. Con cgroups v2 los archivos tienen otros nombres, pero la idea es igual."
+  },
+  {
+   "t": "h",
+   "x": "La capa de escritura: qué sobrevive y qué no"
+  },
+  {
+   "t": "p",
+   "x": "Las capas de la imagen son de solo lectura. Entonces, cuando el programa escribe un archivo, ¿dónde queda? En una capa más, vacía al principio y exclusiva de ese contenedor, que se apila arriba con overlayfs y se llama capa de escritura. En el anfitrión se la ve en la tabla de montajes del proceso: la raíz es un sistema de archivos `overlay` con `lowerdir` (las capas de solo lectura, apiladas) y `upperdir` (la capa de escritura). Lo que se escribe va a la de arriba; la imagen no se toca [#ctr-docker-storage-drivers]."
+  },
+  {
+   "t": "p",
+   "x": "Lo probé con un archivo. Escribí `/nuevo.txt` dentro del contenedor, lo detuve, lo volví a arrancar, y por último lancé uno nuevo desde la misma imagen:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "docker exec c1407 sh -c 'echo nuevo > /nuevo.txt'\ndocker diff c1407",
+     "s": "A /nuevo.txt"
+    },
+    {
+     "c": "docker stop c1407 && docker start c1407\ndocker exec c1407 ls /nuevo.txt",
+     "s": "/nuevo.txt"
+    },
+    {
+     "c": "docker run --rm alpine:3.22 ls /nuevo.txt",
+     "s": "ls: /nuevo.txt: No such file or directory"
+    },
+    {
+     "c": "docker rm -f c1407 && docker ps -a | wc -l",
+     "s": "1"
+    }
+   ],
+   "cap": "`docker diff` muestra qué cambió respecto de la imagen (A = agregado). Detener y reiniciar conserva la capa de escritura; eliminar el contenedor la destruye. Un contenedor nuevo parte siempre de la imagen limpia. Corrido el 16-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "Es decir: **detener no es borrar**. Un contenedor detenido conserva su capa de escritura hasta el `docker rm`. Lo que importa guardar (una base de datos, archivos de usuarios) va en un volumen o en un servicio externo, tema de [@14-08]; lo que queda en la capa de escritura es descartable."
+  },
+  {
+   "t": "h",
+   "x": "PID 1: el contenedor que tarda en morir"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con `docker stop`, Docker manda al proceso principal la señal SIGTERM («terminá ordenadamente») y espera un plazo; si sigue vivo, manda SIGKILL, que mata sin preguntar. Lo medí con `sleep` y un plazo de 5 segundos: lanzado directo tardó 5,18 s y salió con código 137 (128 + 9, SIGKILL); lanzado con `--init` tardó 0,06 s y salió con 143 (128 + 15, SIGTERM). Una corrida cada uno, en esta máquina, el 16-11-2026.",
+    "La causa: el proceso con PID 1 de un namespace no recibe las acciones por defecto del kernel para las señales, así que un programa sin manejador propio de SIGTERM, como `sleep`, la ignora. Con `--init`, Docker pone un proceso mínimo como PID 1 que reenvía la señal [#ctr-man7-pid-namespaces]. Un servicio que tarda 10 segundos en detenerse en cada despliegue suele tener este problema."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El registro de imágenes: dónde viven y cómo se piden"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **[[registro de imágenes]]** es un servidor que guarda imágenes y las entrega por red. Es el equivalente, para imágenes, de lo que npm es para paquetes. Docker Hub es el registro público por defecto: cuando escribís `docker pull alpine`, estás pidiendo `docker.io/library/alpine` [#ctr-docker-overview]. Pero cualquiera puede tener el suyo. Levanté uno con la imagen oficial `registry:3` (que es, a su vez, una imagen en Docker Hub), en el puerto 26407 de esta máquina, y le subí mi imagen.",
+    "Lo bueno de un registro es lo poco que hace. Su interfaz es una API HTTP estándar, la que define la especificación de distribución de la OCI [#dk07-oci-distribution]. Las tres llamadas que importan hoy son esta:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Llamada HTTP",
+    "Para qué sirve",
+    "Lo que devolvió acá"
+   ],
+   "filas": [
+    [
+     "`GET /v2/`",
+     "Saber si el servidor habla el protocolo",
+     "200 y un `{}`; cabecera `Docker-Distribution-Api-Version: registry/2.0`"
+    ],
+    [
+     "`GET /v2/<nombre>/manifests/<etiqueta o digest>`",
+     "Pedir el manifiesto o el índice",
+     "200; la cabecera `Docker-Content-Digest` trae el hash"
+    ],
+    [
+     "`GET /v2/<nombre>/blobs/<digest>`",
+     "Descargar una capa o una configuración",
+     "200 con 3.794.375 bytes para la capa base"
+    ]
+   ],
+   "cap": "Los puntos de entrada de lectura según la especificación (end-1, end-3 y end-2) y lo que respondió el registro propio el 16-11-2026."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "docker (tu máquina)",
+     "k": "cliente"
+    },
+    {
+     "n": "Registro",
+     "k": "servidor"
+    },
+    {
+     "n": "Disco del registro",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET manifests/v2",
+     "d": "El cliente pide por etiqueta. Si ya conoce el digest, lo pide por digest."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "manifiesto + digest",
+     "resp": true,
+     "d": "El registro devuelve el documento con la lista de capas y la cabecera con su hash."
+    },
+    {
+     "de": 0,
+     "a": 0,
+     "t": "¿tengo estas capas?",
+     "d": "Compara los hashes de las capas con los que ya tiene guardados en su disco."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET blobs/<digest> (solo las que faltan)",
+     "d": "Pide únicamente lo que no tiene. Las capas compartidas no se vuelven a descargar."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "lee el blob",
+     "d": "El registro busca el archivo por su hash."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "bytes",
+     "resp": true,
+     "d": "Devuelve el contenido."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "bytes de la capa",
+     "resp": true,
+     "d": "Y el cliente verifica que el hash de lo recibido coincida con el pedido."
+    }
+   ],
+   "cap": "Un pull. El cliente nunca pide «dame todo»: pide un manifiesto y después cada capa por su hash."
+  },
+  {
+   "t": "p",
+   "x": "El push va a la inversa y se nota en lo que imprime. Subí `v1` y salieron cinco líneas «Pushed». Después construí la versión 2, que cambia solo el archivo `saludo.txt`, y la subí:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "docker push localhost:26407/lab/envios:v2",
+     "s": "The push refers to repository [localhost:26407/lab/envios]\n18dae68d057f: Layer already exists\n603eeda10a9f: Pushed\n44136fa355b3: Already exists\n710f3da1112f: Layer already exists\n48e80f5118de: Pushed\nv2: digest: sha256:336781da2e91e31c8071aade1a626a754953749e9f6eaecbcf18dad68299af0e size: 855"
+    }
+   ],
+   "cap": "Dos de cinco objetos se subieron, tres ya estaban. Las capas 710f3da1 (Alpine) y 18dae68d (`dos.txt`) no se retransmitieron. Corrido el 16-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "En el disco del registro, con dos versiones, había 15 archivos de datos y 4,0 MB en total, no 2 × 3,8 MB: cada capa existe una vez."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu equipo cambia una línea del código de la app y vuelve a construir la imagen. El pipeline sube la imagen a un registro y el servidor la baja. ¿Qué viaja por la red y qué no?",
+   "resp": "Viaja el manifiesto nuevo, la configuración nueva y solo las capas cuyo hash no existía antes (la que contiene el código modificado, y las que se construyen sobre ella). La base (el sistema operativo, el runtime y las dependencias, si no cambiaron) tiene el mismo hash y no se retransmite. Por eso se arman los Dockerfile con lo que cambia menos primero y el código al final, cosa que vemos mañana."
+  },
+  {
+   "t": "h",
+   "x": "Registros reales: Docker Hub, GHCR y los registros de los proveedores"
+  },
+  {
+   "t": "p",
+   "x": "En la práctica, casi nadie corre el suyo. Hay registros públicos y privados de varios tipos. Docker Hub es el más usado para imágenes públicas, incluidas las oficiales (alpine, debian, postgres, nginx). GitHub ofrece el suyo en `ghcr.io`, integrado con los repositorios, y acepta imágenes Docker y OCI [#dk07-ghcr-doc]. Los proveedores de nube (que viste en la Parte 13) tienen registros propios, cerca de los servidores que ejecutan las imágenes, con permisos integrados a su sistema de cuentas."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Límites de descarga de Docker Hub, según su documentación leída el 16-11-2026: los usuarios sin autenticar tienen un tope de 100 descargas (pulls) cada 6 horas por dirección IPv4 o por subred IPv6 /64; una cuenta personal autenticada, 200 cada 6 horas; los planes Pro, Team y Business, descargas ilimitadas, sujetas a uso razonable [#dk07-hub-pulls]. Una «descarga» incluye también la verificación de versión de una etiqueta. Estos números cambian: se revisan en la página oficial antes de basar un diseño en ellos. Un servidor de integración continua que baje imágenes sin iniciar sesión comparte una IP con muchos otros y puede toparse con el tope; una solución habitual es iniciar sesión o copiar las imágenes base a un registro propio.",
+   "titulo": "Docker Hub: límites con fecha"
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "La licencia de Docker es otro tema que confunde. El motor de contenedores (el código del repositorio `moby/moby`) está bajo la licencia Apache 2.0 [#dk07-moby-licencia]. En cambio **Docker Desktop**, la aplicación para Windows y Mac, tiene sus propios términos: según la página oficial del 16-11-2026, es gratis para pequeñas empresas (menos de 250 empleados y menos de 10 millones de dólares de ingresos anuales), para uso personal, educación y proyectos open source no comerciales, y requiere suscripción paga para uso profesional en organizaciones más grandes [#dk07-desktop-licencia]. Esta clase usa el motor solo, sobre Linux, sin Docker Desktop.",
+   "titulo": "Docker Engine y Docker Desktop no son lo mismo"
+  },
+  {
+   "t": "h",
+   "x": "Lo que se confunde"
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Un contenedor es una máquina virtual chica.» No: una máquina virtual lleva su propio kernel y su hardware simulado ([@02-23]). Un contenedor comparte el kernel del anfitrión y es un proceso con vista recortada. Lo vimos con el PID 6933. Por eso arranca en fracciones de segundo y por eso el aislamiento es más débil."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Una imagen y un contenedor son lo mismo.» Una imagen es el molde de solo lectura; un contenedor es una instancia en marcha con su capa de escritura. De una imagen salen muchos contenedores, y borrar un contenedor no toca la imagen."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Si borro un archivo en una capa nueva, la imagen se achica.» Las capas de abajo no se modifican: el archivo sigue ahí, tapado por una marca. La imagen no se achica y quien la baje puede extraerlo ([@02-24]). Por eso un secreto que se coló en una capa no se arregla borrándolo en la siguiente."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Que una imagen «corra en mi máquina» no garantiza que corra en otra: el contenedor comparte el kernel y la arquitectura del procesador. Una imagen para x86 no arranca en un procesador ARM si no trae una variante para esa plataforma, como la que vimos en el índice de Alpine con sus ocho opciones."
+  },
+  {
+   "t": "h",
+   "x": "Senda y los contenedores"
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no tiene contenedores propios, y esto es un hallazgo",
+   "x": [
+    "En el commit 25e08fa de Senda no hay ningún `Dockerfile`, ni `docker-compose`, ni `.dockerignore`: no se empaqueta ninguna parte de la app como imagen. Lo busqué en el repositorio. La app se compila a un APK (y a un AAB) para Android; la parte de servidor vive en Supabase, un servicio administrado (los contenedores, si los hay, los maneja el proveedor y no aparecen en el código de Senda).",
+    "Lo único que aparece es una línea repetida en tres flujos de GitHub Actions (`apk.yml`, `aab.yml` y `humo.yml`): `sudo docker image prune --all --force`. No construye nada. Borra las imágenes que ya trae la máquina de GitHub donde corre el flujo, para liberar espacio: el nombre del paso aclara que el disco gratis de 14 GB no alcanza para compilar. Es una muestra de que un contenedor y su imagen ocupan disco de verdad, y un uso práctico del comando `prune`.",
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Si un día Senda sumara un servicio propio, el camino sería el de hoy: una imagen en un registro y un contenedor que la ejecuta."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/aab.yml",
+    ".github/workflows/humo.yml"
+   ]
+  }
+ ],
+ "recap": [
+  "Una imagen se compone de un índice (si es multiplataforma), un manifiesto, una configuración y capas. Todo se identifica por el SHA-256 del contenido: es direccionamiento por contenido.",
+  "Cada capa tiene dos huellas: el digest de la capa comprimida (lo que viaja) y el diff_id del tar sin comprimir (lo que figura en la configuración). Alpine pesa 3,8 MB por la red y 8,6 MB desarmada.",
+  "Las capas se comparten entre imágenes y entre versiones. Una imagen propia sobre Alpine sumó solo 111 y 127 bytes; el registro guardó dos versiones en 4,0 MB.",
+  "Un contenedor en ejecución es un proceso común del anfitrión (PID 6933 afuera, PID 1 adentro) con namespaces propios, un cgroup con topes y una capa de escritura. El usuario root del contenedor es el root del anfitrión por defecto.",
+  "Detener no borra: la capa de escritura sobrevive a `stop` y desaparece con `rm`. Lo que importa conservar va en un volumen.",
+  "Una etiqueta se puede mover; un digest no. Para repetir un despliegue hay que guardar el digest.",
+  "Un registro es un servidor HTTP (`/v2/`) que entrega manifiestos y capas por hash. Docker Hub limita las descargas sin cuenta y Docker Desktop tiene licencia propia; ambos con fecha."
+ ],
+ "repaso": [
+  {
+   "p": "Dos imágenes distintas se construyen sobre la misma imagen base de 5 MB comprimidos. Cada una agrega 1 MB propio. En un servidor limpio, ¿cuánto se descarga para tener ambas?",
+   "o": [
+    "Siete megabytes: la base se baja una sola vez y cada imagen suma su capa propia",
+    "Doce megabytes: cada imagen se baja completa, base incluida, porque son independientes",
+    "Cinco megabytes: solo la base cuenta y las capas propias se calculan sin descargar nada",
+    "Seis megabytes: la base se baja con la primera imagen y la segunda no suma nada propio"
+   ],
+   "c": 0,
+   "e": "La capa base tiene el mismo hash en las dos imágenes, así que el motor la descarga una sola vez: 5 + 1 + 1 = 7 MB. Doce sería el caso sin capas compartidas. Las capas propias sí se descargan, y la segunda imagen también suma su megabyte."
+  },
+  {
+   "p": "Un compañero dice: «mi servidor corre `miapp:v3`, y ayer funcionaba; hoy falla y no cambié nada». ¿Cuál es la explicación más plausible desde lo que viste hoy?",
+   "o": [
+    "Docker borró capas de la imagen por antigüedad y la etiqueta quedó sin contenido que descargar",
+    "Alguien volvió a publicar la etiqueta `v3` apuntando a otra imagen y el servidor la bajó de nuevo",
+    "El kernel del anfitrión cambió el hash de las capas por haber pasado más de un día completo",
+    "El registro recalculó los digests de la imagen y por eso el manifiesto dejó de coincidir"
+   ],
+   "c": 1,
+   "e": "Una etiqueta es un apodo que se puede reasignar: hoy puede apuntar a otro manifiesto. Los digests, en cambio, dependen solo del contenido y no se recalculan ni caducan, y el kernel no interviene en eso. Para repetir un despliegue se guarda el digest."
+  },
+  {
+   "p": "Arrancás un contenedor, escribís un archivo adentro y hacés `docker stop`. Después `docker start` del mismo contenedor. ¿Qué pasa con el archivo?",
+   "o": [
+    "Se pierde, porque al detenerse el contenedor se vuelve a crear desde la imagen limpia",
+    "Se conserva, porque la capa de escritura sigue existiendo mientras no se elimine el contenedor",
+    "Se conserva en la imagen, que se actualiza sola con cada escritura que haga el programa",
+    "Se pierde, salvo que el archivo se haya guardado en una carpeta que empiece con `/tmp`"
+   ],
+   "c": 1,
+   "e": "Detener no elimina nada: la capa de escritura queda en el disco y el contenedor reanuda con ella. Se pierde con `docker rm`, o si se lanza un contenedor nuevo. La imagen nunca cambia, y `/tmp` no tiene un trato especial."
+  },
+  {
+   "p": "Corrés `docker stop` sobre un contenedor cuyo proceso principal es un programa que ignora SIGTERM, sin `--init`, con plazo de 10 s. ¿Qué observás?",
+   "o": [
+    "Termina de inmediato con código 143, porque Docker usa siempre una señal que no puede ignorarse",
+    "Se queda colgado indefinidamente, porque Docker nunca envía una segunda señal al proceso",
+    "Tarda unos 10 segundos y sale con código 137, porque Docker termina enviando SIGKILL",
+    "Tarda unos 10 segundos y sale con código 0, porque el programa terminó por su cuenta"
+   ],
+   "c": 2,
+   "e": "Docker envía SIGTERM, espera el plazo y, si el proceso sigue vivo, manda SIGKILL, que no se puede ignorar; 137 es 128 + 9. El 143 aparece cuando el proceso muere por SIGTERM, y un cuelgue eterno no existe porque SIGKILL siempre actúa."
+  },
+  {
+   "p": "En la configuración aparece `diff_ids`, y en el manifiesto cada capa lleva un `digest` distinto del `diff_id` de esa misma capa. ¿Por qué hay dos huellas?",
+   "o": [
+    "Una pertenece al sistema operativo y la otra al motor de contenedores que armó la imagen",
+    "El digest es de la capa comprimida que viaja por red; el diff_id es del tar sin comprimir",
+    "El diff_id se calcula sobre el manifiesto completo y el digest sobre una sola capa suelta",
+    "Son la misma huella calculada dos veces para que Docker pueda detectar errores de disco"
+   ],
+   "c": 1,
+   "e": "Se calcularon sobre bytes distintos: el digest sobre el `tar.gz` que se transfiere (3.794.375 bytes para Alpine) y el diff_id sobre el `tar` descomprimido (8.587.264 bytes). Eso permite verificar la descarga y también identificar la capa aunque se la comprima de otra manera."
+  },
+  {
+   "p": "Desde el anfitrión, ejecutás `ps` y ves un proceso `nginx` con PID 4812 y, dentro del contenedor `web`, el mismo proceso aparece con PID 1. ¿Qué explica la diferencia?",
+   "o": [
+    "Hay dos copias de nginx, una dentro de una máquina virtual del contenedor y otra afuera",
+    "El contenedor tiene su propio kernel, que numera los procesos desde cero en su espacio",
+    "Docker renombra los procesos al arrancarlos para facilitar el diagnóstico del contenedor",
+    "El proceso es uno solo y el namespace de PID le asigna un número distinto según desde dónde se mire"
+   ],
+   "c": 3,
+   "e": "Un contenedor no tiene kernel propio ni es una VM: es un proceso del anfitrión (4812) al que el namespace de PID le muestra otro número (1) por dentro. No son dos procesos ni hay renombrado."
+  },
+  {
+   "p": "Un colega propone dejar una contraseña de la base dentro de la imagen y «borrarla en la última línea del Dockerfile» para que no se vea. ¿Qué problema tiene?",
+   "o": [
+    "Ninguno, porque la capa final tapa el archivo y nadie que baje la imagen puede ya encontrarlo",
+    "El problema es que el borrado hace más lenta la construcción, pero la contraseña queda protegida",
+    "La contraseña sigue en la capa anterior, que se puede extraer por separado aunque no se vea al correrla",
+    "Docker rechaza imágenes con archivos borrados, así que la construcción fallaría desde el principio"
+   ],
+   "c": 2,
+   "e": "Borrar en una capa nueva solo agrega una marca de borrado. El archivo sigue dentro de la capa donde se creó, y quien baje la imagen puede abrir esa capa como un tar. Los secretos no se meten a la imagen: se entregan en el momento de ejecutar."
+  }
+ ],
+ "feynman": "Explicale a alguien que no sabe nada de Docker qué pasa, paso a paso, desde que escribís `docker run alpine` hasta que ves el proceso corriendo. Usá estas palabras con tus propias frases: etiqueta, manifiesto, capa, hash, registro y capa de escritura. Incluí qué se descarga y qué no si la imagen ya estaba en la máquina.",
+ "para_profundizar": [
+  {
+   "fuente": "dk07-oci-manifest",
+   "nota": "Es el texto del estándar para el manifiesto: confirma, por ejemplo, que las capas se aplican en el orden de la lista. Leelo después de abrir una imagen real, para ver qué campos son obligatorios."
+  },
+  {
+   "fuente": "dk07-oci-distribution",
+   "nota": "La tabla de la API de registros (end-1 a end-11) enumera cada llamada HTTP. Sirve para entender qué hace un cliente al hacer pull o push."
+  },
+  {
+   "fuente": "ctr-docker-storage-drivers",
+   "nota": "Documentación oficial de cómo se apilan las capas y cómo funciona la capa de escritura (copy-on-write): el complemento de lo que hoy se midió."
+  },
+  {
+   "fuente": "ctr-docker-overview",
+   "nota": "Definiciones oficiales de imagen, contenedor y registro, con el vocabulario que vas a encontrar en la documentación y en las conversaciones del equipo."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Docker internals what is an image layers manifest explained",
+   "por_que": "Una explicación visual de capas y manifiestos para contrastar con lo que abriste a mano."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "imagen",
+   "d": "Paquete de solo lectura con los archivos, las dependencias y la descripción de cómo ejecutar un programa. Se compone de un manifiesto, una configuración y capas, todos identificados por su hash. De una imagen salen muchos contenedores."
+  },
+  {
+   "t": "capa",
+   "d": "Conjunto de diferencias sobre el sistema de archivos (archivos agregados, cambiados o borrados) respecto de la capa anterior, guardado como un `tar` comprimido. Las imágenes son una pila de capas que se pueden compartir entre sí."
+  },
+  {
+   "t": "registro de imágenes",
+   "d": "Servidor que guarda imágenes y las entrega por una API HTTP, pidiendo cada pieza por su hash. Docker Hub, GHCR y los de los proveedores de nube son ejemplos; también se puede correr uno propio."
+  },
+  {
+   "t": "contenedor en ejecución",
+   "d": "Una imagen puesta a andar: un proceso del anfitrión con namespaces propios, un cgroup con topes y una capa de escritura arriba de las capas de la imagen. Detenerlo conserva su capa de escritura; eliminarlo la destruye."
+  },
+  {
+   "t": "digest",
+   "d": "Huella SHA-256 del contenido de una pieza (manifiesto, configuración o capa comprimida). Sirve de nombre y de verificación: si el contenido cambia, el digest también."
+  },
+  {
+   "t": "etiqueta de imagen",
+   "d": "Apodo legible (como `3.22` o `v1`) que apunta a un manifiesto dentro de un repositorio. Puede reasignarse a otra imagen, a diferencia del digest."
+  },
+  {
+   "t": "capa de escritura",
+   "d": "Capa vacía y propia de cada contenedor, apilada sobre las de la imagen, donde caen todos los cambios que hace el programa mientras corre."
+  }
+ ],
+ "siguiente": "Dockerfile, volúmenes, redes y Compose: cómo se escribe una imagen propia instrucción por instrucción, dónde guardar lo que no puede perderse y cómo se conectan varios contenedores.",
+ "fuentes_nuevas": [
+  {
+   "id": "dk07-oci-manifest",
+   "t": "OCI Image Format Specification: Image Manifest",
+   "a": "Open Container Initiative",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/opencontainers/image-spec/main/manifest.md"
+  },
+  {
+   "id": "dk07-oci-config",
+   "t": "OCI Image Format Specification: Image Configuration",
+   "a": "Open Container Initiative",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/opencontainers/image-spec/main/config.md"
+  },
+  {
+   "id": "dk07-oci-distribution",
+   "t": "OCI Distribution Specification",
+   "a": "Open Container Initiative",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/opencontainers/distribution-spec/main/spec.md"
+  },
+  {
+   "id": "dk07-hub-pulls",
+   "t": "Docker Hub pull usage and limits",
+   "a": "Docker Inc.",
+   "tipo": "doc",
+   "url": "https://docs.docker.com/docker-hub/usage/pulls/"
+  },
+  {
+   "id": "dk07-desktop-licencia",
+   "t": "Docker Desktop license agreement",
+   "a": "Docker Inc.",
+   "tipo": "doc",
+   "url": "https://docs.docker.com/subscription/desktop-license/"
+  },
+  {
+   "id": "dk07-ghcr-doc",
+   "t": "Working with the Container registry",
+   "a": "GitHub",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry"
+  },
+  {
+   "id": "dk07-moby-licencia",
+   "t": "moby/moby: LICENSE (Apache 2.0)",
+   "a": "Moby Project",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/moby/moby/master/LICENSE"
+  }
+ ]
+}

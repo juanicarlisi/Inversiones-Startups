@@ -1,0 +1,67 @@
+# Parte 15: Ciberseguridad. Notas por día.
+Contexto: el estudiante ya vio secretos (04-06), TLS y PKI (05-19..05-23), autenticación, JWT, OAuth y autorización (07-08..07-11), seguridad de APIs a nivel inicial (08-xx), RLS y permisos en bases (09-xx), permisos y almacenamiento seguro en mobile (10-xx), IAM y responsabilidad compartida (13-11, 13-21), secretos en operación y cadena de suministro (14-20, 14-23). Esta parte une todo desde la mirada de atacante y defensor. Retomá con [@id] en vez de repetir. LÍMITES DUROS: toda demostración de ataque se corre SOLO contra un programa vulnerable PROPIO, escrito en el día, escuchando en 127.0.0.1 (puertos 27xxx), y siempre con su arreglo corrido al lado («vulnerable → ataque → arreglo → el ataque ya no anda»). Nunca contra sitios, servicios ni IP de terceros; nunca contra el Supabase de Senda ni contra nada de Senda en vivo (Senda se analiza LEYENDO el código en /home/user/senda-app, solo lectura). Nada de malware funcional, ni herramientas de evasión, ni kits de phishing, ni DoS real (DDoS: solo conceptos, cifras de informes oficiales y una simulación de cola en un proceso). Nada de escaneos de red fuera de localhost. Credenciales y claves de práctica con formato obviamente falso. Casos reales solo con fuente primaria fechada (CVE/NVD, informes oficiales, postmortems de la empresa, documentos regulatorios o judiciales); si no la pudiste leer, decilo. Normas: OWASP (Top 10 web vigente: verificá si la edición 2025 ya es la final; API Top 10 2023; MASVS), NIST (SP 800-63B contraseñas, 800-207 Zero Trust, 800-61 incidentes: verificá revisión vigente), RFC (6238 TOTP, 9106 Argon2, 8446 TLS 1.3), W3C WebAuthn. Criptografía: con `openssl`, `node:crypto` o WebCrypto en bloques `ejecutable` cuando entre (JS puro en Worker: verificá que `crypto.subtle` esté disponible; si no, `terminal`); NUNCA implementar cripto propia salvo juguete rotulado para mostrar por qué no. Privacidad (15-28): textos oficiales (GDPR, LGPD, Ley 25.326 y AAIP; verificá el estado del proyecto de reforma argentino al 16-11-2026); es información, no asesoramiento legal. Logística: paralelos (precinto de seguridad = integridad; control de acceso al depósito; remito firmado) con su límite. SENDA: hechos conocidos a verificar antes de citar: 41 tablas con RLS, funciones `security definer` con `search_path`, cuentas anónimas, token de sesión en AsyncStorage (deuda en `docs/SEGURIDAD.md`), clave pública (`anon`) embebida en la app (es pública por diseño) y clave de servicio solo en funciones edge, `allowBackup="true"`, `unirse_grupo` sin tope de intentos, bloqueos/denuncias, borrado de cuenta, 14 ataques cerrados en la prueba 49 (`pruebas/nube`), `docs/SEGURIDAD.md`. Los hallazgos se describen como deuda con su arreglo, sin dramatizar y sin dar un paso a paso para explotar a Senda. Entorno compartido: directorio propio del scratchpad, disco justo, `rm` con comodines y `pkill`/`kill` por patrón bloqueados; no cambies permisos de directorios ajenos; si los permisos de la sesión deniegan una descarga, no busques caminos alternativos.
+
+## 15-01 Qué es la seguridad informática
+Tríada CIA con ejemplos de logística, activo/amenaza/vulnerabilidad/riesgo, modelado de amenazas (STRIDE sobre una app de despachos inventada, con diagrama de flujo de datos y fronteras de confianza), la seguridad como economía (costo del ataque vs valor).
+## 15-02 Criptografía I: funciones hash
+Propiedades, SHA-256 corrido (efecto avalancha medido), colisiones (MD5/SHA-1: SHAttered con fuente), HMAC y por qué `hash(clave+mensaje)` no alcanza (extensión de longitud a nivel de idea), usos (integridad de descargas, git, contraseñas NO así).
+## 15-03 Criptografía II: cifrado simétrico
+AES, modos (ECB y el pingüino: reproducí el patrón con una imagen/bitmap propio; CBC; GCM autenticado), IV/nonce y qué pasa al repetirlo (demo), cifrado autenticado como default; ChaCha20-Poly1305.
+## 15-04 Criptografía III: cifrado asimétrico y firmas
+RSA con números chicos a mano y con openssl, curvas elípticas a nivel de idea, Diffie-Hellman corrido con números chicos, firmas (firmar y verificar un remito), tamaños de clave vigentes (NIST), amenaza cuántica y ML-KEM/ML-DSA (FIPS 203/204: verificá) sin alarmismo.
+## 15-05 Criptografía IV: certificados y TLS desde la seguridad
+Retomá [@05-21]..[@05-23]: qué garantiza y qué no, PFS, ataques históricos (degradación, Heartbleed se trata en 15-30), revocación (CRL/OCSP y su estado real: verificá el retiro de OCSP en Let's Encrypt), pinning y por qué casi nadie lo recomienda ya en apps; inspección con `openssl s_client` contra un servidor propio.
+## 15-06 Contraseñas: cómo se guardan y cómo se roban
+Texto plano → hash → sal → bcrypt/scrypt/Argon2 (medí costo con `node:crypto` scrypt o argon2 por pip si instala), ataque de diccionario contra hashes PROPIOS de práctica (MD5 sin sal vs Argon2: tiempos medidos), NIST 800-63B (largo sobre complejidad, sin rotación forzada), gestores, Have I Been Pwned y k-anonimato (explicá el protocolo; consultar la API con un hash de práctica es opcional).
+## 15-07 Autenticación fuerte: MFA, TOTP y passkeys
+Factores, TOTP implementado en ~20 líneas y contrastado con los vectores del RFC 6238, SMS y SIM swapping (fuente), phishing en tiempo real contra TOTP, WebAuthn/passkeys (por qué resisten phishing: el origen firmado), estado de adopción con fuente fechada.
+## 15-08 Sesiones y tokens: robo, expiración y revocación
+Retomá [@07-09], [@07-10]: dónde vive el token (cookie HttpOnly vs almacenamiento), robo por XSS (demo local mínima), expiración corta + refresh con rotación y detección de reuso (implementado), lista de revocación. Senda: token en AsyncStorage y duración de sesión de Supabase (verificá en código y doc).
+## 15-09 Control de acceso: RBAC, ABAC, ReBAC e IDOR
+Retomá [@07-11]; IDOR/BOLA demostrado contra API propia (cambiar el id en la URL) y arreglado; ReBAC (Zanzibar: paper) a nivel de idea; RLS como defensa en la base (retomá Parte 9). Senda: políticas RLS reales de 2 o 3 tablas leídas del SQL.
+## 15-10 Gestión de identidades: SSO, SAML y OIDC
+SSO, IdP y SP, SAML (aserción XML firmada) vs OIDC (retomá [@07-10]), federación, SCIM a nivel de mención, riesgos (IdP como punto único). Senda: «guardar con Google» (verificá cómo está hecho: `signInWithIdToken` o equivalente).
+## 15-11 OWASP Top 10: el mapa de las vulnerabilidades
+Qué es OWASP, cómo se arma la lista, las 10 categorías vigentes una por una con un ejemplo de una línea y el día de esta parte que la profundiza; qué cambió entre ediciones.
+## 15-12 Inyección SQL
+App propia vulnerable (SQLite o Postgres propio) con concatenación: bypass de login y UNION corridos; arreglo con consultas parametrizadas; por qué los ORM ayudan y dónde no (SQL crudo, `order by` dinámico); inyección en funciones SQL (`execute` con `format('%I')`). Senda: ¿hay SQL dinámico en sus funciones? (grep y decí lo que hay).
+## 15-13 XSS
+Reflejado, almacenado y DOM contra página propia (servida en localhost, mostrada con capturas o salida de Playwright si hace falta), escape de salida por contexto, CSP (política real probada), Trusted Types; por qué React escapa por defecto y dónde no (`dangerouslySetInnerHTML`). Senda: `web/` estático y la app nativa (superficie XSS casi nula: decí por qué, verificando si hay WebView).
+## 15-14 CSRF, CORS, SameSite y clickjacking
+CSRF demostrado con dos orígenes locales (puertos distintos) y arreglado (token, SameSite), CORS bien entendido (retomá [@08-xx] si existe: usá `contexto.py`), clickjacking y `frame-ancestors`.
+## 15-15 SSRF, deserialización, path traversal y otras
+SSRF contra servicio propio con un «metadata» falso local (caso Capital One con fuente: retomá [@13-21]), path traversal corrido y arreglado, deserialización insegura (pickle con payload inofensivo que solo escribe un archivo en tu directorio), inyección de comandos.
+## 15-16 Seguridad de APIs
+OWASP API Top 10 2023 recorrido, exposición excesiva y asignación masiva demostradas contra API propia, límites de tasa (retomá [@08-xx]), inventario de endpoints. Senda: la API es PostgREST + RPC: qué expone la clave pública y qué frena la RLS (leyendo SQL).
+## 15-17 Seguridad en el frontend y en apps móviles
+MASVS (grupos de control), todo lo del cliente es público: abrir un APK/bundle propio de práctica y encontrar un «secreto» falso embebido (o `strings` sobre un binario propio), ofuscación ≠ seguridad, almacenamiento seguro (Keystore/Keychain: retomá Parte 10), root/jailbreak, integridad (Play Integrity por doc). Senda: qué viaja en el bundle (clave pública de Supabase: correcto), AsyncStorage, `allowBackup`.
+## 15-18 Seguridad en el backend
+Validación de entrada con esquema (zod), límites de tamaño y de tiempo (demo de pedido gigante y de ReDoS con regex propia, arreglados), encabezados de seguridad (HSTS, nosniff, etc.), errores sin fugas, mínimo privilegio del proceso.
+## 15-19 Seguridad en bases de datos
+Roles y GRANT mínimos en Postgres propio, RLS (retomá), `security definer` y `search_path` (demo del secuestro por `search_path` en base propia y su arreglo), cifrado en reposo y en tránsito, auditoría (pgaudit por doc), enmascarado, backups cifrados. Senda: sus funciones `security definer` (conteo y si fijan `search_path`).
+## 15-20 Secretos y claves: dónde no ponerlos
+Retomá [@04-06], [@14-20]: secreto en el historial de git (demo en repo propio: borrarlo del último commit no lo borra), escaneo (gitleaks/trufflehog si instalan por paquete permitido; si no, regex propia), rotación como única cura, claves públicas vs secretas en apps. Senda: qué claves hay y de qué tipo (sin copiar ningún valor).
+## 15-21 Fuerza bruta, credential stuffing y bots
+Fuerza bruta contra login propio medido (intentos/s), límites por IP y por cuenta, bloqueo progresivo implementado, credential stuffing (informes con fuente), CAPTCHA y sus costos, detección de bots. Senda: códigos de grupo y `unirse_grupo` sin tope (espacio de claves calculado desde el código real, arreglo propuesto).
+## 15-22 DDoS y disponibilidad
+Volumétricos, de protocolo y de aplicación; amplificación (factores publicados por CISA/Cloudflare con fecha); mitigación en el borde (retomá [@05-25], [@13-18]); simulación de cola saturada en un proceso; para una app chica: qué protege el proveedor (Supabase/Cloudflare: doc). SIN generar tráfico.
+## 15-23 Malware, phishing e ingeniería social
+Tipos de malware a nivel conceptual, ransomware (informes oficiales), phishing (anatomía de un correo con indicadores, SPF/DKIM/DMARC: retomá [@14-05]), pretexting, deepfakes de voz; defensas personales concretas para el fundador (MFA, gestor, copias). Sin plantillas reutilizables de engaño.
+## 15-24 Cadena de suministro: dependencias maliciosas
+Retomá [@14-23] sin repetir: casos con fuente (event-stream 2018, xz 2024, ataques a npm de 2025: verificá), scripts de instalación, lockfile e integridad (`npm ci`, hashes), auditoría (`npm audit` sobre proyecto de práctica), confusión de dependencias. Senda: `package-lock.json` y conteo de dependencias (verificá).
+## 15-25 Zero Trust y defensa en profundidad
+Perímetro vs Zero Trust (NIST 800-207, BeyondCorp), capas (ejemplo: las capas entre un atacante y los datos de una app), segmentación, mínimo privilegio, suponer la brecha. Senda: sus capas reales (app → clave pública → RLS → funciones → clave de servicio).
+## 15-26 Seguridad cloud
+Retomá [@13-11], [@13-21]: malas configuraciones más comunes (informes con fuente), escalada de privilegios por políticas (evaluador de juguete), CSPM, registros; lista mínima para un equipo de una persona.
+## 15-27 Detección, auditoría y respuesta a incidentes
+Logs de seguridad, SIEM/IDS a nivel de mapa, detección sobre un log propio (script que encuentra fuerza bruta en un access log generado), fases de respuesta (NIST 800-61), comunicación y notificación legal; plantilla de plan de una página.
+## 15-28 Privacidad de datos: GDPR, LGPD y la ley argentina
+Dato personal, bases legales, derechos, minimización, menores, transferencias, notificación de brechas; GDPR, LGPD y Ley 25.326 comparadas con artículos citados; Senda: qué datos junta según el código y su política (`web/` o `src/datos/legal.ts`), cuentas anónimas, menores de 13; sin asesoramiento legal ni opinar sobre decisiones de lanzamiento.
+## 15-29 Seguridad en el ciclo de desarrollo
+Shift-left, modelado de amenazas en el diseño, SAST/DAST/SCA (corré una herramienta liviana por pip/npm sobre código propio: semgrep/bandit/eslint-plugin-security), revisión de seguridad, pentest y bug bounty (qué son y cuándo), divulgación responsable.
+## 15-30 Casos reales de brechas
+Heartbleed (CVE-2014-0160), Equifax 2017 (informe del GAO/Congreso), Log4Shell (CVE-2021-44228), SolarWinds 2020 (CISA): qué pasó, causa raíz, lección transferible y su límite; solo fuentes primarias.
+## 15-31 Cómo protege Senda a sus usuarios (tipo S)
+Modelo de amenazas de Senda (activos, actores, fronteras) verificado en el código; controles reales: RLS, funciones con validaciones y límites, bloqueos/denuncias, borrado de cuenta, `pruebas/nube` con los ataques cerrados, `docs/SEGURIDAD.md`; deudas con su arreglo; ≥2 bloques `senda`, ≥4 archivos reales; sin paso a paso de explotación.
+## 15-32 Cierre de la Parte 15: pensar como atacante y como defensor (tipo R)
+Mapa de seguridad, caso recorrido (revisión de seguridad de una app de despachos de punta a punta), tabla «pregunta típica → día», 8–12 preguntas. Al final.
