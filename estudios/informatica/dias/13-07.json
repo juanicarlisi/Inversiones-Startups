@@ -1,0 +1,544 @@
+{
+ "id": "13-07",
+ "titulo": "Cómputo III: serverless",
+ "bajada": "Cuántos entornos prende la nube por vos cuando llegan pedidos juntos, qué tope tiene esa cuenta, cuánto cuesta dejarlos listos y en qué se diferencian Lambda, Cloud Run functions y Azure Functions.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Calcular cuántos entornos en paralelo necesita una función a partir de los pedidos por segundo y de lo que tarda cada uno.",
+  "Predecir qué pasa con los pedidos cuando se alcanza el tope de concurrencia, y qué diferencia hay entre concurrencia reservada y aprovisionada.",
+  "Leer los límites de ejecución, memoria y tamaño de Lambda, Cloud Run functions y Azure Functions y decidir si una tarea entra o no.",
+  "Calcular con precios de lista fechados cuánto cuesta dejar entornos listos y desde qué nivel de uso conviene hacerlo.",
+  "Reconocer en el código de Senda qué piezas hacen de función serverless y cuáles no usan ningún proveedor de los tres."
+ ],
+ "venis_de": "En [@07-26] viste qué es una función que arranca a pedido y mediste su arranque en frío, y en [@12-19] calculaste cuánto cuesta por uso y cuándo gana un servidor fijo. En [@13-04] la nube se ordenó en capas de servicio y en [@13-06] viste los contenedores gestionados. Hoy falta la cantidad que decide todo en serverless: cuántas copias de tu función corren a la vez.",
+ "se_apoya_en": [
+  "07-26",
+  "12-19",
+  "13-04",
+  "13-06"
+ ],
+ "gancho": [
+  "Imaginá un operador logístico que despacha por mensajería. Un martes llegan 5 pedidos por minuto y le alcanza con una moto. El viernes de ofertas llegan 300 por minuto, y cada entrega tarda media hora. La pregunta que le importa no es cuánto sale cada entrega sino otra: cuántas motos tiene que haber en la calle al mismo tiempo. Si tiene menos, los pedidos esperan o se pierden. Si tiene más, paga motos que no usa.",
+  "En una función serverless la pregunta es idéntica. Cada pedido que está siendo atendido ocupa una copia de tu código con su memoria y su CPU, y esa copia no atiende a nadie más hasta terminar. Cuántas copias hacen falta, cuántas deja crear el proveedor y cuántas podés tener listas de antemano son las tres preguntas del día. Las contesta una sola cuenta de multiplicar, y la vas a ver correr en tu propia máquina."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué se alquila cuando alquilás una función"
+  },
+  {
+   "t": "p",
+   "x": "Una [[función serverless]] ([@07-26]) es un trozo de código que la nube ejecuta cuando llega un evento y que no deja nada prendido cuando no hay trabajo. Es la capa [[FaaS]] que ordenaste en [@13-04]. El servicio más conocido es [[Lambda]], el de Amazon Web Services, que salió en 2014 y es la referencia con la que se comparan los otros. Google ofrece algo equivalente con Cloud Run functions y Microsoft con Azure Functions. Las tres siguen la misma idea y cambian en los números, y los números son lo que decide si tu tarea entra o no."
+  },
+  {
+   "t": "p",
+   "x": "Hay un dato que organiza todo lo demás y que no figura en el nombre «sin servidor». Para atender un pedido, la plataforma necesita un **entorno de ejecución**: un espacio aislado con tu código cargado, la memoria que pediste y una parte de CPU. Mientras ese entorno atiende un pedido, en el modelo estándar de Lambda no recibe otro. Si llegan dos pedidos a la vez, hay dos entornos; si llegan mil, mil [#nube1307-aws-lambda-concurrency]. Todo lo que sigue sale de esa regla."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Pedidos",
+       "s": "llegan juntos, sin avisar",
+       "k": "cliente"
+      },
+      {
+       "t": "Plataforma",
+       "s": "busca un entorno libre",
+       "k": "red",
+       "e": "evento"
+      },
+      {
+       "t": "Entorno A, B, C…",
+       "s": "uno por pedido en vuelo",
+       "k": "servidor",
+       "e": "si hay libre, lo reusa; si no, crea uno"
+      }
+     ],
+     "baja": "Si no hay libre y ya se llegó al tope, el pedido se rechaza"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Tope de la cuenta",
+       "s": "por región; ajustable",
+       "k": "alerta"
+      },
+      {
+       "t": "Rechazo",
+       "s": "se llama throttling",
+       "k": "alerta",
+       "e": "sin permiso para crear otro"
+      }
+     ]
+    }
+   ],
+   "cap": "La regla de un pedido por entorno: la concurrencia es la cantidad de entornos ocupados al mismo tiempo."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Las motos en la calle",
+   "x": [
+    "Cada pedido en vuelo es una moto afuera del depósito. Si llegan 100 pedidos por hora y cada entrega tarda media hora, en cualquier momento hay unas 50 motos ocupadas. Esa cuenta es la que hace la plataforma, solo que con entornos.",
+    "Dónde deja de valer: una moto nueva tarda días en conseguirse y un entorno nuevo tarda decenas de milisegundos, y a una moto no le cobran por segundo la memoria que ocupa mientras viaja."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "La cuenta que lo decide: concurrencia"
+  },
+  {
+   "t": "p",
+   "x": "La [[concurrencia serverless]] es la cantidad de pedidos en vuelo en un instante, que en el modelo estándar es igual a la cantidad de entornos ocupados. La documentación de Lambda la calcula así: concurrencia = pedidos por segundo × duración media de cada pedido, en segundos [#nube1307-aws-lambda-concurrency]. Con 100 pedidos por segundo que tardan 1 segundo, la concurrencia es 100. Si cada uno tarda 500 ms, es 50. Si llegan 200 por segundo pero cada uno tarda 250 ms, también es 50. Lo que cuenta es cuánto tiempo ocupa cada pedido su entorno, y no cuántos pedidos hay en total."
+  },
+  {
+   "t": "p",
+   "x": "Esa fórmula es un caso de lo que se conoce como ley de Little en teoría de colas (la cantidad promedio de elementos dentro de un sistema es la tasa de llegada por el tiempo que cada uno pasa adentro). En logística la usás sin nombrarla: stock en tránsito = ventas por día × días de tránsito. Acá el «stock en tránsito» son los entornos ocupados."
+  },
+  {
+   "t": "pensa",
+   "x": "Una función recibe en promedio 300 pedidos por segundo y cada uno tarda 400 ms. ¿Cuántos entornos tiene ocupados a la vez? ¿Y si una mejora del código baja cada pedido a 200 ms?",
+   "resp": "300 × 0,4 = 120 entornos. Con 200 ms, 300 × 0,2 = 60. Hacer más rápido cada pedido reduce la concurrencia a la mitad aunque lleguen los mismos pedidos, y eso baja tanto el riesgo de chocar con el tope como la factura."
+  },
+  {
+   "t": "p",
+   "x": "Todo esto se puede mirar con una plataforma de juguete. En esta máquina armé una que sigue la regla de Lambda: un proceso por entorno, un pedido por vez, un tope de 4 entornos. Cada entorno carga unos módulos al arrancar (la fase de inicialización de [@07-26]) y recién después atiende. La plataforma recibe 6 pedidos juntos de 200 ms cada uno y, cuando ya terminaron, 3 pedidos más. No es Lambda ni usa su código; es la misma regla corriendo en Node 22 sobre una VM de 4 núcleos."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const { fork } = require('child_process');\nconst LIMITE = 4;            // tope de concurrencia de la \"cuenta\" de juguete\nconst ENTORNOS = [];         // {proc, ocupado}\nconst log = [];\nconst t0 = Date.now();\nconst ahora = () => Date.now() - t0;\nlet creados = 0;\nfunction pedir(id, dur) {\n  return new Promise((res) => {\n    const inicio = ahora();\n    let e = ENTORNOS.find((x) => !x.ocupado && x.listo);\n    if (e) { return usar(e, 'reuso', 0); }\n    if (ENTORNOS.length >= LIMITE) { log.push({ id, r: 'THROTTLE', t: inicio }); return res(); }\n    const proc = fork(__dirname + '/worker.js');\n    e = { proc, ocupado: true, listo: false, n: ++creados };\n    ENTORNOS.push(e);\n    proc.once('message', (m) => { e.listo = true; e.initMs = m.initMs; usar(e, 'FRIO', Date.now() - t0 - inicio); });\n    function usar(e, tipo, espera) {\n      e.ocupado = true;\n      const ini2 = ahora();\n      e.proc.send({ id, dur });\n      e.proc.once('message', (m) => { e.ocupado = false; log.push({ id, r: tipo, env: e.n, esperaArranque: Math.round(espera), total: ahora() - inicio, t: inicio }); res(); });\n    }\n  });\n}",
+   "cap": "El centro de la plataforma de juguete (plataforma.js; el worker.js que inicializa y atiende es de unas 10 líneas). Se corre con node plataforma.js."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node plataforma.js",
+     "s": "{\"id\":1,\"r\":\"FRIO\",\"env\":1,\"esperaArranque\":61,\"total\":263,\"t\":0}\n{\"id\":2,\"r\":\"FRIO\",\"env\":2,\"esperaArranque\":82,\"total\":284,\"t\":4}\n{\"id\":3,\"r\":\"FRIO\",\"env\":3,\"esperaArranque\":55,\"total\":257,\"t\":6}\n{\"id\":4,\"r\":\"FRIO\",\"env\":4,\"esperaArranque\":88,\"total\":290,\"t\":8}\n{\"id\":5,\"r\":\"THROTTLE\",\"t\":13}\n{\"id\":6,\"r\":\"THROTTLE\",\"t\":13}\n{\"id\":7,\"r\":\"reuso\",\"env\":1,\"esperaArranque\":0,\"total\":201,\"t\":399}\n{\"id\":8,\"r\":\"reuso\",\"env\":2,\"esperaArranque\":0,\"total\":201,\"t\":399}\n{\"id\":9,\"r\":\"reuso\",\"env\":3,\"esperaArranque\":0,\"total\":201,\"t\":399}\nentornos creados: 4"
+    }
+   ],
+   "cap": "Una corrida real en esta VM; tiempos en milisegundos. Es un dato de una sola máquina: en otras tres corridas la espera de arranque de los cuatro primeros pedidos quedó entre 37 y 61 ms."
+  },
+  {
+   "t": "p",
+   "x": "Se ven las tres situaciones que importan. Los pedidos 1 a 4 no encontraron entorno libre y cada uno creó el suyo: son cuatro arranques en frío, con una espera de 55 a 88 ms antes de empezar a trabajar. Los pedidos 5 y 6 chocaron con el tope y se rechazaron en el acto, sin atenderse: es el throttling. Y los pedidos 7, 8 y 9, que llegaron cuando los entornos ya estaban libres, los reusaron y tardaron 201 ms, es decir, solo lo que dura el trabajo. Los cuatro entornos creados siguieron vivos entre una ola y la otra."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Rechazar no es fallar",
+   "x": "Con el tope alcanzado, la plataforma no encola el pedido hasta que haya lugar: lo rechaza, y es el que llama quien decide si reintentar. Por eso los reintentos tienen que ser seguros (idempotentes, como viste en [@07-12]) y espaciados. Si cada rechazo se reintenta de inmediato, el tope se vuelve a chocar y el problema crece."
+  },
+  {
+   "t": "h",
+   "x": "Lo mismo, en tiempo virtual y con números grandes"
+  },
+  {
+   "t": "p",
+   "x": "Con procesos reales no se pueden simular mil entornos en una VM compartida. Para eso conviene un simulador en tiempo virtual: el reloj es un número que avanza, y no hay procesos. La regla es la misma (un entorno atiende un pedido por vez, si todos están ocupados se crea otro hasta el tope) y se puede correr acá mismo. Probalo con los casos de arriba, con el tope de 300 y con 50 entornos ya iniciados."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Concurrencia serverless en tiempo virtual (microsegundos enteros).\n// Regla del modelo: un entorno atiende UN pedido a la vez; si todos están ocupados, hay que crear otro (arranque en frío).\nfunction simular({ rps, durMs, segundos, limite, previos = 0 }) {\n  const libreEn = Array(previos).fill(0);       // instante (µs) en que cada entorno queda libre\n  let frios = 0, rechazados = 0, pico = 0, atendidos = 0;\n  const paso = Math.round(1e6 / rps), dur = durMs * 1000;\n  for (let t = 0; t < segundos * 1e6; t += paso) {\n    let e = libreEn.findIndex((l) => l <= t);\n    if (e === -1) {\n      if (libreEn.length >= limite) { rechazados++; continue; }\n      libreEn.push(0); e = libreEn.length - 1; frios++;\n    }\n    libreEn[e] = t + dur; atendidos++;\n    pico = Math.max(pico, libreEn.filter((l) => l > t).length);\n  }\n  return { entornos: libreEn.length, frios, rechazados, atendidos, pico };\n}\nconst casos = [\n  ['100 pedidos/s de 1000 ms', 100, 1000],\n  ['100 pedidos/s de 500 ms', 100, 500],\n  ['200 pedidos/s de 250 ms', 200, 250],\n  ['2000 pedidos/s de 200 ms', 2000, 200],\n];\nfor (const [n, rps, durMs] of casos) {\n  const r = simular({ rps, durMs, segundos: 5, limite: 1000 });\n  console.log(n.padEnd(26), 'fórmula', String(rps * durMs / 1000).padStart(4),\n    '| pico simulado', String(r.pico).padStart(4), '| arranques en frío', String(r.frios).padStart(4), '| rechazados', r.rechazados);\n}\nlet r = simular({ rps: 2000, durMs: 200, segundos: 5, limite: 300 });\nconsole.log('2000/s de 200 ms con tope 300 ->', JSON.stringify(r), '(fórmula pide 400)');\nr = simular({ rps: 100, durMs: 500, segundos: 5, limite: 1000, previos: 50 });\nconsole.log('100/s de 500 ms con 50 entornos ya iniciados ->', JSON.stringify(r));\n",
+   "cap": "Simulador de concurrencia en tiempo virtual. Es un modelo propio de la regla, no código de ningún proveedor. Las llegadas son regulares (en la realidad son irregulares y el pico real supera al promedio)."
+  },
+  {
+   "t": "p",
+   "x": "Los resultados coinciden con la fórmula: el pico simulado de entornos ocupados es igual a pedidos por segundo × duración. Con el tope en 300 y una demanda que pedía 400, el simulador rechazó 2.500 de 10.000 pedidos en los 5 segundos: exactamente el cuarto que no cabía. En la última línea, con 50 entornos ya iniciados y la misma demanda de 50, no hubo ni un arranque en frío. Esa es la idea de la concurrencia aprovisionada, que sigue."
+  },
+  {
+   "t": "h",
+   "x": "Cuántos entornos deja crear la nube, y a qué ritmo"
+  },
+  {
+   "t": "p",
+   "x": "Hay dos límites distintos, y se confunden seguido. El primero es el **tope de concurrencia**: en Lambda, 1.000 ejecuciones simultáneas por región y por cuenta por defecto, ampliable a decenas de miles si lo pedís [#svl-aws-lambda-limits]. La documentación avisa además que las cuentas nuevas empiezan con cuotas reducidas que AWS sube sola según el uso. El segundo es el **ritmo de escalada**: cada función puede sumar hasta 1.000 entornos nuevos cada 10 segundos [#svl-aws-lambda-limits]. El tope dice hasta dónde se puede llegar; el ritmo dice cuánto tarda el viaje."
+  },
+  {
+   "t": "p",
+   "x": "Un cálculo con esos números. Un negocio recibe un salto de 0 a 5.000 pedidos por segundo, con 200 ms cada uno: la concurrencia pedida es 1.000, que cabe en el tope y también en una primera tanda de escalada. Si el salto fuera a 12.000 pedidos por segundo, la concurrencia pedida sería 2.400. Con las cuotas subidas, el ritmo de 1.000 cada 10 segundos implicaría varias decenas de segundos de espera para llegar, y durante ese tiempo parte de los pedidos se rechazaría. Es una inferencia mía a partir de las cifras de la documentación y no un dato medido; lo que sí está documentado es que ambos límites existen."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El tope se comparte",
+   "x": "Las 1.000 ejecuciones por defecto son de toda la cuenta en esa región, no de cada función. Una función que recibe una avalancha se puede quedar con casi todas y dejar sin entornos a las demás. La doc lo ilustra con un caso: si dos funciones reservan 400 cada una, las demás funciones de la cuenta comparten los 200 restantes [#nube1307-aws-lambda-concurrency]."
+  },
+  {
+   "t": "h",
+   "x": "Dos botones que parecen lo mismo: reservada y aprovisionada"
+  },
+  {
+   "t": "p",
+   "x": "Lambda ofrece dos controles con nombres casi iguales y efectos opuestos [#nube1307-aws-lambda-concurrency]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Concurrencia reservada",
+    "Concurrencia aprovisionada"
+   ],
+   "filas": [
+    [
+     "Qué hace",
+     "Aparta una parte del tope de la cuenta para una función: es su mínimo garantizado y también su máximo",
+     "Mantiene un número de entornos ya inicializados, listos para responder"
+    ],
+    [
+     "Qué evita",
+     "Que otras funciones le saquen lugar, o que ella se coma todo el tope",
+     "El arranque en frío para ese número de pedidos simultáneos"
+    ],
+    [
+     "Qué cuesta",
+     "Nada extra",
+     "Se cobra por tener los entornos configurados, se usen o no"
+    ],
+    [
+     "Entornos iniciados de antemano",
+     "No: pueden destruirse tras un rato sin uso",
+     "Sí: la plataforma mantiene siempre esa cantidad"
+    ]
+   ],
+   "cap": "Resumen de la documentación de AWS Lambda, consultada el 16-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "La reservada sirve para dos cosas. Una es proteger a una función crítica de que otra la deje sin lugar. La otra, menos obvia, es ponerle techo a una función para que no pase de cierto paralelismo, y así no desborde lo que hay detrás. La documentación lo menciona de forma explícita: sirve para evitar que una función sobrecargue recursos de los que depende [#nube1307-aws-lambda-concurrency]. Es la válvula que vas a necesitar el día que mil entornos intenten abrir mil conexiones a una base que aguanta cien."
+  },
+  {
+   "t": "p",
+   "x": "La aprovisionada ataca el arranque en frío de frente: en vez de esperar al primer pedido para iniciar, los entornos ya están cargados. AWS ofrece además SnapStart, que guarda una instantánea de la memoria y el disco del entorno ya inicializado cuando publicás una versión, y arranca desde esa foto [#svl-aws-lambda-lifecycle]. Qué lenguajes lo admiten cambia, así que mirá la documentación vigente antes de contar con él."
+  },
+  {
+   "t": "p",
+   "x": "¿Cuánto cuesta tener entornos listos? Con el archivo oficial de precios de lista de AWS Lambda para x86 en la región us-east-1, publicado el 11-11-2026, la concurrencia aprovisionada cuesta USD 0,0000041667 por GB-segundo configurado, y cuando ejecuta pedidos sobre ella, USD 0,0000097222 por GB-segundo en vez de USD 0,0000166667 del modo bajo demanda [#nube1307-aws-price-json]. La página de precios aclara que la duración incluye el código de inicialización [#nube1307-aws-lambda-pricing]. Probá la cuenta."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Precios de lista de AWS Lambda, x86, us-east-1, archivo oficial publicado el 2026-11-11 (USD)\nconst GBS = 0.0000166667;          // por GB-segundo de ejecución (primer tramo)\nconst PC_RESERVA = 0.0000041667;   // por GB-segundo de concurrencia aprovisionada configurada (esté usada o no)\nconst PC_EJEC = 0.0000097222;      // por GB-segundo ejecutando sobre concurrencia aprovisionada\nconst MES = 30 * 86400;            // 2.592.000 s\nconst gb = (mb) => mb / 1024;\n\n// 1) Cuánto cuesta DEJAR N entornos listos todo el mes, usen o no\nfor (const [n, mb] of [[1, 1024], [5, 512], [50, 512]]) {\n  console.log(`reservar ${String(n).padStart(2)} entornos de ${String(mb).padStart(4)} MB: USD ${(n * gb(mb) * MES * PC_RESERVA).toFixed(2)} por mes, sin un solo pedido`);\n}\n// 2) Cuánto cuestan los arranques en frío en plata (la fase Init se factura)\nconst frios = 1_000_000, initMs = 400, mb = 512;\nconsole.log(`1.000.000 de arranques en frío de ${initMs} ms con ${mb} MB: USD ${(frios * initMs / 1000 * gb(mb) * GBS).toFixed(2)} de Init facturado`);\n// 3) La misma hora de ejecución, con y sin aprovisionada (solo la parte de ejecución)\nconst seg = 3600, g = gb(512);\nconsole.log(`1 h de ejecución a 512 MB: bajo demanda USD ${(seg * g * GBS).toFixed(4)}, sobre aprovisionada USD ${(seg * g * PC_EJEC).toFixed(4)} (más la reserva)`);\n// 4) Desde qué uso sale más barato tener la reserva (por GB-s realmente ejecutado)\nconst u = PC_RESERVA / (GBS - PC_EJEC);\nconsole.log(`la reserva compensa el precio si los entornos reservados están ejecutando más del ${(u * 100).toFixed(0)} % del tiempo`);\n",
+   "cap": "Precio de lista, USD, x86, us-east-1, archivo del 11-11-2026. Es una calculadora propia: sin impuestos, sin tramos de descuento por volumen y sin transferencia de datos. Un mes de 30 días son 2.592.000 segundos."
+  },
+  {
+   "t": "p",
+   "x": "Dos cosas se ven en la salida. Primera: reservar USD 10,80 al mes por cada GB de entornos listos no es una fortuna, pero 50 entornos de 512 MB son USD 270 sin un solo pedido, y eso supera el costo de la función entera en muchas apps chicas. Segunda: los arranques en frío cuestan poco en plata (un millón de arranques de 400 ms son USD 3,33 de inicialización facturada) y mucho en latencia. Se compra aprovisionada para bajar la latencia de cola y no para ahorrar. Ahorra solo si los entornos reservados trabajan más del 60 % del tiempo, porque ahí el precio de ejecución más bajo compensa la reserva."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una función de 256 MB tiene 20 entornos aprovisionados durante todo un mes de 30 días. Calculá cuánto cuesta la reserva con el precio de lista de arriba (USD 0,0000041667 por GB-segundo), sin contar pedidos.",
+   "pista": "Pasá la memoria a GB (256 / 1024), multiplicá por 20 entornos y por 2.592.000 segundos, y por el precio.",
+   "solucion": "20 × 0,25 GB = 5 GB. 5 × 2.592.000 s = 12.960.000 GB-s. 12.960.000 × 0,0000041667 ≈ USD 54,00 por mes, antes de cobrar un solo pedido."
+  },
+  {
+   "t": "h",
+   "x": "Los límites de ejecución: qué entra y qué no"
+  },
+  {
+   "t": "p",
+   "x": "El [[límite de ejecución]] es el tiempo máximo que puede correr una invocación antes de que la plataforma la corte. Es el límite que más decisiones cambia, porque define si una tarea es de función o de otra cosa. Lambda estándar permite hasta 900 segundos (15 minutos), memoria de 128 a 10.240 MB con CPU proporcional (a 1.769 MB equivale a un vCPU), 6 MB para el pedido y 6 MB para la respuesta en modo sincrónico, y 50 MB de paquete comprimido [#svl-aws-lambda-limits]. Tras ese tiempo el proceso se mata, sin aviso útil, y lo hecho a medias queda a medias."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dato",
+    "AWS Lambda (función estándar)",
+    "Google Cloud Run functions (2.ª gen.)",
+    "Azure Functions (Flex Consumption)"
+   ],
+   "filas": [
+    [
+     "Pedidos a la vez por instancia",
+     "1 por entorno",
+     "Configurable; la base, Cloud Run, admite hasta 1.000",
+     "Configurable por instancia"
+    ],
+    [
+     "Duración máxima",
+     "900 s",
+     "60 min en HTTP; 540 s en eventos",
+     "Se fija con `functionTimeout`; los valores dependen del plan"
+    ],
+    [
+     "Memoria máxima",
+     "10.240 MB",
+     "32 GiB",
+     "Tres tamaños: 512, 2.048 o 4.096 MB"
+    ],
+    [
+     "Tope de escala por defecto",
+     "1.000 ejecuciones por región y cuenta",
+     "100 instancias en HTTP, ampliable a 1.000",
+     "Hasta 1.000 instancias (200 en el plan Consumption)"
+    ],
+    [
+     "Entornos listos de antemano",
+     "Concurrencia aprovisionada (se paga)",
+     "Instancias mínimas",
+     "Instancias «always ready»"
+    ]
+   ],
+   "cap": "Lo que leí en las páginas oficiales entre el 11 y el 16-11-2026: [#svl-aws-lambda-limits], [#nube1307-gcp-functions-quotas], [#nube1307-gcp-run-concurrency], [#nube1307-azure-flex]. Los valores cambian: confirmalos antes de decidir."
+  },
+  {
+   "t": "p",
+   "x": "La fila de arriba cambia la manera de pensar. En Lambda estándar, 100 pedidos simultáneos son 100 entornos, cada uno con su memoria y su inicialización. En Cloud Run, la plataforma sobre la que se apoyan las Cloud Run functions de segunda generación, un contenedor puede atender muchos pedidos a la vez: la documentación da 80 por defecto en la consola y un máximo de 1.000 [#nube1307-gcp-run-concurrency]. Los mismos 100 pedidos simultáneos caben en 2 instancias (100 / 80, redondeado hacia arriba) si el código aguanta el paralelismo. Hay menos arranques en frío y menos memoria repetida, a cambio de que tu código comparta cada instancia entre pedidos y se pueda pisar a sí mismo."
+  },
+  {
+   "t": "pensa",
+   "x": "Una base de datos admite 100 conexiones y cada entorno de tu función abre una. Con 300 pedidos por segundo de 400 ms, ¿qué pasa? ¿Qué control de Lambda usarías?",
+   "resp": "La concurrencia pedida es 120, que supera las 100 conexiones: algunos pedidos fallarán al conectar. Se pone concurrencia reservada con máximo 100 en esa función para que nunca pida más entornos que conexiones haya. Los pedidos de más se rechazan (y se reintentan) en lugar de romper la base. También se puede poner un intermediario de conexiones delante de la base."
+  },
+  {
+   "t": "h",
+   "x": "Cuándo conviene y cuándo no"
+  },
+  {
+   "t": "p",
+   "x": "La función estándar se lleva bien con tráfico irregular, con picos que no se pueden predecir y con trabajo corto y sin estado. Sufre con cuatro situaciones. Trabajo largo: lo que pasa de los 15 minutos hay que partirlo en tramos o llevarlo a otro tipo de cómputo, como los contenedores de [@13-06]. Tráfico parejo y alto: el cruce de costos de [@12-19] muestra que un servidor fijo sale más barato pasado cierto volumen. Esperas largas: una función que espera a un servicio externo paga por esperar. Y dependencias con conexiones limitadas, por lo que vimos con la base de cien conexiones."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que cambia con el tiempo (consultado el 16-11-2026)",
+   "x": [
+    "La documentación de Lambda ahora llama «Event Functions» a la función de siempre, que atiende un pedido por entorno, y suma otras modalidades: Lambda Managed Instances (corren en infraestructura de tu cuenta y admiten pedidos simultáneos), funciones duraderas y Web Functions [#svl-aws-lambda-limits][#nube1307-aws-lambda-concurrency]. Lo que explica este día vale para la función estándar y los números pueden haber cambiado cuando lo leas.",
+    "En Azure, la documentación marca el plan Consumption como heredado y recomienda Flex Consumption para funciones nuevas [#nube1307-azure-scale]. Los precios y las cuotas de los tres proveedores cambian: tomá las cifras de hoy como fotografía fechada, no como recomendación de compra."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: serverless sin ninguno de los tres"
+  },
+  {
+   "t": "p",
+   "x": "Senda no usa Lambda, ni Cloud Run functions, ni Azure Functions: no hay en el código ninguna referencia a esos servicios. Sus tres funciones de borde (`borrar-cuenta`, `compras` y `trivia-sermon`) corren en Supabase, sobre Deno, y las trató [@07-26] con sus límites. Lo que sirve de este día es otra cosa: la concurrencia aparece igual, porque en cualquier plataforma pueden llegar dos pedidos a la vez."
+  },
+  {
+   "t": "senda",
+   "titulo": "Dos pedidos a la vez sobre la misma trivia",
+   "x": [
+    "`trivia-sermon` arma preguntas con la API de Claude, lo que puede tardar mucho, y por eso es justo el tipo de función donde dos pedidos se solapan (un doble toque, un reintento). El código no confía en que eso no ocurra: antes de llamar a Claude invoca la función SQL `reclamar_trivia`, que toma un candado dentro de la base y actualiza el estado de la trivia solo si estaba en «procesando». Con dos pedidos simultáneos, uno gana y el otro recibe «ya_procesada».",
+    "Es el mismo principio de [@07-12] (idempotencia), puesto donde corresponde: el estado que decide quién gana vive en la base y no en la memoria de una función que no recuerda nada. Esto corresponde al código de la rama actual a la fecha de hoy; el mapa del commit 25e08fa describe la misma forma, y el código cambia pero la forma permanece."
+   ],
+   "archivos": [
+    "supabase/functions/trivia-sermon/index.ts",
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/functions/borrar-cuenta/index.ts",
+    "supabase/functions/compras/index.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "En el modelo estándar de Lambda, un entorno atiende **un pedido a la vez**; la **concurrencia serverless** es cuántos están ocupados al mismo tiempo.",
+  "Se calcula como pedidos por segundo × duración en segundos. Acortar cada pedido baja la concurrencia aunque lleguen los mismos pedidos.",
+  "Con el tope alcanzado, el pedido se **rechaza** (throttling). El tope por defecto de Lambda es de 1.000 por región y cuenta, y la escalada tiene su propio ritmo.",
+  "La concurrencia **reservada** aparta y limita lugar, no cuesta y no inicia entornos. La **aprovisionada** tiene entornos listos y se paga por tenerlos.",
+  "Los arranques en frío cuestan poco en plata y mucho en latencia. La reserva ahorra solo si los entornos trabajan más del 60 % del tiempo (con los precios de lista del 11-11-2026).",
+  "El **límite de ejecución** decide qué entra: 900 s en Lambda estándar, 60 min en HTTP de Cloud Run functions. Cloud Run admite muchos pedidos por instancia, y eso cambia la cuenta."
+ ],
+ "repaso": [
+  {
+   "p": "Una función estándar recibe 250 pedidos por segundo y cada uno tarda 800 ms en promedio. ¿Cuántos entornos tiene ocupados a la vez?",
+   "o": [
+    "250 entornos, uno por cada pedido de un segundo",
+    "Unos 50 entornos, por la mitad de lo que llega",
+    "200 entornos, por pedidos por segundo por duración",
+    "800 entornos, uno por cada milisegundo de duración"
+   ],
+   "c": 2,
+   "e": "La concurrencia es pedidos por segundo × duración en segundos: 250 × 0,8 = 200. Contar un entorno por cada pedido de un segundo ignora la duración, y las otras dos cifras salen de relaciones que no existen."
+  },
+  {
+   "p": "Una función tiene concurrencia reservada de 100 en una cuenta con tope de 1.000. ¿Qué es cierto?",
+   "o": [
+    "Tiene 100 entornos listos desde antes del primer pedido",
+    "Esos 100 son suyos y no puede usar más de 100",
+    "Su tope sube a 1.100 y la cuenta queda con 1.000",
+    "Se factura cada mes por mantener esos 100 apartados"
+   ],
+   "c": 1,
+   "e": "La reservada aparta lugar del tope de la cuenta (nadie más lo usa) y a la vez limita a la función a ese máximo. No inicia entornos ni cuesta; eso lo hace la aprovisionada."
+  },
+  {
+   "p": "¿Qué paga una empresa cuando activa concurrencia aprovisionada en una función?",
+   "o": [
+    "Un descuento por volumen sobre la ejecución futura",
+    "Una reserva en la región que solo vale en emergencias",
+    "El tener entornos listos, se usen o no, más lo ejecutado",
+    "Únicamente los pedidos que llegan a esos entornos"
+   ],
+   "c": 2,
+   "e": "Se cobra el tiempo y la memoria configurados, haya o no pedidos, además de requests y duración al ejecutar. Pagar solo los pedidos que llegan describe el modo bajo demanda, y las otras dos ofertas no existen como producto."
+  },
+  {
+   "p": "Un proceso de transcodificación dura 40 minutos. ¿Qué dice el límite de ejecución de una Lambda estándar?",
+   "o": [
+    "Entra, porque se paga por segundo sin importar el tiempo",
+    "No entra: el tope es de 900 segundos por invocación",
+    "Entra si se pide más memoria, que alarga el tiempo máximo",
+    "No entra, porque el tope es de 60 segundos por invocación"
+   ],
+   "c": 1,
+   "e": "El tope de la función estándar es de 900 segundos y la memoria no lo cambia (solo mueve la CPU). 60 segundos es una cifra de otros servicios. Hay que partir el trabajo o usar otro tipo de cómputo."
+  },
+  {
+   "p": "¿Por qué Cloud Run con concurrencia 80 necesita muchas menos instancias que una Lambda estándar para 100 pedidos simultáneos?",
+   "o": [
+    "Porque cada instancia atiende varios pedidos a la vez",
+    "Porque sus procesadores son más veloces que los de AWS",
+    "Porque nunca tiene arranque en frío en ningún caso",
+    "Porque cobra por instancia y no por duración de pedidos"
+   ],
+   "c": 0,
+   "e": "Una instancia de Cloud Run puede procesar hasta el máximo de pedidos concurrentes configurado, así que 100 pedidos caben en 2 instancias. Lambda estándar usa un entorno por pedido. Las otras opciones no son la causa."
+  },
+  {
+   "p": "Se alcanza el tope de concurrencia de una función y llega un pedido más, aunque haya concurrencia sin usar reservada a otra función. ¿Qué pasa?",
+   "o": [
+    "El pedido espera en una cola hasta que otro termine",
+    "Se toma prestada la concurrencia reservada de la otra",
+    "El pedido se rechaza por throttling sin atenderse",
+    "La plataforma sube el tope de la cuenta sola"
+   ],
+   "c": 2,
+   "e": "No hay entorno libre ni permiso para crear otro, y la concurrencia reservada de otra función no se presta. El pedido se rechaza y quien llama debe reintentar con cuidado."
+  },
+  {
+   "p": "Con precios de lista de Lambda del 11-11-2026, ¿cuándo compensa tener concurrencia aprovisionada por precio y no solo por latencia?",
+   "o": [
+    "Cuando los entornos reservados trabajan más del 60 % del tiempo",
+    "Siempre que la función tenga más de un entorno configurado",
+    "Solo si la función corre en una región cercana al usuario",
+    "Cuando cada pedido tarda más de diez segundos de ejecución"
+   ],
+   "c": 0,
+   "e": "La reserva cuesta 4,17 millonésimas de dólar por GB-s y baja el precio de ejecución de 16,67 a 9,72. El ahorro cubre la reserva si el uso supera aproximadamente 60 %. Las otras condiciones no entran en el cálculo."
+  }
+ ],
+ "feynman": "Explicale a alguien que maneja una flota de motos de reparto qué es la concurrencia de una función en la nube y por qué la cuenta pedidos por segundo × duración. Usá tu propio ejemplo, incluí qué pasa cuando se acaban los entornos y decí dónde tu analogía deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "nube1307-aws-lambda-concurrency",
+   "nota": "La página oficial sobre cómo escala Lambda: la fórmula, los diagramas de reservada y aprovisionada y el caso de 400 y 400 de reserva. Leé las secciones de cálculo y de los dos controles."
+  },
+  {
+   "fuente": "svl-aws-lambda-limits",
+   "nota": "La tabla de cuotas de Lambda, con los límites duros y los ajustables. Mirá tiempo, memoria, tamaño de pedido y el ritmo de 1.000 entornos cada 10 segundos."
+  },
+  {
+   "fuente": "nube1307-gcp-run-concurrency",
+   "nota": "Cómo Cloud Run define la concurrencia por instancia y cómo afecta a la cantidad de instancias y al costo; es el contraste directo con el modelo de Lambda."
+  },
+  {
+   "fuente": "nube1307-azure-flex",
+   "nota": "La página del plan Flex Consumption de Azure Functions: instancias siempre listas, concurrencia por instancia y escalado por función."
+  }
+ ],
+ "videos": [
+  {
+   "q": "AWS Lambda concurrency reserved provisioned explained",
+   "por_que": "Para ver diagramas animados de los entornos ocupándose y liberándose, y comparar con la simulación de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "Lambda",
+   "d": "Servicio de funciones serverless de Amazon Web Services, lanzado en 2014. Ejecuta tu código ante un evento en un entorno aislado y cobra por pedidos y por GB-segundo de ejecución."
+  },
+  {
+   "t": "límite de ejecución",
+   "d": "Tiempo máximo que una invocación puede correr antes de que la plataforma la corte. En Lambda estándar es de 900 segundos; cada proveedor y cada tipo de función fijan el suyo."
+  },
+  {
+   "t": "concurrencia serverless",
+   "d": "Cantidad de pedidos en vuelo al mismo tiempo. En una función estándar es igual a la cantidad de entornos ocupados y se estima como pedidos por segundo por duración media en segundos."
+  },
+  {
+   "t": "entorno de ejecución",
+   "d": "Espacio aislado con tu código cargado, la memoria pedida y una parte de CPU. En el modelo estándar atiende un pedido por vez y se puede reusar para los siguientes."
+  },
+  {
+   "t": "concurrencia reservada",
+   "d": "Parte del tope de concurrencia de la cuenta que se aparta para una función. Es su mínimo garantizado y su máximo; no cuesta extra y no deja entornos iniciados."
+  },
+  {
+   "t": "concurrencia aprovisionada",
+   "d": "Cantidad de entornos que la plataforma mantiene ya inicializados para una función. Evita el arranque en frío para esos pedidos y se cobra por tenerlos configurados."
+  },
+  {
+   "t": "throttling",
+   "d": "Rechazo de un pedido porque se alcanzó un límite de uso, como el tope de concurrencia. Quien llama recibe un error y decide si reintentar."
+  }
+ ],
+ "siguiente": "Almacenamiento I: objetos, bloques y archivos: dónde guarda la nube lo que tu función no puede guardar en su memoria, y por qué hay tres formas distintas de hacerlo.",
+ "fuentes_nuevas": [
+  {
+   "id": "nube1307-aws-lambda-concurrency",
+   "t": "Understanding Lambda function scaling (AWS Lambda Developer Guide)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html"
+  },
+  {
+   "id": "nube1307-aws-lambda-pricing",
+   "t": "AWS Lambda Pricing",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://aws.amazon.com/lambda/pricing/"
+  },
+  {
+   "id": "nube1307-aws-price-json",
+   "t": "AWS Lambda price list, us-east-1 (archivo JSON oficial, publicado el 2026-11-11)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSLambda/current/us-east-1/index.json"
+  },
+  {
+   "id": "nube1307-gcp-functions-quotas",
+   "t": "Quotas, Cloud Run functions",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cloud.google.com/functions/quotas"
+  },
+  {
+   "id": "nube1307-gcp-run-concurrency",
+   "t": "Maximum concurrent requests per instance, Cloud Run",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cloud.google.com/run/docs/about-concurrency"
+  },
+  {
+   "id": "nube1307-azure-scale",
+   "t": "Azure Functions scale and hosting",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://learn.microsoft.com/en-us/azure/azure-functions/functions-scale"
+  },
+  {
+   "id": "nube1307-azure-flex",
+   "t": "Azure Functions Flex Consumption plan hosting",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-plan"
+  }
+ ]
+}
