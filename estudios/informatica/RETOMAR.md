@@ -41,3 +41,11 @@ Un solo HTML (`informatica-desde-cero.html`) con progreso, repaso espaciado, bus
 - Que corran y muestren salidas REALES (Linux de este entorno: Ubuntu 24.04, kernel 6.18, VM sin systemd ni módulos) y que rotulen lo que es inferencia o «según X» funcionó muy bien; es lo que alimenta `VERIFICACION.md`.
 - No pasarle `--help` a los scripts de `scripts/` (no parsean argumentos y reescriben archivos derivados: ya pasó dos veces con `verificar_enlaces.py` y `consolidar_fuentes.py`).
 - Varios redactores trabajan en la misma VM: pedirles que usen nombres únicos en cgroups y directorios temporales y que limpien lo que crean.
+
+## Pausa del 16-11-2026 (tarde), a pedido del fundador
+- 448 días válidos de 631. Partes 0 a 12 completas. Parte 13: faltan 13-16 y el cierre 13-28. Parte 14: escritos y válidos los que están en `dias/14-*.json`; faltan los demás y el cierre 14-25. Parte 15: escritos los que estén en `dias/15-*.json`.
+- Los redactores se frenaron a mitad: `borradores/14-03.json` y `borradores/14-19.json` son borradores incompletos (rehacer o terminar). Antes de relanzar, listar `ls dias | grep -E '^1[345]-'` y lanzar solo los pares que falten.
+- Briefs listos: `briefs/parte-15.md` y `briefs/parte-16.md`. Faltan los de las Partes 17 a 21.
+- `briefs/reportes-pendientes.md`: reportes de redactores de las Partes 12 a 14 que falta pasar a `VERIFICACION.md` (junto con los hallazgos de las Partes 10 a 13).
+- Límite del entorno: la descarga de binarios de Terraform/OpenTofu/Vault/sops/nfs-ganesha fue denegada por los permisos de la sesión: 14-18/14-19 van con IaC de juguete + documentación rotulada.
+- El artefacto publicado sigue en la versión 6 (329 días, Partes 0 a 9): falta consolidar fuentes, construir, QA y republicar con las Partes 10 a 14.

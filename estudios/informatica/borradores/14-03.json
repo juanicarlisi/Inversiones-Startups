@@ -1,0 +1,698 @@
+{
+ "id": "14-03",
+ "titulo": "Linux para servidores II: usuarios, paquetes y cron",
+ "bajada": "Quién puede hacer qué en un servidor Linux, cómo se actualiza sin romperlo y cómo se agenda el trabajo repetido, todo probado en esta máquina.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Leer una línea de /etc/passwd y una de /etc/shadow, y explicar por qué las contraseñas viven en un archivo aparte.",
+  "Escribir una regla de sudo de mínimo privilegio, validarla con visudo y predecir qué comandos permite y cuáles no.",
+  "Distinguir los repositorios de Ubuntu (release, updates, security) y explicar qué actualiza por defecto unattended-upgrades y qué deja afuera.",
+  "Escribir una entrada de crontab de cinco campos y anticipar tres trampas: entorno mínimo, el signo % y la zona horaria.",
+  "Convertir una necesidad de calendario («días hábiles a las 8 de la mañana en Buenos Aires») en una expresión de cron y en un temporizador de systemd."
+ ],
+ "venis_de": "En [@14-02] viste dónde vive cada cosa en un servidor, cómo mirar procesos, carga y logs, y cómo un disco lleno se vuelve incidente. Todo eso lo hacías con un solo usuario con poderes totales. Hoy separás quién es cada quien, quién puede tocar qué, cómo se mantiene al día el software instalado y cómo se programa el trabajo que tiene que ocurrir sin que nadie lo dispare.",
+ "se_apoya_en": [
+  "14-02",
+  "07-18",
+  "13-14"
+ ],
+ "gancho": [
+  "Imaginá un depósito donde hay una sola llave y la tienen todos: el que descarga, el que controla, el chofer, el pibe de limpieza. Funciona hasta el día en que falta un pallet de mercadería. Nadie sabe quién entró, cuándo ni por qué, y la única «medida de seguridad» posible es cambiar la cerradura y entregar una llave nueva a todos. (Escena inventada, pero cualquiera que haya trabajado en una operación logística conoce a alguien que la vivió.)",
+  "Un servidor mal armado es ese depósito: una sola cuenta, `root`, que sirve para todo y que usan todas las personas y todos los programas. Hoy vas a ver cómo se reparte el acceso con llaves distintas y un registro de quién usó cuál, cómo se mantiene actualizado lo instalado sin quedarse atrás de las vulnerabilidades y cómo se deja trabajo agendado que corre solo, incluidas las tres trampas que arruinan la mayoría de las primeras tareas programadas."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Quién sos para el sistema: usuarios y grupos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[gestión de usuarios]] es el conjunto de cuentas que un sistema reconoce y de reglas sobre qué puede hacer cada una. Linux no piensa en nombres sino en números: cada cuenta tiene un **UID** (identificador de usuario) y cada grupo un **GID**. El nombre `deploy` es solo una etiqueta cómoda que el sistema traduce a, por ejemplo, 1000. Los permisos de cada archivo que viste en [@02-28] guardan números, y `ls -l` los convierte en nombres leyendo una lista.",
+    "Esa lista es `/etc/passwd`, un archivo de texto con una línea por cuenta y siete campos separados por dos puntos. Es un archivo vivo del sistema operativo, no un recuerdo del pasado: cada programa que necesita saber quién es el UID 33 lo lee. Mirá una línea real de esta VM, creada para la práctica:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Campo",
+    "Valor en la línea de ejemplo",
+    "Qué significa"
+   ],
+   "filas": [
+    [
+     "1. nombre",
+     "`deploy`",
+     "La etiqueta que se escribe al iniciar sesión."
+    ],
+    [
+     "2. contraseña",
+     "`x`",
+     "Marca histórica: «el hash no está acá, mirá en /etc/shadow»."
+    ],
+    [
+     "3. UID",
+     "`1000`",
+     "El número que de verdad usa el núcleo. El 0 es root."
+    ],
+    [
+     "4. GID",
+     "`1000`",
+     "El grupo principal."
+    ],
+    [
+     "5. comentario",
+     "`Despachos CI`",
+     "Texto libre: nombre completo o para qué sirve."
+    ],
+    [
+     "6. directorio personal",
+     "`/home/deploy`",
+     "Dónde cae la persona al entrar."
+    ],
+    [
+     "7. shell",
+     "`/bin/bash`",
+     "El programa que arranca al iniciar sesión."
+    ]
+   ],
+   "cap": "La línea completa es deploy:x:1000:1000:Despachos CI:/home/deploy:/bin/bash. Fuente del formato: página passwd(5), man7.org [#srv1403-man7-passwd]."
+  },
+  {
+   "t": "p",
+   "x": "El UID 0 es especial: **root** no es un nombre mágico sino «la cuenta con UID 0», y el núcleo le salta casi todas las verificaciones de permisos. Los números bajos (por debajo de 1000 en esta VM, según `UID_MIN 1000` en `/etc/login.defs`) se reservan por convención a **cuentas de sistema**: las que usan los programas, no las personas. Nginx, la base de datos o tu API corren como cuentas de ese tipo. Su campo de shell suele ser `/usr/sbin/nologin`, un programa que solo dice «esta cuenta no tiene sesión interactiva» y sale. Así, aunque alguien descubra cómo hablarle a la cuenta, no consigue una terminal."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "useradd --root ~/lab -m -s /bin/bash -c \"Despachos CI\" deploy",
+     "s": ""
+    },
+    {
+     "c": "useradd --root ~/lab --system -s /usr/sbin/nologin -d /var/lib/senda -c \"Servicio API\" senda-api",
+     "s": ""
+    },
+    {
+     "c": "tail -n 2 ~/lab/etc/passwd",
+     "s": "deploy:x:1000:1000:Despachos CI:/home/deploy:/bin/bash\nsenda-api:x:999:999:Servicio API:/var/lib/senda:/usr/sbin/nologin"
+    },
+    {
+     "c": "ls -ld ~/lab/home/deploy",
+     "s": "drwxr-x--- 2 ubuntu ubuntu 4096 Nov 16 02:30 /root/lab/home/deploy"
+    }
+   ],
+   "cap": "Corrido en esta VM con la opción --root, que apunta useradd a una copia mínima del sistema (4 cuentas) para no tocar el /etc real; las rutas están acortadas y se omitieron dos avisos de «shell inexistente», porque la copia no tiene /bin. Fijate en la última línea: la carpeta dice «ubuntu» porque en esta VM real el UID 1000 es esa cuenta, y useradd asignó el UID 1000 a deploy. El sistema guarda el número; el nombre depende de quién lo lea."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "La cuenta de `senda-api` del ejemplo tomó el UID 999 porque `--system` busca el primer número libre por debajo de 1000. No tiene contraseña, no tiene shell, y su carpeta personal es donde la API guarda sus cosas. Si esa API tiene una vulnerabilidad y alguien toma el control del proceso, lo que consigue es lo que esta cuenta puede hacer: leer y escribir su carpeta y poco más. Con root conseguiría el servidor entero.",
+   "titulo": "Una cuenta por servicio"
+  },
+  {
+   "t": "h",
+   "x": "Dónde se guardan las contraseñas, y qué no hace bloquearlas"
+  },
+  {
+   "t": "p",
+   "x": "Si `/etc/passwd` lo lee cualquier programa y cualquier usuario (en esta VM sus permisos son `644`, o sea lectura para todos), el hash de la contraseña no puede estar ahí. Por eso existe `/etc/shadow`, con permisos `640` y dueño `root:shadow`. Solo root y el grupo `shadow` lo leen. Cada línea tiene la forma `nombre:hash:ultimo-cambio:min:max:aviso:inactiva:expira`. El «último cambio» se cuenta en días desde el 1 de enero de 1970: en la línea de ejemplo vale 20773, que son unos 56,9 años, o sea noviembre de 2026 [#srv1403-man7-shadow]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "grep '^deploy' ~/lab/etc/shadow | cut -c1-60",
+     "s": "deploy:$6$practica$pNNszp9Znw64GvUE8xQNtdT9ZUBS8eLQH.Tsn/rkP"
+    },
+    {
+     "c": "passwd --root ~/lab -l deploy; grep '^deploy' ~/lab/etc/shadow | cut -c1-60",
+     "s": "deploy:!$6$practica$pNNszp9Znw64GvUE8xQNtdT9ZUBS8eLQH.Tsn/rk"
+    },
+    {
+     "c": "passwd --root ~/lab -S deploy",
+     "s": "deploy L 2026-11-16 0 99999 7 -1"
+    },
+    {
+     "c": "chage --root ~/lab -l deploy | head -3",
+     "s": "Last password change\t\t\t\t\t: Nov 16, 2026\nPassword expires\t\t\t\t\t: never\nPassword inactive\t\t\t\t\t: never"
+    }
+   ],
+   "cap": "La contraseña es «clave-de-practica-no-real», inventada para el ejemplo. El hash $6$practica$... está truncado a 60 caracteres. La L de la tercera línea significa «locked» (bloqueada)."
+  },
+  {
+   "t": "p",
+   "x": "El prefijo `$6$` indica el algoritmo: sha512crypt, una función que mezcla la contraseña con una **sal** (acá, el texto `practica`) y la pasa por miles de rondas de SHA-512, según la página crypt(5) [#srv1403-crypt5]. La sal hace que dos personas con la misma contraseña tengan hashes distintos, y que un atacante no pueda usar una tabla precalculada. Tampoco se puede «desencriptar» el hash: el sistema repite el cálculo con lo que escribís y compara el resultado. Otras versiones de Linux usan hoy el prefijo `$y$` (yescrypt) por defecto; lo que se usa lo define `ENCRYPT_METHOD` en `/etc/login.defs`, y en esta VM dice SHA512."
+  },
+  {
+   "t": "p",
+   "x": "Fijate lo que hizo `passwd -l`: agregó un `!` delante del hash. Con eso ninguna contraseña coincide, y la cuenta queda sin ingreso por clave. Pero hay una trampa que aparece en cada auditoría de servidores:"
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Según la documentación de `passwd`, bloquear la contraseña **no deshabilita la cuenta**: la persona todavía puede entrar con otro medio de autenticación, por ejemplo una clave SSH [#srv1403-passwd1]. Para cortar el acceso de verdad, se vence la cuenta (`usermod --expiredate 1`) y se borran sus claves autorizadas. Mañana, en [@14-04], vas a ver dónde viven esas claves.",
+   "titulo": "Bloquear no es desactivar"
+  },
+  {
+   "t": "pensa",
+   "x": "`/etc/passwd` tiene que ser legible por todos los programas porque `ls -l` y muchos otros lo consultan para traducir UID a nombre. ¿Qué problema tendría guardar ahí también el hash, y qué resuelve separarlo en `/etc/shadow`?",
+   "resp": "Cualquier usuario o programa comprometido podría leer todos los hashes y probar contraseñas por fuerza bruta sin conexión, a toda la velocidad de su hardware. Separar el hash deja `/etc/passwd` público para la traducción de nombres y limita los hashes a root y al grupo shadow."
+  },
+  {
+   "t": "h",
+   "x": "Mínimo privilegio y sudo"
+  },
+  {
+   "t": "p",
+   "x": "En 1975, Jerome Saltzer y Michael Schroeder publicaron un artículo clásico sobre cómo proteger información en un sistema compartido, con ocho principios de diseño. Uno es el de [[mínimo privilegio]]:"
+  },
+  {
+   "t": "cita",
+   "x": "Every program and every user of the system should operate using the least set of privileges necessary to complete the job.",
+   "autor": "Saltzer y Schroeder, 1975",
+   "fuente": "be1111-saltzer"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La frase que sigue en su texto da la razón: el principio limita el daño que puede producir un accidente o un error. En un servidor, la forma práctica es esta. Las personas no trabajan como root: trabajan con su cuenta, y cuando necesitan un poder puntual lo piden con **sudo**. Los programas tampoco corren como root: corren con su cuenta de servicio. Así un error de tipeo («borré la carpeta equivocada») o un programa vulnerado se queda dentro de lo que esa cuenta puede tocar.",
+    "`sudo` es un programa instalado con el bit *setuid* (en esta VM, `-rwsr-xr-x`, la `s` del medio): cuando alguien lo ejecuta, corre con los poderes de su dueño, que es root. Lo primero que hace es consultar un archivo de reglas, `/etc/sudoers`, para decidir si esa persona puede ejecutar ese comando en nombre de ese otro usuario. Si lo permite, lo ejecuta y deja un registro. Si no, no pasa nada más que un rechazo, también registrado [#sudo-ws-manual]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Una regla de sudoers tiene esta forma: `quien  donde=(como_quien)  etiquetas:  comandos`. Ejemplo para la cuenta de despliegue:"
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "deploy ALL=(root) NOPASSWD: /lab/reiniciar-api",
+   "cap": "Lectura: la cuenta deploy, en cualquier máquina (ALL), puede ejecutar como root, sin que le pida contraseña, exactamente el programa /lab/reiniciar-api y nada más. La ruta de /lab está acortada."
+  },
+  {
+   "t": "p",
+   "x": "Probé esa regla en esta VM sin tocar el `/etc` real: dentro de un espacio de nombres de montaje (lo que viste en [@02-24]), puse la copia mínima de `passwd` y el archivo de reglas encima de los reales, y ejecuté sudo como `deploy`. Esto es lo que pasó:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "visudo -c -f ~/lab/sudoers",
+     "s": "/root/lab/sudoers: parsed OK"
+    },
+    {
+     "c": "sudo -l -U deploy",
+     "s": "User deploy may run the following commands on vm:\n    (root) NOPASSWD:\n        /lab/reiniciar-api"
+    },
+    {
+     "c": "# como deploy:  sudo -n /lab/reiniciar-api",
+     "s": "reiniciando api; corro como: root (uid 0); invocado por SUDO_USER=deploy"
+    },
+    {
+     "c": "# como deploy:  sudo -n cat /etc/shadow",
+     "s": "sudo: a password is required"
+    },
+    {
+     "c": "# como deploy:  sudo -n bash -c id",
+     "s": "sudo: a password is required"
+    },
+    {
+     "c": "cat ~/lab/sudo.log",
+     "s": "Nov 16 02:30:20 : deploy :\n    PWD=/root/lab\n    ; USER=root ;\n    COMMAND=/lab/reiniciar-api"
+    }
+   ],
+   "cap": "Corrido en esta VM, dentro de un unshare -m con archivos de práctica montados encima. La opción -n de sudo le prohíbe preguntar la contraseña: «a password is required» significa que la regla no cubre ese comando y sudo habría pedido autenticación. Rutas acortadas. El log lo escribió Defaults logfile, que apunté a un archivo propio."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en tres detalles. Primero, `visudo -c` revisa la sintaxis **antes** de que el archivo sea el real: un error de sintaxis en `/etc/sudoers` puede dejarte sin sudo en un servidor sin otra forma de entrar como root, por eso nunca se lo edita con un editor común (para eso existe `visudo`). Segundo, el script corrió como root pero la variable `SUDO_USER` conserva quién lo pidió, y el log registra el comando exacto: eso es la «trazabilidad del retiro» que no tenía el depósito de la llave única. Tercero, lo que no está en la regla se rechaza: `cat /etc/shadow` y una shell root fallan."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "El manual de sudoers advierte que, una vez que sudo ejecuta un programa, ese programa puede hacer lo que quiera, incluidos otros programas. Los editores, los paginadores (`less`), los clientes de correo y las shells permiten «escapes» a una shell. Por eso `deploy ALL=(root) NOPASSWD: /usr/bin/vim` no es una regla acotada: es root completo con un paso más [#sudo-ws-sudoers-man]. Lo mismo vale para un comodín demasiado amplio. La regla práctica: permitir scripts propios, chicos y de ruta absoluta, no programas generales.",
+   "titulo": "El comando permitido también puede abrir puertas"
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "En esta misma VM, `/etc/sudoers` tiene una línea `ALL=(ALL) NOPASSWD: ALL` para la cuenta del entorno de trabajo. Es la regla opuesta al mínimo privilegio, y acá es razonable: la VM es descartable y no guarda nada que no pueda recrearse. En un servidor de producción, esa misma línea en una cuenta compartida es el depósito de la llave única.",
+   "titulo": "Un caso real, con su contexto"
+  },
+  {
+   "t": "ejercicio",
+   "x": "El grupo de soporte necesita leer las últimas 50 líneas del log de errores de nginx (`/var/log/nginx/error.log`), con la cuenta `soporte`, sin contraseña y sin que pueda leer ningún otro archivo del sistema. Escribí la regla de sudoers.",
+   "pista": "Poné el comando completo con su ruta absoluta y sus argumentos exactos, tal como lo escribirías en la terminal. sudoers compara también los argumentos.",
+   "solucion": "`soporte ALL=(root) NOPASSWD: /usr/bin/tail -n 50 /var/log/nginx/error.log`. La probé en esta VM: `visudo -c` la dio por válida; como `soporte`, `sudo -n /usr/bin/tail -n 50 /var/log/nginx/error.log` salió con código 0, mientras que `sudo -n /usr/bin/tail -n 50 /etc/shadow` y hasta `sudo -n /usr/bin/tail -n 5 /var/log/nginx/error.log` (otro argumento) fueron rechazados. Si escribís `tail` sin ruta o te olvidás del `:` después de NOPASSWD, `visudo -c` marca «expected a fully-qualified path name» o «syntax error»."
+  },
+  {
+   "t": "h",
+   "x": "Paquetes: de dónde viene lo que instalás y por qué hay que actualizarlo"
+  },
+  {
+   "t": "p",
+   "x": "En Ubuntu y Debian, el software se instala con **apt** desde **repositorios**: servidores que publican paquetes firmados. Cada repositorio se declara en una fuente, y cada fuente nombra una o más **suites**. En esta VM, `/etc/apt/sources.list.d/ubuntu.sources` declara cuatro para Ubuntu 24.04, cuyo nombre en clave es *noble*:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Suite",
+    "Qué contiene",
+    "¿Se actualiza solo?"
+   ],
+   "filas": [
+    [
+     "`noble`",
+     "La versión original del lanzamiento de abril de 2024.",
+     "Casi nunca cambia."
+    ],
+    [
+     "`noble-security`",
+     "Correcciones de vulnerabilidades, publicadas por Canonical en su servidor de seguridad.",
+     "Sí, es lo que unattended-upgrades instala por defecto."
+    ],
+    [
+     "`noble-updates`",
+     "Correcciones de errores que no son de seguridad.",
+     "No por defecto (en el archivo viene comentada)."
+    ],
+    [
+     "`noble-backports`",
+     "Versiones más nuevas portadas desde releases posteriores.",
+     "No: apt las ignora salvo que las pidas."
+    ]
+   ],
+   "cap": "Elaborado a partir de /etc/apt/sources.list.d/ubuntu.sources de esta VM y del archivo 50unattended-upgrades que trae el paquete (versión 2.9.1+nmu4ubuntu1)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los paquetes vienen firmados, y la clave pública que verifica la firma está declarada en la propia fuente (`Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg`). apt no instala nada cuyo índice no coincida con esa firma: es la defensa contra alguien que se haga pasar por el espejo de descargas [#debian-apt-secure].",
+    "Ahora lo concreto. Una [[actualización de seguridad]] es un paquete nuevo que corrige una vulnerabilidad conocida de uno ya instalado. Preguntémosle a esta VM cuántos paquetes tiene pendientes, con el índice que apt bajó el 13 de noviembre de 2026:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "apt-get -s upgrade | grep -E 'upgraded,'",
+     "s": "30 upgraded, 0 newly installed, 0 to remove and 0 not upgraded."
+    },
+    {
+     "c": "apt-get -s upgrade | grep -c 'noble-security'",
+     "s": "25"
+    },
+    {
+     "c": "apt-get -s upgrade | grep -v 'noble-security' | cut -c1-70",
+     "s": "Inst docker-ce-cli [5:29.9.2-1~ubuntu.24.04~noble] (5:29.9.3-1~ubuntu...\nInst containerd.io [2.4.2-3~ubuntu.24.04~noble] (2.4.2-4~ubuntu...\nInst docker-ce [5:29.9.2-1~ubuntu.24.04~noble] (5:29.9.3-1~ubuntu...\nInst docker-buildx-plugin [0.38.1-1~ubuntu.24.04~noble] (0.39.0-1~ubuntu...\nInst docker-compose-plugin [5.6.1-1~ubuntu.24.04~noble] (5.7.1-1~ubuntu...\n"
+    },
+    {
+     "c": "apt-get changelog perl | head -8",
+     "s": "perl (5.38.2-3.2ubuntu0.7) noble-security; urgency=medium\n\n  * SECURITY UPDATE: Infinite loop leading to denial of service in podlators\n    - debian/patches/CVE-2026-82560.patch: Handle pathological margins in\n      Pod::Text in cpan/podlators/lib/Pod/Text.pm,"
+    }
+   ],
+   "cap": "Corrido en esta VM el 16-11-2026. La opción -s de apt-get simula: no instala nada. Los cinco paquetes sin «noble-security» vienen del repositorio de Docker, que es de un tercero. El identificador CVE es el que imprime el changelog del paquete; no lo verifiqué en otra fuente."
+  },
+  {
+   "t": "p",
+   "x": "Salen dos cosas. Primero, de 30 pendientes, 25 aparecen publicados en la suite de seguridad: acá no hay que adivinar, el changelog de `perl` dice «SECURITY UPDATE» y el parche es de un bucle infinito que permite una denegación de servicio. Segundo, los otros cinco son de Docker, un repositorio **de terceros** que alguien agregó a mano. Esa asimetría importa para lo que sigue: las actualizaciones automáticas siguen a los repositorios que están en una lista, y no a todos."
+  },
+  {
+   "t": "h",
+   "x": "Actualizaciones automáticas: unattended-upgrades"
+  },
+  {
+   "t": "p",
+   "x": "En un servidor, nadie va a entrar todos los días a escribir `apt upgrade`. Ubuntu resuelve eso con un paquete llamado `unattended-upgrades`, que según la documentación oficial viene instalado en Ubuntu Server y, apenas arranca, instala las actualizaciones de seguridad una vez por día [#srv1403-ubuntu-auto]. Esta VM está «minimizada» y no lo trae, así que bajé el paquete (sin instalarlo) y leí sus dos archivos de configuración de fábrica:"
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "// 20auto-upgrades\nAPT::Periodic::Update-Package-Lists \"1\";\nAPT::Periodic::Unattended-Upgrade \"1\";\n\n// 50unattended-upgrades (sin comentarios)\nUnattended-Upgrade::Allowed-Origins {\n\t\"${distro_id}:${distro_codename}\";\n\t\"${distro_id}:${distro_codename}-security\";\n\t\"${distro_id}ESMApps:${distro_codename}-apps-security\";\n\t\"${distro_id}ESM:${distro_codename}-infra-security\";\n};",
+   "cap": "Extraído del paquete unattended-upgrades 2.9.1+nmu4ubuntu1 de Ubuntu 24.04 (no instalado en esta VM). La primera mitad dice «actualizá la lista y aplicá todos los días». La segunda, de dónde se puede aplicar: la versión original, la suite de seguridad y las suites de soporte extendido (ESM)."
+  },
+  {
+   "t": "p",
+   "x": "Mirá la lista de orígenes: ni `noble-updates` ni el repositorio de Docker están. Es una decisión de diseño conservadora. Lo que arregla vulnerabilidades se instala solo, porque el riesgo de esperar es mayor; lo demás, que puede cambiar el comportamiento de un programa, requiere una persona. Y por eso la nota de la documentación oficial: sumar un repositorio nuevo **no** lo incorpora a las actualizaciones automáticas, hay que agregarlo a esa lista [#srv1403-ubuntu-auto]. Los cinco paquetes de Docker de arriba se van a quedar pendientes hasta que alguien los actualice."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Actualizar un paquete no actualiza los programas que ya están corriendo. Un servicio arrancado ayer sigue usando en memoria la copia vieja de una biblioteca hasta que se reinicia, y una corrección del núcleo no vale hasta que la máquina reinicie. unattended-upgrades tiene la opción `Automatic-Reboot` (viene apagada, es decir, `false`) justamente por eso: reiniciar sin avisar una máquina que atiende gente es un incidente. Una práctica habitual es dejarla apagada, mirar `/var/run/reboot-required` y programar el reinicio en una ventana acordada.",
+   "titulo": "Parcheado en disco no es parcheado en memoria"
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Ubuntu 24.04 LTS recibe soporte estándar hasta mayo de 2029, según la página de ciclo de lanzamientos de Ubuntu consultada el 16-11-2026; después, la suscripción de soporte extendido de Canonical (ESM) la extiende más años [#lnx-ubuntu-ciclo]. Los nombres de las suites, las versiones y los archivos de configuración de este día corresponden a Ubuntu 24.04 y a apt tal como están hoy; el principio (separar lo urgente de lo opcional, y firmar lo que se instala) no cambia entre versiones."
+  },
+  {
+   "t": "pensa",
+   "x": "Un equipo agrega el repositorio oficial de PostgreSQL a sus servidores Ubuntu y asume que unattended-upgrades parcheará la base. Pasan seis meses y la base sigue en una versión con una vulnerabilidad corregida. ¿Qué pasó y cómo lo arreglarías?",
+   "resp": "unattended-upgrades solo instala desde los orígenes de su lista Allowed-Origins; un repositorio agregado a mano no está ahí. Hay que sumar su origen a Allowed-Origins (o a Origins-Pattern) en 50unattended-upgrades, o actualizar esa base de forma manual y programada."
+  },
+  {
+   "t": "h",
+   "x": "Cron: la agenda del servidor"
+  },
+  {
+   "t": "p",
+   "x": "En [@07-18] viste la idea de una tarea programada y sus riesgos al correr en varias réplicas. Hoy mirás la herramienta más vieja y más usada para eso, cron: un programa que se queda despierto, mira el reloj cada minuto y, cuando la hora coincide con alguna entrada de una agenda, ejecuta el comando asociado. Esa agenda es un [[crontab]] (de *cron table*, «tabla de cron»), un archivo con una tarea por línea. Cada línea tiene cinco campos de tiempo y después el comando:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Campo",
+    "Rango",
+    "Ejemplo `17 7 * * 1`"
+   ],
+   "filas": [
+    [
+     "minuto",
+     "0 a 59",
+     "17"
+    ],
+    [
+     "hora",
+     "0 a 23",
+     "7"
+    ],
+    [
+     "día del mes",
+     "1 a 31",
+     "* (todos)"
+    ],
+    [
+     "mes",
+     "1 a 12",
+     "* (todos)"
+    ],
+    [
+     "día de la semana",
+     "0 a 7 (0 y 7 son domingo)",
+     "1 (lunes)"
+    ]
+   ],
+   "cap": "Un * significa «cualquiera», una coma separa valores (1,15), un guion un rango (1-5) y una barra un paso (*/15, cada 15). Fuente: crontab(5) [#back18-man-crontab]. El ejemplo se lee «lunes a las 7:17»."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Existen tres lugares donde se escribe un crontab. Cada usuario tiene el suyo, que se edita con `crontab -e` y vive en `/var/spool/cron/crontabs/<usuario>`; el sistema tiene `/etc/crontab` y los archivos de `/etc/cron.d/`, donde la línea lleva un sexto campo con el usuario que ejecuta; y están las carpetas `/etc/cron.daily`, `/etc/cron.weekly` y similares, donde se deja un script suelto y el sistema lo ejecuta con esa frecuencia. En esta VM ya hay uno de cada tipo: `/etc/cron.d/e2scrub_all`, y `/etc/cron.daily/man-db`, que reconstruye el índice de manuales.",
+    "Senda usa esta misma sintaxis en dos lugares. El flujo `limpieza.yml` de GitHub Actions dice `cron: \"17 7 * * 1\"` y borra, cada lunes, los PDF de sermones que quedaron sin trivia. Y la base de datos, con la extensión pg_cron, tiene varias tareas con la misma notación, por ejemplo `*/15 * * * *` (cada 15 minutos) para cerrar duelos vencidos. Es el mismo reloj en tres sistemas distintos, y por eso aprenderlo vale más que aprender una herramienta."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Dos agendas en Senda, un mismo formato",
+   "x": [
+    "**Implementado en el código** (commit 25e08fa, 2026-11-09; el código cambia, la forma permanece): `limpieza.yml` se dispara con `schedule` el lunes a las 07:17 **UTC**. El comentario del archivo dice «04:17 en Argentina», que es la misma hora porque Argentina está en UTC−3 y no cambia de horario. Corre con `permissions: contents: read`, es decir, con el permiso mínimo.",
+    "**Implementado**: en `supabase/migrations/` hay llamadas a `cron.schedule` que programan tareas dentro de Postgres, por ejemplo `'17 7 * * *'` para limpiar datos viejos cada día. Tres de las migraciones las usan.",
+    "**No existe**: un servidor propio con usuarios Linux, `sudo` o `apt` que Senda administre. Los «servidores» donde corre su fábrica son máquinas de GitHub que se crean y se destruyen en cada corrida, y la base está en Supabase. Lo de hoy aplica a Senda solo de forma indirecta: la documentación de GitHub dice que esas máquinas usan `sudo` sin contraseña, y varios flujos de Senda lo usan para limpiar disco o instalar paquetes."
+   ],
+   "archivos": [
+    ".github/workflows/limpieza.yml",
+    ".github/workflows/apk.yml",
+    ".github/workflows/humo.yml",
+    "supabase/migrations/20261109000000_limpieza.sql",
+    "scripts/limpiar_sermones.sh"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "De los diez flujos de Senda, siete declaran un bloque `permissions` (cuatro con `contents: write` y tres con `contents: read`); `humo.yml`, `supabase.yml` y `supabase-despertar.yml` no lo declaran, así que heredan el permiso por defecto que tenga configurado el repositorio, un dato que no está en el código. Es el mismo principio de mínimo privilegio, aplicado al token que GitHub le da a cada corrida. Lo vas a ver completo en [@14-15]."
+  },
+  {
+   "t": "h",
+   "x": "Tres trampas de cron, probadas"
+  },
+  {
+   "t": "p",
+   "x": "Para ver el cron de verdad, instalé el paquete `cron` de Ubuntu 24.04 en una carpeta propia (sin tocar el sistema) y lo levanté dentro de un `unshare` con espacios de nombres de montaje y de procesos, con la agenda en un directorio temporal. Así corre un cron real, de PID 12, que no ve ni toca nada de la máquina. Cargué cuatro tareas, cada una escribe su resultado en un archivo. Esperé un minuto:"
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "* * * * * echo \"PATH=$PATH HOME=$HOME SHELL=$SHELL\" > entorno.txt\n* * * * * date +%F > mal.txt\n* * * * * date +\\%F > bien.txt\n* * * * * command -v bq > bq-en-cron.txt || echo \"bq no esta en el PATH de cron\" > bq-en-cron.txt",
+   "cap": "El crontab de la prueba (las rutas de los archivos de salida están recortadas)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat entorno.txt",
+     "s": "PATH=/usr/bin:/bin HOME=/root SHELL=/bin/sh"
+    },
+    {
+     "c": "cat bien.txt",
+     "s": "2026-11-16"
+    },
+    {
+     "c": "ls mal.txt",
+     "s": "ls: cannot access 'mal.txt': No such file or directory"
+    },
+    {
+     "c": "cat bq-en-cron.txt",
+     "s": "bq no esta en el PATH de cron"
+    },
+    {
+     "c": "which bq   # en una terminal normal",
+     "s": "/usr/local/bin/bq"
+    }
+   ],
+   "cap": "Resultados de la prueba, en esta VM (cron 3.0pl1-184ubuntu2). Una máquina que reinicia o un cron que no corre tampoco deja error visible: lo único que prueba que corrió es el archivo que escribió."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Entorno mínimo.** Cron arranca cada tarea con `PATH=/usr/bin:/bin` y `SHELL=/bin/sh`, sin leer tu `.bashrc`. El comando `bq` existe en tu terminal (`/usr/local/bin/bq`) y no en cron. La solución es escribir rutas absolutas o definir `PATH=` al inicio del crontab. Además `/bin/sh` en Ubuntu no es bash, así que algunos atajos de bash tampoco funcionan.",
+    "**El signo %.** En un crontab, un `%` sin escapar se convierte en un salto de línea, y todo lo que sigue se manda al comando como entrada estándar, no como parte del comando [#back18-man-crontab]. Por eso `date +%F > mal.txt` corrió `date +` (que imprime una línea vacía) y la redirección nunca llegó a ejecutarse. Se escribe `\\%`. Es la causa más común de «mi tarea corre y no hace nada».",
+    "**Si no hay quien lea la salida, se pierde.** Cron envía por correo la salida de cada tarea al dueño del crontab, o al destinatario de `MAILTO` [#back18-man-cron]. En esta VM no hay servidor de correo, y en la mayoría de los servidores modernos tampoco. La práctica es redirigir a un archivo (`>> /var/log/mi-tarea.log 2>&1`) o avisar a un sistema de monitoreo cuando falla."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Hay una cuarta que no probé, pero está en el manual: si restringís a la vez el día del mes y el día de la semana (ninguno es `*`), la tarea corre cuando **cualquiera** de los dos coincide, no cuando coinciden ambos. Por eso `0 4 8-14 * 6` no significa «el segundo sábado a las 4» sino «del 8 al 14, o todos los sábados» [#back18-man-crontab].",
+   "titulo": "El «o» escondido"
+  },
+  {
+   "t": "p",
+   "x": "Cron lee la zona horaria de `/etc/localtime` [#back18-man-cron]. En esta VM es UTC, como en casi todos los servidores en la nube, y por eso Senda anota en el comentario la hora argentina al lado de la UTC. Si querés que algo corra a las 8 de la mañana en Buenos Aires (UTC−3), en un servidor en UTC se escribe `0 11 * * 1-5`. Un detalle: GitHub Actions hoy permite agregar `timezone:` a un `schedule` con un nombre IANA como `America/Buenos_Aires`, según su documentación, y entonces la hora se escribe en la zona local [#back18-gha-events]. Y, otra advertencia de esa documentación: el `schedule` puede retrasarse en las horas de mayor carga, entre ellas el comienzo de cada hora, por lo que conviene elegir minutos «raros» como el 17 de Senda."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Escribí la línea de crontab de un servidor en UTC para que corra `/opt/despacho/cierre.sh` de lunes a viernes a las 6:30 de la mañana de Buenos Aires, y guardá su salida y sus errores en un log. Después decí a qué hora UTC y qué días corre.",
+   "pista": "Buenos Aires está tres horas detrás de UTC. Usá una ruta absoluta y la redirección `>> archivo 2>&1`.",
+   "solucion": "`30 9 * * 1-5 /opt/despacho/cierre.sh >> /var/log/cierre.log 2>&1`. Las 6:30 en Buenos Aires son las 9:30 UTC; el 1-5 son lunes a viernes. Verificalo: `systemd-analyze calendar 'Mon..Fri *-*-* 09:30'` imprime la próxima ejecución en UTC (usa la sintaxis de systemd, no la de cron, pero el calendario es el mismo)."
+  },
+  {
+   "t": "h",
+   "x": "El reemplazo moderno: temporizadores de systemd"
+  },
+  {
+   "t": "p",
+   "x": "En la mayoría de las distribuciones actuales, el trabajo programado puede escribirse también como un **temporizador de systemd** (*systemd timer*): dos archivos, uno `.service` que dice qué ejecutar y uno `.timer` que dice cuándo. Esta VM no corre systemd como proceso 1, así que no puedo mostrarte un temporizador vivo. Sí tiene el programa `systemd-analyze` (versión 255), que entiende el calendario y sirve para comprobar una expresión. Estos archivos son un ejemplo escrito a partir de la documentación oficial, no ejecutado:"
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "# /etc/systemd/system/limpieza.timer  (según la documentación de systemd.timer)\n[Unit]\nDescription=Limpieza semanal\n\n[Timer]\nOnCalendar=Mon *-*-* 07:17\nPersistent=true\n\n[Install]\nWantedBy=timers.target",
+   "cap": "Ejemplo escrito a mano, no ejecutado: esta VM no tiene systemd como PID 1. Se activaría con systemctl enable --now limpieza.timer y llama a un limpieza.service con el mismo nombre."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "systemd-analyze calendar 'Mon *-*-* 07:17'",
+     "s": "  Original form: Mon *-*-* 07:17\nNormalized form: Mon *-*-* 07:17:00\n    Next elapse: Mon 2026-11-16 07:17:00 UTC\n       From now: 4h 46min left"
+    }
+   ],
+   "cap": "Corrido en esta VM: el programa interpreta la expresión sin necesitar el servicio systemd."
+  },
+  {
+   "t": "p",
+   "x": "La gran ventaja sobre cron aparece en `Persistent=true`: según la documentación de systemd, el sistema guarda en disco cuándo se disparó por última vez la tarea, y si la máquina estuvo apagada cuando tocaba, la dispara apenas arranca [#systemd-man-timer]. Cron no hace eso: si el servidor estaba apagado a las 7:17, esa ejecución se perdió. Además, los logs de un temporizador quedan en el journal que viste en [@14-02] (con `journalctl -u limpieza.service`), no en un correo que nadie recibe. La contra es la verbosidad: dos archivos en lugar de una línea. Una regla práctica para elegir: una tarea en un servidor chico con una línea de cron anda y se entiende rápido; si el trabajo importa y tiene que quedar registrado y recuperarse de apagados, conviene el temporizador."
+  }
+ ],
+ "recap": [
+  "Linux identifica cuentas por número (UID). `/etc/passwd` es público y traduce números a nombres; los hashes de contraseña están aparte, en `/etc/shadow`, legible solo por root y el grupo shadow.",
+  "Cada programa merece su propia cuenta de sistema, sin contraseña ni shell (`nologin`): si lo vulneran, el daño queda en lo que esa cuenta puede tocar. Bloquear la contraseña con `passwd -l` no deshabilita la cuenta: una clave SSH sigue sirviendo.",
+  "`sudo` aplica el mínimo privilegio: la regla nombra quién, en qué máquina, como qué usuario y qué comando exacto. Se valida con `visudo -c`, deja registro, y es tan segura como los comandos que permite (un editor o una shell la rompen).",
+  "Las actualizaciones de seguridad viajan por la suite `noble-security`. `unattended-upgrades` instala por defecto solo desde una lista corta de orígenes; los repositorios de terceros, como el de Docker, quedan afuera hasta que alguien los agregue, y un paquete actualizado no actualiza el proceso ya corriendo ni el núcleo hasta el reinicio.",
+  "Un crontab tiene cinco campos de tiempo más el comando. Entorno mínimo (`PATH=/usr/bin:/bin`), `%` convertido en salto de línea y salida perdida si no hay correo son las trampas más comunes; la zona horaria es la del sistema.",
+  "Un temporizador de systemd con `Persistent=true` recupera lo que se perdió con la máquina apagada y deja logs en el journal. Cron, GitHub Actions y pg_cron comparten la misma sintaxis de cinco campos."
+ ],
+ "repaso": [
+  {
+   "p": "Una cuenta de servicio tiene el shell `/usr/sbin/nologin` y ninguna contraseña. Un atacante consigue ejecutar código dentro del programa que corre con esa cuenta. ¿Qué es lo más probable que pueda hacer?",
+   "o": [
+    "Leer y escribir lo que esa cuenta puede tocar, pero no abrir una terminal interactiva",
+    "Obtener una terminal completa de root, porque el programa ya está en ejecución",
+    "Nada en absoluto, porque la cuenta no tiene shell y entonces el proceso no puede actuar",
+    "Leer `/etc/shadow` y copiar los hashes, porque el proceso corre con un UID"
+   ],
+   "c": 0,
+   "e": "El shell `nologin` impide iniciar sesión interactiva, pero el proceso ya existe y hace lo que su cuenta permite. No se vuelve root (el UID no cambia) ni está inmovilizado, y `/etc/shadow` es `640 root:shadow`, así que una cuenta cualquiera no lo lee."
+  },
+  {
+   "p": "Ejecutaste `passwd -l maria` para cortar el acceso de una persona que se fue de la empresa. Maria tiene una clave SSH en `authorized_keys`. ¿Qué pasa?",
+   "o": [
+    "Puede seguir entrando con la clave SSH, porque bloquear la contraseña no deshabilita la cuenta",
+    "No puede entrar por ningún medio, porque `-l` bloquea la cuenta completa",
+    "Puede entrar solo si adivina la contraseña, porque la clave SSH se anula con `-l`",
+    "Puede entrar una vez más con la clave y después la cuenta se bloquea sola"
+   ],
+   "c": 0,
+   "e": "`passwd -l` agrega un `!` al hash y por eso ninguna contraseña coincide, pero según la documentación no deshabilita la cuenta: otras formas de autenticación, como una clave SSH, siguen funcionando. Hay que vencer la cuenta y quitar sus claves."
+  },
+  {
+   "p": "Querés que el usuario `ci` pueda reiniciar solo el servicio de la API. Tu compañero propone `ci ALL=(root) NOPASSWD: /usr/bin/vim`, «para editar la configuración y reiniciar». ¿Cuál es el problema principal?",
+   "o": [
+    "Desde vim se abre una shell, así que la regla equivale a darle root completo",
+    "vim no puede ejecutarse con sudo porque es un programa interactivo",
+    "La regla es inválida: sudoers rechaza rutas absolutas en el campo de comandos",
+    "Solo funciona con contraseña, porque los editores no aceptan NOPASSWD"
+   ],
+   "c": 0,
+   "e": "Los editores permiten escapes a una shell, y esa shell hereda root. Es el ejemplo que da el manual de sudoers. La regla es válida y vim corre con sudo sin problema; el defecto es de diseño, no de sintaxis."
+  },
+  {
+   "p": "Un servidor Ubuntu tiene `unattended-upgrades` con la configuración de fábrica. Se agregó a mano el repositorio de un proveedor de base de datos y publicó una corrección de seguridad. ¿Qué ocurre con esa corrección?",
+   "o": [
+    "No se instala sola: ese origen no está en `Allowed-Origins` y hay que agregarlo",
+    "Se instala sola esa misma noche, porque es una corrección de seguridad",
+    "Se instala en cuanto el repositorio pasa de `noble-updates` a `noble-security`",
+    "Se instala solo si el servidor tiene `Automatic-Reboot` activado"
+   ],
+   "c": 0,
+   "e": "La herramienta mira únicamente los orígenes de su lista, y un repositorio de terceros no está en ella por más que la corrección sea de seguridad. Su categoría no la decide la herramienta; el reinicio automático es una opción independiente."
+  },
+  {
+   "p": "Escribiste `0 3 * * * tar czf /backup/$(date +%F).tgz /datos` en un crontab y los backups no aparecen. El comando anda bien en tu terminal. ¿Cuál es la causa más probable?",
+   "o": [
+    "El `%` sin escapar se convierte en salto de línea y corta el comando en dos",
+    "`tar` no está disponible en el PATH reducido de cron en ninguna distribución",
+    "El campo de la hora vale 3 y cron lo interpreta como 3 de la tarde",
+    "Cron no admite sustitución de comandos con `$()` ni en un crontab de usuario"
+   ],
+   "c": 0,
+   "e": "El `%` en `date +%F` se vuelve un salto de línea y cron ejecuta solo `tar czf /backup/$(date +`, que falla. Se arregla con `\\%`. `tar` está en `/usr/bin`; la hora 3 es de madrugada; y `$()` lo resuelve la shell sin problema."
+  },
+  {
+   "p": "Querés ejecutar una tarea de lunes a viernes a las 8:00 de Buenos Aires (UTC−3) en un servidor que está en UTC, con cron clásico. ¿Qué línea elegís?",
+   "o": [
+    "`0 11 * * 1-5 /ruta/tarea.sh`",
+    "`0 8 * * 1-5 /ruta/tarea.sh`",
+    "`0 5 * * 1-5 /ruta/tarea.sh`",
+    "`0 11 1-5 * * /ruta/tarea.sh`"
+   ],
+   "c": 0,
+   "e": "Las 8:00 en UTC−3 son las 11:00 UTC y cron usa la hora del sistema. La segunda opción corre a las 5 de Buenos Aires, la tercera resta en lugar de sumar y la cuarta pone 1-5 en el día del mes en vez del de la semana."
+  },
+  {
+   "p": "Un servidor chico estuvo apagado el lunes a las 7:17, que era la hora de una limpieza semanal. ¿Qué diferencia hay al encenderse entre cron y un temporizador de systemd con `Persistent=true`?",
+   "o": [
+    "Cron no la recupera; el temporizador la dispara al arrancar",
+    "Cron la dispara al arrancar; el temporizador no la recupera",
+    "Ninguna: ambos esperan al próximo lunes a las 7:17",
+    "Ambos la recuperan, porque guardan la hora de la última ejecución"
+   ],
+   "c": 0,
+   "e": "Cron mira el reloj y solo ejecuta lo que coincide con la hora actual; una ejecución perdida no se recupera. Con `Persistent=true`, systemd guarda cuándo se disparó la última vez y compensa la que se perdió con la máquina apagada."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística cómo darías acceso al sistema de despachos de un depósito a cuatro personas distintas (el que carga, la que controla, el administrador y el programa de la balanza) siguiendo el mínimo privilegio. Usá el ejemplo de la llave maestra que viste hoy, y decí dónde falla la analogía: en un servidor, además, quedan registros de quién usó el permiso.",
+ "para_profundizar": [
+  {
+   "fuente": "be1111-saltzer",
+   "nota": "El artículo original de Saltzer y Schroeder (1975) con los ocho principios de diseño; leé la sección de principios para ver cómo el mínimo privilegio se combina con los otros siete."
+  },
+  {
+   "fuente": "sudo-ws-sudoers-man",
+   "nota": "El manual oficial de sudoers: los apartados «Preventing shell escapes» y los ejemplos de reglas sirven para afinar lo que viste en el ejercicio."
+  },
+  {
+   "fuente": "srv1403-ubuntu-auto",
+   "nota": "La guía oficial de Ubuntu Server sobre actualizaciones automáticas: cómo cambiar la frecuencia, qué orígenes se usan y cómo configurar el reinicio automático."
+  },
+  {
+   "fuente": "back18-man-crontab",
+   "nota": "La página crontab(5): todas las variables (`MAILTO`, `PATH`, `SHELL`), los atajos como `@daily` y la regla del «o» entre día del mes y día de la semana."
+  }
+ ],
+ "videos": [
+  {
+   "q": "cron crontab explicado desde cero trampas PATH porcentaje",
+   "por_que": "Para ver cómo se edita un crontab y se prueba una tarea mientras se espera el minuto siguiente, algo que aquí solo pudiste leer."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "gestión de usuarios",
+   "d": "Conjunto de cuentas que un sistema reconoce (identificadas por un UID) y de reglas sobre qué puede hacer cada una. En Linux se guardan en /etc/passwd, /etc/shadow y /etc/group."
+  },
+  {
+   "t": "actualización de seguridad",
+   "d": "Paquete nuevo que corrige una vulnerabilidad conocida de un programa ya instalado. En Ubuntu se publican en la suite security y se aplican automáticamente con unattended-upgrades."
+  },
+  {
+   "t": "crontab",
+   "d": "Tabla de tareas programadas que lee cron: una por línea, con cinco campos de tiempo (minuto, hora, día del mes, mes, día de la semana) y después el comando a ejecutar."
+  },
+  {
+   "t": "sudo",
+   "d": "Programa que permite a un usuario ejecutar un comando como otro usuario, normalmente root, según reglas escritas en /etc/sudoers, y deja registro de cada uso."
+  },
+  {
+   "t": "cuenta de servicio",
+   "d": "Cuenta de usuario creada para que corra un programa, no una persona: sin contraseña, sin shell interactivo y con acceso solo a lo que ese programa necesita."
+  },
+  {
+   "t": "unattended-upgrades",
+   "d": "Paquete de Ubuntu y Debian que instala solo las actualizaciones de seguridad, una vez por día, desde una lista configurable de orígenes."
+  }
+ ],
+ "siguiente": "el acceso remoto a un servidor: cómo funciona SSH por dentro, qué es un par de claves, cómo un túnel y un bastión permiten llegar a lo que no está expuesto, y cómo se endurece el servidor.",
+ "fuentes_nuevas": [
+  {
+   "id": "srv1403-man7-passwd",
+   "t": "passwd(5): the password file",
+   "a": "man7.org (Linux man-pages project)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man5/passwd.5.html"
+  },
+  {
+   "id": "srv1403-man7-shadow",
+   "t": "shadow(5): shadowed password file",
+   "a": "man7.org (Linux man-pages project)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man5/shadow.5.html"
+  },
+  {
+   "id": "srv1403-crypt5",
+   "t": "crypt(5): password hashing",
+   "a": "manpages.debian.org (libxcrypt)",
+   "tipo": "doc",
+   "url": "https://manpages.debian.org/unstable/libcrypt-dev/crypt.5.en.html"
+  },
+  {
+   "id": "srv1403-passwd1",
+   "t": "passwd(1): change user password",
+   "a": "manpages.debian.org (shadow)",
+   "tipo": "doc",
+   "url": "https://manpages.debian.org/unstable/passwd/passwd.1.en.html"
+  },
+  {
+   "id": "srv1403-ubuntu-auto",
+   "t": "Automatic updates",
+   "a": "Ubuntu Server documentation (Canonical)",
+   "tipo": "doc",
+   "url": "https://documentation.ubuntu.com/server/how-to/software/automatic-updates/"
+  }
+ ]
+}

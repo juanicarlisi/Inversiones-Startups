@@ -1,0 +1,571 @@
+{
+ "id": "14-19",
+ "titulo": "Infraestructura como código II: estado, módulos y alternativas",
+ "bajada": "Armás y corrés una herramienta de juguete que guarda un estado, se bloquea, reutiliza un módulo y detecta cuando alguien tocó algo a mano, para entender qué hacen Terraform y sus alternativas.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué guarda el estado de Terraform, por qué es el centro de la herramienta y por qué es sensible.",
+  "Describir el bloqueo del estado y qué pasa cuando dos personas aplican al mismo tiempo.",
+  "Usar un módulo para repetir un conjunto de recursos sin copiar y pegar la configuración.",
+  "Detectar la deriva comparando la configuración, el estado y el mundo real, y decidir cómo resolverla.",
+  "Comparar Terraform con Pulumi y CloudFormation por dónde guardan el estado y cómo se escribe la configuración."
+ ],
+ "venis_de": "Ayer viste la idea de la infraestructura como código ([@14-18]): describir lo que querés en archivos, pedir un plan y aplicarlo. Quedó una pregunta sin responder: ¿cómo sabe la herramienta qué existe hoy para calcular la diferencia? Hoy se responde con el estado, y se agregan los módulos, la deriva y las alternativas.",
+ "se_apoya_en": [
+  "14-18",
+  "04-06",
+  "07-12",
+  "02-22",
+  "04-07"
+ ],
+ "gancho": [
+  "Imaginá una oficina de logística con dos sucursales que arman lo mismo cada mañana: un parte de bultos y una planilla de turnos. Alguien escribió una guía: «para abrir una sucursal, creá estos dos archivos con estos datos». Funciona hasta que la guía se usa dos veces, una persona edita a mano un parte «solo por hoy» y otra borra una planilla creyendo que sobra. Nadie sabe qué hay realmente, ni qué debería haber.",
+  "La infraestructura como código resuelve eso con una idea que ayer quedó pendiente: la herramienta tiene que *acordarse* de lo que creó. Ese recuerdo es un archivo, y todo lo demás de hoy (los bloqueos, los módulos, la deriva) gira alrededor de él. Para verlo funcionar construí una herramienta de juguete de 79 líneas en Python y la corrí en esta máquina. No es Terraform: es un modelo a escala para que se vea cada engranaje. Lo que Terraform, OpenTofu, Pulumi y CloudFormation hacen de verdad lo tomé de su documentación oficial, y lo digo cada vez que aparece."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Por qué la herramienta necesita acordarse"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ayer viste que un `plan` compara lo que querés (la configuración) con lo que hay. Pensalo como un empleado de depósito al que le das una lista de tareas: «tiene que haber 120 cajas en el estante 4». Para saber qué hacer, necesita saber cuántas hay ahora. Hay dos maneras de averiguarlo: salir a contar todo el depósito cada vez, o llevar un cuaderno donde anota lo que fue poniendo y sacando.",
+    "Terraform lleva el cuaderno. Según su documentación, el [[estado de Terraform]] guarda la relación entre los objetos que existen en el sistema remoto y las instancias de recursos declaradas en la configuración, y sirve para mapear recursos reales con configuración, registrar metadatos y acelerar el trabajo en infraestructuras grandes [#iac19-tf-state]. Por defecto es un archivo de texto en formato JSON llamado `terraform.tfstate`, y guarda una copia del anterior como `terraform.tfstate.backup`. Esto último es lo que dice la documentación; yo no corrí Terraform en esta sesión, así que lo que sigue sobre sus archivos y comandos es lectura de la documentación y no una prueba propia."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El cuaderno del depósito",
+   "x": "El estado es el cuaderno de anotaciones del empleado: «puse 120 cajas en el estante 4, firma Ana». Sin cuaderno, el empleado ve 120 cajas y no sabe si las puso él o ya estaban, así que no sabe si puede tirarlas. La analogía deja de valer en algo: el cuaderno de un depósito se puede reconstruir contando. El estado de Terraform tiene datos (como identificadores asignados por la nube) que no se deducen mirando el recurso."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El mapa entre «nombre en mi configuración» y «objeto real» es lo más importante. En mi juguete la configuración habla de `module.norte.archivo.parte`, y el estado anota que ese nombre corresponde al archivo `norte/parte.txt` con cierta huella del contenido. Si el nombre desaparece de la configuración, la herramienta mira el cuaderno, ve que lo había creado ella y recién ahí se anima a borrarlo. Sin esa anotación no distingue un recurso suyo de uno ajeno."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Un IaC de juguete: configuración, plan, apply y estado"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Antes del código, una aclaración que va en negrita porque importa: **esto es un juguete didáctico propio**. En esta máquina no pude usar Terraform ni OpenTofu (su descarga no estaba permitida en esta sesión), así que escribí un modelo mínimo con las mismas ideas. Sus recursos son archivos de texto en una carpeta. Su «estado» no tiene el formato de Terraform; lo uso porque muestra el mismo concepto.",
+    "La configuración es un archivo JSON con dos secciones: `recursos` sueltos y `modulos` que reutilizan una plantilla. Cada recurso es un archivo con una ruta y un contenido. Acá está la configuración inicial y la plantilla del módulo, que es la misma para todas las sucursales y usa variables entre `${...}`:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "json",
+   "x": "// main.json\n{\"recursos\":[{\"id\":\"leeme\",\"ruta\":\"LEEME.txt\",\"contenido\":\"Mundo de juguete\"}],\n \"modulos\":[{\"nombre\":\"norte\",\"fuente\":\"mod_sucursal\",\n             \"vars\":{\"ciudad\":\"Tigre\",\"bultos\":120}}]}\n\n// mod_sucursal/modulo.json  (la plantilla reutilizable)\n{\"recursos\":[\n {\"id\":\"parte\",\"ruta\":\"${nombre}/parte.txt\",\"contenido\":\"Depósito ${ciudad}: ${bultos} bultos por día\"},\n {\"id\":\"turnos\",\"ruta\":\"${nombre}/turnos.txt\",\"contenido\":\"Turno mañana y tarde en ${ciudad}\"}]}",
+   "cap": "Configuración del juguete. Las comillas // son comentarios míos, no JSON válido: en el archivo real no van."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El corazón del juguete es la función que calcula el plan. Compara tres cosas: lo **deseado** (la configuración ya expandida), lo **anotado** (el estado) y lo **real** (el archivo en disco). Todo lo que Terraform hace al planear está, a escala, en estas pocas líneas:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "def planear():\n    est, des, acc = leer_estado(), deseado(), []\n    for d, r in sorted(des.items()):\n        e = est[\"recursos\"].get(d); vivo = real(r[\"ruta\"])\n        if e is None: acc.append((\"crear\", d, \"no está en el estado\"))\n        elif vivo is None: acc.append((\"crear\", d, \"DERIVA: el archivo desapareció\"))\n        elif sha(vivo) != e[\"sha\"]: acc.append((\"actualizar\", d, \"DERIVA: alguien lo cambió a mano (%s -> %s)\" % (e[\"sha\"], sha(vivo))))\n        elif e[\"contenido\"] != r[\"contenido\"] or e[\"ruta\"] != r[\"ruta\"]: acc.append((\"actualizar\", d, \"cambió la configuración\"))\n    for d in sorted(set(est[\"recursos\"]) - set(des)):\n        acc.append((\"destruir\", d, \"ya no está en la configuración\"))\n    return est, des, acc",
+   "cap": "Función planear de iac.py (juguete didáctico, 79 líneas en total). El estado es un diccionario con serial, lineage y recursos; cada recurso guarda una huella (sha) de lo que escribió."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Corrí el plan y el apply sobre una carpeta vacía. Fijate que el segundo plan, después de aplicar, no encuentra nada que hacer: la herramienta es [[idempotencia|idempotente]], aplicar dos veces da lo mismo que aplicar una."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 iac.py plan",
+     "s": "  + archivo.leeme  (no está en el estado)\n  + module.norte.archivo.parte  (no está en el estado)\n  + module.norte.archivo.turnos  (no está en el estado)\nPlan: 3 a crear, 0 a actualizar, 0 a destruir."
+    },
+    {
+     "c": "python3 iac.py apply | tail -1",
+     "s": "Apply completo. serial = 1"
+    },
+    {
+     "c": "python3 iac.py plan",
+     "s": "Sin cambios: el mundo real coincide con la configuración."
+    }
+   ],
+   "cap": "Corrida propia del 16-11-2026 en esta máquina virtual."
+  },
+  {
+   "t": "pensa",
+   "x": "El apply escribe el estado en un archivo temporal y después lo renombra (`os.replace`) sobre el archivo final. ¿Qué problema evita hacerlo así en vez de escribir directo?",
+   "resp": "Evita que el estado quede a medio escribir. Si el proceso se corta en medio de una escritura directa, el archivo queda truncado o con JSON roto y la herramienta pierde su cuaderno. El renombrado es una operación atómica del sistema de archivos: se ve el estado viejo completo o el nuevo completo, nunca una mezcla. Es la misma idea de guardar en dos pasos que usan las bases de datos con su registro de escritura."
+  },
+  {
+   "t": "h",
+   "x": "Qué guarda el estado y por qué es sensible"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Abrí el estado del juguete y vas a ver cuatro campos: `version` (el formato), `serial` (un contador que sube con cada cambio), `lineage` (un identificador al azar que nace con el estado y no cambia) y `recursos`. Según la documentación de Terraform, su archivo real también lleva una versión del formato, un número de serie y un linaje, además de los recursos con sus atributos; la lista exacta de campos conviene leerla en la documentación vigente antes de tocar nada, porque el formato es interno y puede cambiar [#iac19-tf-state]. El serial y el linaje sirven para lo mismo que en mi juguete: detectar que alguien pisó el estado con otro más viejo o con uno de otra infraestructura.",
+    "Ahora lo sensible. Agregué un recurso que escribe un archivo `db.conf` con una clave inventada (`clave=FALSA-de-practica-000`) y apliqué. Después busqué la clave en el estado:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "grep -n 'FALSA' estado.json",
+     "s": "33:   \"contenido\": \"clave=FALSA-de-practica-000\","
+    }
+   ],
+   "cap": "La clave de práctica quedó en texto plano dentro del estado del juguete."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El estado contiene los secretos que le pasaste",
+   "x": "Esto no es un defecto del juguete: es una propiedad de la idea. Para poder comparar valores, la herramienta guarda los atributos de cada recurso, y entre ellos pueden estar contraseñas de bases de datos, claves de acceso o certificados. La documentación de Terraform advierte sobre la exposición de secretos guardados en el archivo de estado y desaconseja guardarlo en control de versiones o en un almacenamiento sin bloqueo ni control de acceso [#iac19-tf-state]. Regla práctica: tratá el estado con el mismo cuidado que una clave. Nada de subirlo al repositorio ([@04-06])."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para cuidar el estado, las herramientas ofrecen dos defensas. La primera es guardarlo fuera de tu máquina, en un almacenamiento remoto con permisos (lo que Terraform llama *backend*). La segunda es cifrarlo. Según la documentación de OpenTofu, su cifrado de estado protege el estado y los planes en reposo, sea que estén en disco local o en un backend, y puede obtener la clave de una frase secreta (PBKDF2) o de servicios de claves como AWS KMS y GCP KMS [#iac19-opentofu-cifrado]. La misma página aclara qué no cubre: no protege contra pérdida de datos, ni contra repeticiones de un estado viejo, ni contra quien ejecuta `tofu`. Mañana ([@14-20]) vas a ver cómo funciona el cifrado de sobre que está detrás de esas claves, con una corrida propia."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Backends y bloqueo: dos manos en el mismo cuaderno"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mientras trabajás solo en tu notebook, un archivo local alcanza. En cuanto hay dos personas, o una persona y un pipeline de despliegue, aparecen dos problemas. Uno: ¿dónde vive el estado para que ambos vean el mismo? Dos: ¿qué pasa si ambos aplican al mismo tiempo? Es la [[condición de carrera]] de siempre, con una consecuencia fea: cada uno lee el estado, calcula su plan, escribe, y el que escribe último pisa los cambios del otro, o peor, ambos crean el mismo recurso.",
+    "La respuesta de Terraform es un **bloqueo del estado**. La documentación dice que, si el backend lo soporta, Terraform bloquea el estado en cualquier operación que pueda escribirlo, de modo que nadie más lo adquiera y lo corrompa; ocurre automáticamente y, si no se puede adquirir, Terraform se detiene y no continúa [#iac19-tf-locking]. También aclara que no todos los backends soportan bloqueo y que cada uno lo documenta. Existe `terraform force-unlock` para soltar a mano un bloqueo que quedó colgado; pide el identificador del bloqueo, que funciona como un nonce, y la documentación advierte tener mucho cuidado porque soltar el bloqueo de otro puede dejar a dos escritores trabajando a la vez [#iac19-tf-locking]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "El juguete implementa el mecanismo más simple posible: crear un archivo `estado.lock` con la bandera «solo si no existe» (`O_EXCL`), que el sistema operativo garantiza como atómica. Quien lo consigue, puede aplicar; quien no, recibe un error con los datos de quien lo tiene. Lo probé lanzando un apply lento (le puse una pausa de 2 segundos) y, mientras corría, un segundo apply:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "IAC_PAUSA=2 python3 iac.py apply > /dev/null &",
+     "s": ""
+    },
+    {
+     "c": "cat estado.lock",
+     "s": "{\"pid\": 20300, \"operacion\": \"apply\", \"desde\": \"02:36:03\"}"
+    },
+    {
+     "c": "python3 iac.py apply",
+     "s": "Error: el estado está bloqueado: {\"pid\": 20300, \"operacion\": \"apply\", \"desde\": \"02:36:03\"}"
+    },
+    {
+     "c": "wait; ls estado.lock",
+     "s": "ls: cannot access 'estado.lock': No such file or directory"
+    }
+   ],
+   "cap": "Corrida propia. El segundo apply se rechaza mientras el primero tiene el bloqueo, y el bloqueo se borra al terminar el primero."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si hay bloqueo, ya no hay peligro»",
+   "x": "El bloqueo evita que dos aplicaciones simultáneas se pisen, pero no resuelve todo. Si el proceso muere sin soltarlo (se cortó la luz, se mató el pipeline), el archivo queda y hay que decidir a mano si es seguro soltarlo: ahí aparece `force-unlock`. Tampoco protege contra alguien que edite los recursos reales desde la consola de la nube sin pasar por la herramienta. De eso trata la próxima sección."
+  },
+  {
+   "t": "h",
+   "x": "Módulos: no copiar y pegar la guía"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Volvamos a las dos sucursales. Si cada una necesita lo mismo, escribir dos veces la misma configuración es pedir que, con el tiempo, una difiera de la otra. Un [[módulo]] es la solución: un conjunto de recursos que se gestionan juntos y se escriben una sola vez. La documentación de Terraform define el módulo como una colección de recursos que Terraform gestiona en conjunto, y recomienda escribir módulos reutilizables cuando provisionás seguido conjuntos similares de recursos. Cada espacio de trabajo tiene un *módulo raíz* (los archivos del directorio principal) y este puede llamar a *módulos hijos* con bloques `module`, incluso varias veces al mismo módulo [#iac19-tf-modulos]. Cómo se pasan los valores adentro (variables de entrada) y afuera (salidas) está en las páginas de uso de módulos; no las repaso acá.",
+    "En mi juguete el módulo es la carpeta `mod_sucursal`. Para abrir la sucursal sur agregué una llamada más con otras variables, sin tocar la plantilla:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 iac.py apply   # después de sumar el módulo «sur»",
+     "s": "  + module.sur.archivo.parte  (no está en el estado)\n  + module.sur.archivo.turnos  (no está en el estado)\nPlan: 2 a crear, 0 a actualizar, 0 a destruir.\nApply completo. serial = 2"
+    }
+   ],
+   "cap": "Corrida propia. Los dos recursos de la sucursal sur nacen de la misma plantilla, con direcciones que llevan el nombre del módulo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en las direcciones: `module.norte.archivo.parte` y `module.sur.archivo.parte`. El nombre de la llamada forma parte de la identidad de cada recurso. Es una de las trampas de los módulos: si más adelante renombrás `norte` a `tigre`, para la herramienta desaparece una dirección y aparece otra, y planea destruir y crear. Terraform tiene una forma de declarar que un recurso cambió de nombre sin destruirlo, pero eso se mira en su documentación; lo importante hoy es la idea de que la dirección es una identidad."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "Un buen módulo es como una buena plantilla de checklist de despacho: tiene pocos campos para completar (ciudad, bultos) y esconde el detalle que no cambia. Si el módulo termina con cuarenta variables, dejó de simplificar y se volvió otra configuración, más difícil de leer que la original."
+  },
+  {
+   "t": "pensa",
+   "x": "Cambiás la variable `bultos` del módulo norte de 120 a 150. ¿Qué esperás que diga el plan sobre los recursos de la sucursal sur?",
+   "resp": "Nada: el plan solo toca lo que cambió. Las direcciones de la sucursal sur no varían y su contenido sigue igual, así que no aparecen en el plan. En mi corrida el plan mostró una sola línea: `~ module.norte.archivo.parte (cambió la configuración)`, con 0 a crear y 0 a destruir. Que el cambio quede acotado al recurso afectado es la razón de comparar contra el estado."
+  },
+  {
+   "t": "h",
+   "x": "Deriva: cuando alguien toca algo a mano"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá todo es prolijo porque nadie tocó nada fuera de la herramienta. Mundo real: alguien entra a la consola, cambia un valor «solo por hoy» y no se lo cuenta a nadie. A esa diferencia entre el estado anotado y lo que realmente existe se la llama **deriva**. Hoy la usás como idea general; dentro de dos días ([@14-21]) la vas a ver aplicada a los servidores.",
+    "La documentación de Terraform explica que, por defecto, `terraform plan` y `terraform apply` primero refrescan el estado en memoria, es decir, miran lo real, y que el plan informa las diferencias bajo un aviso del estilo «Objects have changed outside of Terraform». Con `terraform plan -refresh-only` se ve la deriva sin proponer cambios, y `terraform apply -refresh-only` actualiza el estado con lo detectado sin modificar nada real [#iac19-tf-deriva]. El juguete hace lo mismo con una versión más cruda: antes de planear, lee cada archivo y compara su huella con la anotada.",
+    "Para provocarla edité a mano el parte del norte y borré la planilla de turnos del sur. Esto vio el plan:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "echo \"Depósito Tigre: 999 bultos por día\" > mundo/norte/parte.txt; rm mundo/sur/turnos.txt",
+     "s": ""
+    },
+    {
+     "c": "python3 iac.py plan",
+     "s": "  ~ module.norte.archivo.parte  (DERIVA: alguien lo cambió a mano (bcbf6107 -> 5592cbb1))\n  + module.sur.archivo.turnos  (DERIVA: el archivo desapareció)\nPlan: 1 a crear, 1 a actualizar, 0 a destruir."
+    },
+    {
+     "c": "python3 iac.py apply | tail -1; python3 iac.py plan",
+     "s": "Apply completo. serial = 3\nSin cambios: el mundo real coincide con la configuración."
+    }
+   ],
+   "cap": "Corrida propia. El plan detecta las dos diferencias y el apply devuelve el mundo a lo declarado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Había dos maneras de resolverlo, y elegir cuál es una decisión de criterio y no técnica. Una: **la configuración manda**, y el apply deshace el cambio manual (lo que hizo mi juguete). La otra: **el cambio manual era correcto**, y entonces se actualiza la configuración para que lo refleje y se acepta lo real. Si la persona tenía razón, el apply que lo revierte rompe algo en producción. Por eso el plan se *lee* antes de aplicar, y por eso en un pipeline serio el plan se publica para que una persona lo revise."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que el juguete no hace",
+   "x": "Mi juguete detecta deriva porque sus recursos son archivos y puede leerlos todos. Un proveedor real le pregunta a una API en la nube, y eso tiene límites: cada llamada tarda, hay cuotas, y algunos atributos solo se pueden fijar al crear pero no se pueden leer después. Tampoco hace lo más difícil: manejar dependencias entre recursos (crear la red antes que el servidor), calcular el orden, reintentar. Terraform y sus alternativas hacen todo eso."
+  },
+  {
+   "t": "h",
+   "x": "Qué pasa si se pierde el estado"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La última prueba del juguete es la más instructiva. Renombré `estado.json` y volví a planear con todo el mundo real intacto:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "mv estado.json estado.perdido; python3 iac.py plan",
+     "s": "  + archivo.leeme  (no está en el estado)\n  + module.norte.archivo.parte  (no está en el estado)\n  + module.norte.archivo.turnos  (no está en el estado)\n  + module.sur.archivo.parte  (no está en el estado)\n  + module.sur.archivo.turnos  (no está en el estado)\nPlan: 5 a crear, 0 a actualizar, 0 a destruir."
+    }
+   ],
+   "cap": "Corrida propia. Sin cuaderno, la herramienta cree que no existe nada, aunque los cinco archivos están en disco."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El juguete, si aplicara, pisaría los archivos: son baratos. Con una nube, intentar crear un recurso que ya existe termina en error o, peor, en un duplicado que cuesta dinero. Por eso se hacen copias del estado (Terraform guarda la anterior en `terraform.tfstate.backup` según su documentación [#iac19-tf-state]), por eso los backends remotos suelen versionar el archivo, y por eso existe la operación inversa: **importar** un recurso que ya existe al estado para que la herramienta lo adopte. Mi juguete no tiene importación; la de Terraform se explica en su documentación."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Alternativas: Pulumi y CloudFormation"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Terraform no es la única forma. Hay dos alternativas que conviene conocer porque resuelven las mismas preguntas (qué existe, qué quiero, cuál es la diferencia) con otras decisiones.",
+    "[[Pulumi]] cambia el lenguaje. En lugar de un lenguaje propio de configuración, se escribe la infraestructura en un lenguaje de programación de uso general. Según su documentación, es una plataforma de código abierto con una herramienta de línea de comandos, un entorno de ejecución y librerías, más un servicio alojado opcional, y soporta TypeScript y JavaScript, Python, Go, C#, Java, YAML y HCL (el lenguaje de Terraform) [#iac19-pulumi]. Eso permite usar condiciones, bucles y funciones que ya conocés. El costo: más libertad también es más maneras de hacer algo ilegible. Para el estado, Pulumi Cloud se describe como un backend gestionado que lo guarda y suma control de acceso, secretos compartidos, políticas y detección de deriva; la página que leí no describe las opciones autogestionadas.",
+    "[[CloudFormation]] cambia quién guarda el estado. Es el servicio de Amazon Web Services para el mismo propósito. Describís los recursos en una plantilla (un archivo de texto), la usás para crear una *pila* (stack) y CloudFormation los aprovisiona; borrar la pila borra los recursos, y como las plantillas son texto se versionan como código [#iac19-cfn]. La diferencia clave es que el «cuaderno» lo lleva el propio servicio de AWS, no un archivo tuyo: no hay un archivo de estado que proteger ni bloquear, y también por eso solo sirve para AWS."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Terraform / OpenTofu",
+    "Pulumi",
+    "CloudFormation"
+   ],
+   "filas": [
+    [
+     "Cómo se escribe",
+     "Lenguaje de configuración propio (HCL)",
+     "Lenguajes generales, además de YAML y HCL",
+     "Plantillas de texto"
+    ],
+    [
+     "Dónde vive el estado",
+     "Un archivo; local o en un backend remoto",
+     "Servicio gestionado (Pulumi Cloud) u otras opciones (no leídas)",
+     "Dentro del servicio de AWS, por pila"
+    ],
+    [
+     "Qué nubes cubre",
+     "Muchas, vía proveedores",
+     "Muchas",
+     "Solo AWS"
+    ],
+    [
+     "Costo de cambiarse",
+     "Reescribir configuración y migrar estado",
+     "Reescribir en código",
+     "Reescribir plantillas; atado a AWS"
+    ]
+   ],
+   "cap": "Resumen de lo leído en la documentación oficial de cada herramienta el 16-11-2026. La última fila es una inferencia mía sobre cuánto trabajo implica migrar."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que cambia con el tiempo",
+   "x": "Las funciones, los lenguajes soportados, los backends y las licencias de estas herramientas cambian. Lo que dice este día sobre Terraform, OpenTofu, Pulumi y CloudFormation proviene de sus páginas de documentación oficial leídas el 16-11-2026 [#iac19-tf-state] [#iac19-pulumi] [#iac19-cfn], y no de haberlas ejecutado: no corrí ninguna de las tres en esta sesión. Antes de elegir una herramienta, revisá su documentación y su licencia vigentes. OpenTofu se mencionó por su documentación de cifrado de estado [#iac19-opentofu-cifrado]; la comparación de licencias de Terraform y OpenTofu la trató [@14-18]."
+  },
+  {
+   "t": "h",
+   "x": "Cómo elegir, con criterio propio"
+  },
+  {
+   "t": "p",
+   "x": [
+    "No hay respuesta única, pero sí preguntas útiles. Una regla práctica es empezar por la herramienta que más gente de tu entorno conozca, porque el costo grande del IaC es mantenerlo entre personas. Segunda pregunta: ¿usás una sola nube y es AWS? CloudFormation te ahorra gestionar un estado. ¿Querés mezclar nubes y proveedores de distinto tipo? Terraform, OpenTofu o Pulumi. ¿Tu equipo escribe TypeScript todo el día y sufre con un lenguaje nuevo? Pulumi merece una prueba.",
+    "Para alguien como vos, que dirige un proyecto con un equipo mínimo, lo relevante es otro punto: **no hace falta IaC hasta que haya infraestructura que reproducir**. Una app sobre servicios gestionados, con pocas piezas creadas desde una consola, puede vivir bien sin IaC. En el caso de Senda, el mapa técnico verificado no registra ninguna herramienta de este tipo: sus piezas viven en servicios gestionados y en archivos del repositorio (hecho verificado en el mapa del commit 25e08fa, no en código ejecutado hoy). Eso no es una falta; es proporcional. La señal para adoptarla es la repetición dolorosa: abrir un segundo entorno, rehacer algo después de un incidente, o que dos personas toquen la misma consola."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que Senda tiene en lugar de IaC",
+   "x": [
+    "Senda no usa Terraform, Pulumi ni CloudFormation. Lo cercano a «infraestructura descrita en archivos» son las migraciones de la base y los flujos de GitHub Actions, que viven en el repositorio y se versionan con el código. Es una forma parcial y distinta: describe la base y la fábrica de compilación, no la creación del proyecto de Supabase ni las cuentas, que se hicieron a mano.",
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations",
+    ".github/workflows/supabase.yml",
+    ".github/workflows/apk.yml"
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "¿Qué parte de una app como Senda sería la primera candidata a describirse con IaC si algún día hubiera un segundo entorno para pruebas?",
+   "resp": "La que cuesta más rehacer a mano y más caro se equivoca: el proyecto de base de datos con sus políticas de acceso y variables, y los permisos de las cuentas de servicio. Las migraciones ya están como archivos; lo que no está descrito es la existencia del proyecto y su configuración. Es una opinión de criterio, no un dato: depende de cuánto duela hoy reproducirlo."
+  }
+ ],
+ "recap": [
+  "El estado es el cuaderno de la herramienta: mapea nombres de la configuración con objetos reales. Sin él no puede calcular un plan ni distinguir lo suyo de lo ajeno.",
+  "Como guarda los atributos de los recursos, el estado puede contener secretos en texto plano. Se cuida con backend remoto con permisos, copias y, según el caso, cifrado; nunca va al repositorio.",
+  "El bloqueo evita que dos aplicaciones simultáneas se pisen. Si queda colgado, soltarlo a mano es una decisión con riesgo.",
+  "Un módulo es una plantilla reutilizable de recursos. Su nombre de llamada es parte de la identidad de cada recurso, así que renombrar tiene consecuencias.",
+  "La deriva es la diferencia entre el estado anotado y el mundo real. Se detecta refrescando antes de planear, y se resuelve decidiendo quién tiene razón: la configuración o el cambio manual.",
+  "Pulumi escribe la infraestructura en lenguajes generales; CloudFormation guarda el estado dentro de AWS. Mismas preguntas, distintas decisiones.",
+  "Lo de Terraform y las alternativas de hoy es lectura de documentación; lo corrido fue un juguete propio que ilustra las ideas."
+ ],
+ "repaso": [
+  {
+   "p": "Un compañero borra del archivo de configuración un recurso que Terraform había creado, y ejecuta apply. ¿Cómo sabe la herramienta que tiene que destruir ese objeto real?",
+   "o": [
+    "Porque el estado lo tiene anotado como creado por ella y ya no aparece en la configuración, así que lo planea como destrucción",
+    "Porque la herramienta recorre toda la nube y borra cualquier objeto que no aparezca declarado en la configuración actual",
+    "Porque el proveedor marca cada objeto con una etiqueta oculta y Terraform lee esa etiqueta para saber si le pertenece",
+    "No lo sabe: un recurso borrado de la configuración se ignora y sigue existiendo hasta que alguien lo elimine a mano"
+   ],
+   "c": 0,
+   "e": "El estado es la memoria de lo que la herramienta creó. Compara estado y configuración: lo que está anotado y ya no se declara se destruye. Recorrer toda la nube borraría cosas ajenas, y ignorarlo dejaría recursos huérfanos que siguen costando dinero."
+  },
+  {
+   "p": "Subís el archivo de estado al repositorio «para que lo vea todo el equipo». ¿Cuál es el riesgo más serio?",
+   "o": [
+    "Que el archivo ocupe demasiado espacio y vuelva lentas las operaciones de git para todas las personas del equipo",
+    "Que dos personas editen el archivo a la vez y git genere un conflicto de fusión que bloquee las siguientes aplicaciones",
+    "Que el estado contenga atributos sensibles, como contraseñas, en texto plano y queden expuestos a quien lea el repositorio",
+    "Que Terraform se niegue a leer un estado versionado porque solo acepta archivos guardados en el disco local del equipo"
+   ],
+   "c": 2,
+   "e": "El estado guarda los atributos de los recursos, y entre ellos puede haber secretos en texto plano. Los otros riesgos existen (conflictos, falta de bloqueo) pero el más grave es la exposición. La herramienta no rechaza un estado versionado: el problema es lo que contiene."
+  },
+  {
+   "p": "Dos pipelines ejecutan apply sobre el mismo estado casi al mismo tiempo y el backend soporta bloqueo. ¿Qué ocurre con el segundo?",
+   "o": [
+    "Espera en silencio hasta que el primero termina y después aplica su plan sin recalcularlo con el nuevo estado",
+    "No puede adquirir el bloqueo, se detiene sin continuar y avisa quién lo tiene, para no pisar la escritura del primero",
+    "Aplica igual, porque el bloqueo solo funciona entre personas y los procesos automáticos de despliegue lo ignoran siempre",
+    "Fuerza el desbloqueo del primero con force-unlock y sigue adelante, porque así lo exige el funcionamiento normal del apply"
+   ],
+   "c": 1,
+   "e": "Si no se puede adquirir el bloqueo, la herramienta se detiene. Esperar con un plan viejo sería aplicar sobre un estado que cambió. Forzar el desbloqueo es una acción manual y riesgosa, no el comportamiento normal."
+  },
+  {
+   "p": "Tenés un módulo para abrir sucursales y lo llamás con el nombre «norte». Meses después lo renombrás a «tigre» sin avisarle a la herramienta. ¿Qué muestra el plan?",
+   "o": [
+    "Nada, porque el contenido de los archivos no cambió y la herramienta compara solamente contenidos de cada recurso",
+    "Una actualización en el lugar de cada recurso, que simplemente cambia el nombre guardado en el estado sin tocar nada real",
+    "Un error de sintaxis, porque los nombres de módulo no se pueden cambiar una vez que se aplicó la configuración",
+    "Destruir los recursos de «norte» y crear los de «tigre», porque la dirección forma parte de la identidad de cada recurso"
+   ],
+   "c": 3,
+   "e": "La dirección incluye el nombre de la llamada al módulo, así que para la herramienta desapareció una dirección y apareció otra. Existe una forma de declarar el cambio de nombre sin destruir, pero hay que pedirla; es un cambio de dirección, no de contenido."
+  },
+  {
+   "p": "Alguien cambió a mano un valor en la consola de la nube. En el plan siguiente aparece como diferencia. ¿Cuál es la decisión correcta antes de aplicar?",
+   "o": [
+    "Aplicar siempre sin leer, porque la configuración es la fuente de verdad y cualquier cambio manual está mal por definición",
+    "Borrar el estado para que la herramienta olvide la diferencia y trate el valor cambiado como si fuera el original",
+    "Averiguar por qué se cambió: si era correcto, actualizar la configuración; si era un error, el apply lo revierte con seguridad",
+    "Cambiar el valor otra vez a mano en la consola para que coincida y evitar que el plan muestre la diferencia detectada"
+   ],
+   "c": 2,
+   "e": "Hay dos opciones legítimas y la elección es de criterio: aceptar el cambio actualizando la configuración o revertirlo. Aplicar sin leer puede deshacer un arreglo urgente. Borrar el estado crea otro problema (la herramienta pierde la memoria) y volver a tocar a mano repite la causa de la deriva."
+  },
+  {
+   "p": "¿Qué diferencia de fondo hay entre CloudFormation y Terraform respecto del estado?",
+   "o": [
+    "CloudFormation exige que el equipo guarde y proteja un archivo de estado propio, mientras Terraform lo guarda dentro de AWS",
+    "CloudFormation no necesita estado de ningún tipo, porque calcula todo comparando directamente las plantillas con la nube",
+    "CloudFormation guarda el estado dentro del propio servicio de AWS por cada pila, y Terraform lo guarda en un archivo que gestionás vos",
+    "CloudFormation usa el mismo archivo tfstate que Terraform, pero lo escribe en formato YAML para que otras personas lo lean fácil"
+   ],
+   "c": 2,
+   "e": "En CloudFormation el servicio lleva la cuenta de cada pila. En Terraform el estado es un archivo (local o en un backend) del que te hacés cargo. La opción de «sin estado» es incorrecta: el servicio sí lo mantiene, solo que no lo ves como un archivo."
+  },
+  {
+   "p": "Aplicaste con el juguete de hoy, y después se perdió el archivo de estado, aunque los recursos reales siguen en pie. ¿Qué pasa en el siguiente plan?",
+   "o": [
+    "La herramienta cree que no existe nada y planea crear todo de nuevo, aunque los archivos ya están en disco",
+    "La herramienta reconstruye el estado sola leyendo los archivos reales y plan muestra que no hay ningún cambio pendiente",
+    "La herramienta planea destruir todos los archivos reales, porque no los encuentra anotados como creados por ella",
+    "La herramienta se niega a planear y exige restaurar el estado desde una copia antes de hacer cualquier otra operación"
+   ],
+   "c": 0,
+   "e": "Sin el cuaderno, lo deseado es todo «nuevo». Tampoco planea destruir: destruye solo lo que está anotado y ya no se declara. En el juguete no hay reconstrucción ni exigencia de copia; en las herramientas reales hace falta restaurar el estado o importar los recursos."
+  }
+ ],
+ "feynman": "Explicale a alguien que no sabe de informática, usando el ejemplo de dos depósitos que arman el mismo parte cada mañana, qué es el estado de una herramienta de infraestructura como código, qué problema evita el bloqueo y qué es la deriva. Usá una analogía propia que no sea la del cuaderno de anotaciones, y decí dónde tu analogía deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "iac19-tf-state",
+   "nota": "La página oficial del estado de Terraform: qué guarda, su formato JSON y la advertencia sobre secretos. Leé la parte de almacenamiento antes de decidir dónde guardar uno real."
+  },
+  {
+   "fuente": "iac19-tf-locking",
+   "nota": "El bloqueo del estado y el comando force-unlock, con la advertencia de usarlo solo sobre tu propio bloqueo. Sirve para entender lo que probaste con el juguete."
+  },
+  {
+   "fuente": "iac19-tf-deriva",
+   "nota": "El tutorial oficial de deriva de recursos, con el aviso de objetos cambiados fuera de Terraform y las opciones -refresh-only. Es el equivalente real de lo que hiciste con el juguete."
+  },
+  {
+   "fuente": "iac19-pulumi",
+   "nota": "Los conceptos de Pulumi: lenguajes soportados y backends. Para comparar con Terraform antes de elegir."
+  }
+ ],
+ "videos": [
+  {
+   "q": "terraform state file explained remote backend locking drift",
+   "por_que": "Para ver con otra voz cómo se ven el estado, el bloqueo y un plan con deriva en Terraform de verdad, que no corrí en este día."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "estado de Terraform",
+   "d": "Archivo (por defecto JSON, terraform.tfstate) donde la herramienta anota qué objetos reales corresponden a cada recurso de la configuración. Sirve para calcular el plan, pero puede contener secretos, así que se protege."
+  },
+  {
+   "t": "módulo",
+   "d": "Conjunto de recursos de infraestructura que se escribe una vez y se reutiliza con distintos valores. El conjunto principal de archivos es el módulo raíz, que puede llamar a módulos hijos."
+  },
+  {
+   "t": "Pulumi",
+   "d": "Herramienta de infraestructura como código de código abierto en la que se describe la infraestructura con lenguajes de programación generales, como TypeScript, Python o Go, y no con un lenguaje de configuración propio."
+  },
+  {
+   "t": "CloudFormation",
+   "d": "Servicio de Amazon Web Services que crea recursos a partir de plantillas de texto agrupadas en pilas. El servicio mismo guarda lo creado, y solo sirve para AWS."
+  },
+  {
+   "t": "bloqueo del estado",
+   "d": "Mecanismo por el que una operación que puede escribir el estado lo reserva mientras corre, para que otra persona o proceso no lo pise al mismo tiempo."
+  },
+  {
+   "t": "deriva de infraestructura",
+   "d": "Diferencia entre lo que anota el estado y lo que realmente existe, que aparece cuando alguien cambia un recurso a mano fuera de la herramienta."
+  },
+  {
+   "t": "backend",
+   "d": "En Terraform, el lugar donde se guarda el estado: un archivo local o un almacenamiento remoto, que puede ofrecer permisos, versiones y bloqueo."
+  }
+ ],
+ "siguiente": "Hoy viste que el estado puede guardar secretos en texto plano. Mañana se ve cómo se guardan y cuidan de verdad: cifrado de sobre, rotación y credenciales que duran minutos.",
+ "fuentes_nuevas": [
+  {
+   "id": "iac19-tf-state",
+   "t": "Terraform: State",
+   "a": "HashiCorp",
+   "tipo": "doc",
+   "url": "https://developer.hashicorp.com/terraform/language/state"
+  },
+  {
+   "id": "iac19-tf-locking",
+   "t": "Terraform: State locking",
+   "a": "HashiCorp",
+   "tipo": "doc",
+   "url": "https://developer.hashicorp.com/terraform/language/state/locking"
+  },
+  {
+   "id": "iac19-tf-modulos",
+   "t": "Terraform: Modules",
+   "a": "HashiCorp",
+   "tipo": "doc",
+   "url": "https://developer.hashicorp.com/terraform/language/modules"
+  },
+  {
+   "id": "iac19-tf-deriva",
+   "t": "Terraform: Manage resource drift (tutorial)",
+   "a": "HashiCorp",
+   "tipo": "doc",
+   "url": "https://developer.hashicorp.com/terraform/tutorials/state/resource-drift"
+  },
+  {
+   "id": "iac19-opentofu-cifrado",
+   "t": "OpenTofu: State and plan encryption",
+   "a": "OpenTofu",
+   "tipo": "doc",
+   "url": "https://opentofu.org/docs/language/state/encryption/"
+  },
+  {
+   "id": "iac19-pulumi",
+   "t": "Pulumi IaC: conceptos",
+   "a": "Pulumi",
+   "tipo": "doc",
+   "url": "https://www.pulumi.com/docs/iac/concepts/"
+  },
+  {
+   "id": "iac19-cfn",
+   "t": "What is CloudFormation?",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/Welcome.html"
+  }
+ ]
+}
