@@ -590,6 +590,9 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     mañana, oficina de 1929 con nombre y color, zoom; la prueba a ciegas pasó en lo principal y dejó 14 puntos a corregir; el caso
     de negocio con Steam está en `producto-y-negocio.md` §5 bis (unos USD 5 netos por copia); cada etapa se publica solo después
     de unir, probar a ciegas y mirar en el visor;
+  - **Hub Nocturno, a la noche (16-11-2026)**: las correcciones de la prueba a ciegas están publicadas (versión 7 del enlace; 49
+    pruebas); falta la segunda prueba a ciegas para cerrar la etapa 1; el 16-11 se llegó al límite semanal de Claude (vuelve el
+    20-11 a las 9 UTC): un agente quedó cortado mirando la oficina en celular (360 y 390 de ancho), revisar eso primero;
   - **Andén «Tu planta»**: el gemelo de cualquier planta desde fotos, videos, croquis y planos
     (`oportunidades/proyectos/anden/gemelo-de-planta.md`); la planta piloto es de su empleador: sus datos viven solo en el
     repositorio privado `plaza-gemelo2`, nunca acá (este repositorio es público);
