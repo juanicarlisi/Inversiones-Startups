@@ -1,0 +1,528 @@
+{
+ "id": "10-16",
+ "titulo": "Bases locales y apps offline-first",
+ "bajada": "Cuándo un clave-valor ya no alcanza, cómo guarda datos un SQLite dentro del teléfono y cómo una app sigue funcionando sin señal sin perder ni duplicar nada.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar por qué una base SQLite local resuelve lo que un clave-valor no puede, con una consulta medida.",
+  "Diseñar una cola de salida con identificador único, reintentos con espera y recepción idempotente.",
+  "Distinguir un conflicto de sincronización de un simple reintento y elegir una política para cada dato.",
+  "Predecir qué pasa cuando se resuelve un conflicto por reloj y los relojes no coinciden.",
+  "Leer las tres colas de salida y la copia con Google de Senda e identificar qué conflictos evitan y cuáles dejan abiertos."
+ ],
+ "venis_de": "Ayer viste dónde guarda el teléfono el estado de una app y cuánto cuesta reescribir un valor grande por un cambio chico. Hoy damos el paso siguiente: una base de datos dentro del teléfono y qué hacer cuando lo que guardaste ahí tiene que encontrarse, algún día, con lo que hay en el servidor.",
+ "se_apoya_en": [
+  "07-12",
+  "07-13",
+  "07-17",
+  "09-24",
+  "09-27",
+  "09-33",
+  "10-07",
+  "10-15"
+ ],
+ "gancho": [
+  "Un repartidor baja al subsuelo de un edificio de Almagro, sin una raya de señal, y marca una entrega como hecha. Hay dos clases de app posibles. Una se queda pensando, muestra un círculo girando y al rato dice «sin conexión»; la persona vuelve a intentar con el mismo dedo y la misma bronca. La otra anota la entrega en el teléfono, la muestra como hecha y la manda sola cuando vuelva la señal. (El repartidor y el edificio son un ejemplo inventado.)",
+  "La segunda app no es más rápida ni más cara: está pensada al revés. Hoy vemos cómo se arma, qué guarda el teléfono y qué pasa cuando, después de mandar, el servidor descubre que otra persona tocó lo mismo."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Cuando un clave-valor se queda corto"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@10-15] viste que AsyncStorage guarda texto bajo un nombre, y que cambiar un detalle reescribe el valor entero. Funciona bien para preferencias y estados de decenas de kilobytes. Se complica cuando lo guardado son **muchos registros parecidos** que hay que buscar, filtrar, ordenar y cambiar de a uno: las paradas de un día, los mensajes de un chat, las lecciones descargadas.",
+    "Para eso existe [[SQLite móvil]]: el mismo motor de bases de datos de [@09-33], embebido dentro de la app, sin servidor, que guarda todo en un único archivo del teléfono. SQLite figura entre los motores más usados del mundo y está pensado justamente para ser el formato de archivo de una aplicación [#bd0933-sqlite-mostdeployed] [#bd0933-sqlite-whentouse]. Con él vuelven las herramientas que ya conocés: [[transacción]], [[índice]], [[clave primaria]] y [[esquema]]. Cada tarea de la lista de arriba tiene su equivalente en SQL, en lugar de código propio sobre un JSON gigante."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para ver la diferencia armé una base con el SQLite de Node en esta VM. Es el mismo motor, pero sin las capas de Expo. Tiene 60.000 paradas inventadas (300 rutas de 200 paradas) y una consulta típica: las pendientes de la ruta R150. Antes de insertar, la base se abre en modo [[write-ahead log]] y se marca una versión de esquema con `PRAGMA user_version`, el patrón que muestra la documentación de expo-sqlite para migrar [#mob16-expo-sqlite-57]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node exp_sql.mjs   # node:sqlite, SQLite 3.53.4",
+     "s": "journal_mode: wal\nuser_version al abrir: 0\nuser_version ahora: 2\nfilas: 60000\nsin índice: SCAN paradas\ncon índice: SEARCH paradas USING COVERING INDEX paradas_ruta_estado (ruta=? AND estado=?)\nconsulta promedio: sin índice 1.741 ms, con índice 0.007 ms\nresultado: 171\narchivo: 2952 KB"
+    }
+   ],
+   "cap": "Corrida el 16-11-2026 en una VM Firecracker; promedio de 200 consultas. Los tiempos son de una sola máquina y no de un teléfono; la forma sí se conserva. «SCAN» recorre las 60.000 filas; «SEARCH» salta directo a las 200 de esa ruta ([@09-22] y [@09-23] muestran cómo se lee un plan, y la sintaxis está en la documentación de `EXPLAIN QUERY PLAN` [#sql-sqlite-eqp])."
+  },
+  {
+   "t": "p",
+   "x": "Una consulta que ya tardaba poco tarda 250 veces menos con el índice, y el archivo entero ocupa unos 3 MB. Compará con ayer: guardar esas 60.000 paradas como un solo texto JSON obligaría a leerlas completas para mirar una ruta, y a reescribirlas completas para marcar una entrega."
+  },
+  {
+   "t": "p",
+   "x": "Así se ve usarlo desde una app Expo. Este código sale de los nombres y patrones de la documentación del SDK 57 y **no lo corrí**: necesita un teléfono o un emulador, y este entorno no tiene ninguno."
+  },
+  {
+   "t": "codigo",
+   "lang": "ts",
+   "x": "import * as SQLite from 'expo-sqlite';\n\nconst db = await SQLite.openDatabaseAsync('entregas.db');\nawait db.execAsync(`\n  PRAGMA journal_mode = WAL;\n  CREATE TABLE IF NOT EXISTS paradas (\n    id INTEGER PRIMARY KEY NOT NULL,\n    ruta TEXT NOT NULL,\n    estado TEXT NOT NULL\n  );\n`);\n// Los valores van como parámetros (?), nunca pegados al texto de la consulta.\nawait db.runAsync('UPDATE paradas SET estado = ? WHERE id = ?', 'entregada', 4521);\nconst pendientes = await db.getAllAsync('SELECT * FROM paradas WHERE ruta = ? AND estado = ?', 'R150', 'pendiente');",
+   "cap": "Según la documentación de expo-sqlite (SDK 57), no corrido. Los parámetros con `?` se pasan aparte: la documentación avisa que `execAsync` no escapa parámetros y puede abrir una inyección SQL."
+  },
+  {
+   "t": "h3",
+   "x": "Qué otras opciones hay y cómo están hoy"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Opción",
+    "Qué es",
+    "Para tener en cuenta"
+   ],
+   "filas": [
+    [
+     "expo-sqlite",
+     "SQLite dentro de la app, con SQL directo",
+     "Es oficial de Expo y viene incluido en su SDK. Vos escribís las consultas y las migraciones."
+    ],
+    [
+     "WatermelonDB",
+     "Una capa sobre SQLite que carga los datos bajo demanda y avisa a la interfaz cuando cambian",
+     "Trae primitivas de sincronización, pero el servidor lo ponés vos. Última versión en npm: 0.28.0 (07-04-2025)."
+    ],
+    [
+     "Realm",
+     "Una base de objetos para móviles",
+     "MongoDB deprecó sus SDK de dispositivos y su servicio de sincronización en septiembre de 2024 y los dio de baja el 30-09-2025. La base local sigue como proyecto abierto."
+    ],
+    [
+     "AsyncStorage o MMKV",
+     "Clave-valor ([@10-15])",
+     "No consultan ni filtran: sirven mientras todo cabe en memoria y se lee entero."
+    ]
+   ],
+   "cap": "Según el README de WatermelonDB, el registro de npm, el aviso de deprecación de MongoDB y la documentación de Expo; leídos el 16-11-2026. No corrí ninguna de estas librerías."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 16-11-2026",
+   "x": "Expo SDK 58 salió el 29-09-2026 y es la versión «latest» en npm (58.0.25). Senda está en SDK 57, donde `expo-sqlite` es la 57.0.5, y esa es la documentación que usé arriba. Para WatermelonDB, la versión sale del registro de npm de ese día; el estado de Realm, del aviso oficial de MongoDB [#mob16-realm-deprecation]. Una librería de datos pesa más que una de pantalla: si deja de mantenerse, migrar la base de todos los usuarios cuesta mucho. Mirá fecha del último lanzamiento y estado del proyecto antes de adoptarla."
+  },
+  {
+   "t": "pensa",
+   "x": "Una app guarda las lecciones que el usuario descargó: 40 lecciones de unos 20 KB cada una (800 KB en total), que solo se leen de a una. ¿Pasarías a una base local o te alcanza con claves?",
+   "resp": "Alcanza con claves, una por lección. Ninguna consulta cruza lecciones, nada se filtra y el total está lejos de los 6 MB de AsyncStorage en Android que viste ayer. La base local se justifica cuando hay muchos registros, búsquedas por varios criterios o cambios parciales frecuentes. Una herramienta más potente trae también más migraciones y más cosas para mantener. (Los números son inventados para el ejemplo.)"
+  },
+  {
+   "t": "h",
+   "x": "Offline-first: la red es una optimización"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una app **offline-first** trata los datos locales como la fuente con la que trabaja la interfaz. Lee de ahí y escribe ahí, siempre, haya señal o no. La red es una tarea de fondo que, cuando puede, pone al día lo de otros. La alternativa común, que cada pantalla le pregunte al servidor y espere, hace que la señal intermitente se vea como un error. En una ciudad con túneles, ascensores y subsuelos, la señal intermitente es lo normal, no un caso raro.",
+    "Es una elección de diseño con un precio. A cambio de que la app responda al instante, ahora hay dos copias de cada dato, la del teléfono y la del servidor, y las dos pueden cambiar sin enterarse una de la otra. Todo el resto del día trata de cómo se administra ese precio. Un ensayo muy citado, «Local-first software» de Ink & Switch (2019), lo plantea entre sus ideales: que no haya círculos girando y que la persona sea dueña de lo que crea [#mob16-local-first]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "cap": "El camino de una escritura en una app offline-first. La interfaz nunca espera a la red: la línea de abajo ocurre cuando puede.",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Pantalla",
+       "s": "la persona marca una entrega",
+       "k": "cliente"
+      },
+      {
+       "t": "Datos locales",
+       "s": "se guarda y se ve al instante",
+       "k": "datos",
+       "e": "escribe"
+      },
+      {
+       "t": "Cola de salida",
+       "s": "queda anotado qué falta mandar",
+       "k": "datos",
+       "e": "también anota"
+      }
+     ],
+     "baja": "en segundo plano, cuando hay señal"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Cola de salida",
+       "s": "toma un lote",
+       "k": "datos"
+      },
+      {
+       "t": "Red",
+       "s": "puede fallar en cualquier punto",
+       "k": "red",
+       "e": "manda"
+      },
+      {
+       "t": "Servidor",
+       "s": "aplica, o rechaza con una regla",
+       "k": "servidor",
+       "e": "responde"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la hoja de ruta en papel",
+   "x": [
+    "Un chofer sin señal hace lo de siempre: tilda la hoja de ruta de papel y, al volver al depósito, se la entrega al despachante, que la pasa al sistema. La hoja es la cola de salida y el depósito, el servidor.",
+    "Donde la analogía falla: si el teléfono se rompe antes de sincronizar, los cambios de la cola se pierden con él, mientras que la hoja de papel sobrevive. Y un despachante se da cuenta de que le entregan la misma hoja dos veces; un servidor sin identificadores, no."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "La cola de salida: anotar ahora, mandar cuando se pueda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La **cola de salida** es una lista guardada en el teléfono de los cambios que todavía no llegaron al servidor. Se escribe en el mismo momento del cambio, por lo que sobrevive si la app se cierra. Tiene que resolver tres problemas, y los tres ya los conocés de otros contextos: qué hacer cuando falla ([[reintento]]), cuánto esperar entre intentos y cómo evitar que un cambio se aplique dos veces.",
+    "El tercero es el más traicionero. Mandás un cambio, el servidor lo aplica, pero la respuesta se pierde en el camino. Para el teléfono, el cambio falló: lo reintenta. Si el servidor no se da cuenta de que ya lo vio, lo aplica otra vez. La solución es la de [@07-12]: cada cambio lleva un identificador único generado en el teléfono, y el servidor, si ya vio ese identificador, devuelve lo mismo y no repite nada ([[idempotencia]]). Probalo:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Una cola de salida con reintentos, contra un servidor al que se le pierde la primera respuesta.\nfunction nuevoServidor(idempotente) {\n  const s = { talentos: 0, vistos: new Set(), respuestasPerdidas: 1 };\n  s.recibir = (msg) => {\n    const repetido = idempotente && s.vistos.has(msg.cliente_id);\n    if (!repetido) { s.vistos.add(msg.cliente_id); s.talentos += msg.suma; }\n    if (s.respuestasPerdidas > 0) { s.respuestasPerdidas--; throw new Error(\"sin_senal\"); } // se aplicó, pero la respuesta no llegó\n  };\n  return s;\n}\n\nfunction correr(idempotente) {\n  const servidor = nuevoServidor(idempotente);\n  const cola = [{ cliente_id: \"a1\", suma: 15 }]; // el teléfono anota: «gané 15 Talentos»\n  let intentos = 0;\n  while (cola.length && intentos < 5) {\n    intentos++;\n    try { servidor.recibir(cola[0]); cola.shift(); } catch { /* queda en la cola y se reintenta */ }\n  }\n  return `intentos: ${intentos}, Talentos en el servidor: ${servidor.talentos}`;\n}\n\nconsole.log(\"sin cliente_id único ->\", correr(false));\nconsole.log(\"con cliente_id único ->\", correr(true));",
+   "cap": "Un servidor al que se le pierde la primera respuesta. Corrido en Node 22 antes de ponerlo acá."
+  },
+  {
+   "t": "p",
+   "x": "Sin identificador, el reintento suma 15 Talentos dos veces y el servidor termina con 30. Con identificador, el segundo mensaje se reconoce y el total queda en 15. Fijate en el detalle de diseño: la cola prefiere mandar de más a perder algo, y el servidor se encarga de que mandar de más no haga daño."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Queda cuánto esperar entre reintentos. Si miles de teléfonos pierden la señal juntos, por ejemplo por una caída de la red móvil, y todos reintentan cada 5 segundos, cuando vuelve el servicio lo golpean todos en el mismo instante. Se evita con espera creciente (5 segundos, 10, 20...) y un poco de azar, llamado *jitter*, para que no se sincronicen; es la receta de la guía de AWS sobre reintentos y esperas [#back17-aws-expo-backoff-jitter].",
+    "Y una pregunta que casi nadie hace: ¿cómo se sabe que no hay señal? Una app puede preguntarle al sistema si hay conexión, pero que el teléfono diga «conectado» no garantiza que el servidor responda (un wifi sin salida a internet, un portal de hotel). Lo único confiable es intentar y ver si la petición vuelve."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Las tres colas de salida de Senda y lo que no tiene cola",
+   "x": [
+    "Senda tiene tres colas de salida, todas guardadas en AsyncStorage. **Respuestas del Espadeo** (`src/util/nube.ts`): clave `senda-cola-nube`, hasta 500 filas, lotes de 50. Se manda con `POST` a `/rest/v1/respuestas?on_conflict=cliente_id` y el encabezado `resolution=ignore-duplicates`, es decir, la base descarta lo ya recibido por su índice único. **Turnos de duelo** (`src/util/juntos.ts`): si el envío falla por `sin_senal` o `error_nube`, el turno queda en `senda-turnos-pendientes` y sale al abrir la app o entrar a Duelos; un error de regla, como `no_es_tu_turno`, no se reintenta. **Marcas de copas y torneos** (`src/util/grupos.ts`): `senda-marcas-pendientes`, con tope de 20.",
+    "Cada cambio lleva su `cliente_id`, que la app genera con `nuevoId()`, un identificador con forma de UUID v4 armado con `Math.random`. Para identificar un mensaje alcanza; no es criptográficamente seguro y no se usa como secreto. No hay cola para lo demás: si no hay señal al unirse a un grupo o aceptar un amigo, la acción falla y se muestra el error.",
+    "Dos detalles de lectura. El reintento espera `5000 * 2 ** (fallos - 1)` milisegundos por un factor al azar entre 0,5 y 1,5, pero `fallos` se corta en 7, así que la espera máxima real es de unos 8 minutos, no los 10 que dice el comentario del código (el tope de 600.000 ms no llega a usarse). Y la cola de respuestas se guarda completa en un solo valor, de hasta 500 filas, en cada respuesta: es la reescritura de valor entero de [@10-15]. Commit `25e08fa`; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "src/util/juntos.ts",
+    "src/util/grupos.ts",
+    "src/util/metricas.ts"
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En la cola de marcas de copas, si una marca falla con un error que no es de señal (por ejemplo, la copa ya cerró), la app la descarta. ¿Por qué es razonable, y qué costo tiene?",
+   "resp": "Es razonable porque reintentar no cambiaría nada: la regla del servidor la rechazaría siempre, y una cola con una marca imposible de enviar se queda trabada y estorba a las demás. El costo es que la persona pierde esa marca sin saber por qué. Una versión más cuidadosa le avisaría que esa partida no cuenta."
+  },
+  {
+   "t": "h",
+   "x": "Cuando dos copias no coinciden"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá hubo una sola copia que cambia y otra que la copia. El problema nuevo aparece cuando **dos lados cambian lo mismo** antes de verse. Un teléfono marca la parada 12 como entregada; el panel del supervisor, en la misma hora, cambia la dirección de esa parada. Cuando se encuentran, tienen que ponerse de acuerdo. A eso lo llamamos [[conflicto de sincronización]]: dos versiones válidas de un mismo dato, hechas sin conocerse.",
+    "La [[sincronización]] es el proceso que vuelve a poner de acuerdo a las copias. No se puede evitar el conflicto con un cierre de caja de tipo «todos sincronizados». Se lo evita o se lo resuelve con una política elegida *por dato*, y casi nunca una misma política sirve para todos."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Política",
+    "Cómo decide",
+    "Qué pierde",
+    "Ejemplo"
+   ],
+   "filas": [
+    [
+     "Evitarlo: un solo escritor",
+     "Solo uno puede cambiar el dato en cada momento",
+     "Nada, pero no sirve para edición libre",
+     "Un duelo por turnos: solo escribe a quien le toca"
+    ],
+    [
+     "Solo agregar",
+     "Nunca se edita ni se borra: se agregan filas, cada una con su identificador",
+     "Nada; el estado sale de sumar las filas",
+     "Respuestas de una trivia"
+    ],
+    [
+     "El servidor es árbitro",
+     "Una regla del servidor decide, por ejemplo «cuenta la primera»",
+     "Lo que la regla descarta",
+     "Una copa: cuenta solo el primer resultado de cada persona"
+    ],
+    [
+     "Gana el último (por registro)",
+     "Gana el registro con la hora más nueva",
+     "Todo cambio del perdedor, incluso en campos que no se tocaron",
+     "Una nota editada en dos teléfonos"
+    ],
+    [
+     "Gana el último, por campo",
+     "Cada campo lo decide su edición más nueva",
+     "Solo lo pisado en un mismo campo",
+     "Color y texto de un resaltado cambiados por separado"
+    ],
+    [
+     "Mezclar con una estructura pensada para eso (CRDT)",
+     "El tipo de dato garantiza que, en el orden que lleguen, las copias convergen",
+     "Casi nada, a cambio de complejidad",
+     "Edición colaborativa de un texto"
+    ]
+   ],
+   "cap": "Resumen propio. La fila de CRDT viene de la literatura (Shapiro y otros, 2011); los ejemplos son para ilustrar."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un borrado también es un cambio",
+   "x": "Si el teléfono borra una fila y no deja constancia, la próxima descarga del servidor la trae de vuelta y parece que nunca se borró. Por eso los protocolos de sincronización registran los borrados como un cambio más: el de WatermelonDB manda, por cada tabla, los registros creados, los actualizados y la lista de identificadores borrados [#mob16-watermelon-sync]. Lo mismo vale al revés: un servidor que borra tiene que poder contárselo a los teléfonos que todavía tienen esa fila."
+  },
+  {
+   "t": "p",
+   "x": "Veamos dos de esas políticas con dos teléfonos que editan una nota y un color sin señal. Cada edición lleva la hora del reloj del teléfono que la hizo."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Dos teléfonos editan lo mismo sin señal. Cada edición lleva el reloj del teléfono que la hizo.\nconst inicial = { nota: \"Salmo 23\", color: \"amarillo\" };\nconst edicionA = { campo: \"color\", valor: \"verde\", reloj: 10 * 60 + 0 };  // A edita a las 10:00, reloj correcto\nconst edicionB = { campo: \"nota\", valor: \"Salmo 23: leído\", reloj: 10 * 60 + 1 };  // B edita a las 10:01, reloj correcto\n\n// Política 1: gana el registro completo del último reloj (último gana)\nfunction ultimoGanaRegistro(ediciones) {\n  const ganadora = [...ediciones].sort((x, y) => x.reloj - y.reloj).at(-1);\n  // cada teléfono manda el registro entero con su cambio puesto\n  return { ...inicial, [ganadora.campo]: ganadora.valor };\n}\n// Política 2: por campo, cada campo lo decide su última edición\nfunction porCampo(ediciones) {\n  const r = { ...inicial };\n  for (const e of [...ediciones].sort((x, y) => x.reloj - y.reloj)) r[e.campo] = e.valor;\n  return r;\n}\n\nconsole.log(\"último gana (registro entero):\", JSON.stringify(ultimoGanaRegistro([edicionA, edicionB])));\nconsole.log(\"por campo:                    \", JSON.stringify(porCampo([edicionA, edicionB])));\nconsole.log(\"--- ahora B con el reloj 30 min adelantado, y A edita DESPUÉS (a las 10:05 reales) el mismo campo ---\");\nconst A2 = { campo: \"nota\", valor: \"Salmo 23: versión de A\", reloj: 10 * 60 + 5 };\nconst B2 = { campo: \"nota\", valor: \"Salmo 23: versión de B\", reloj: 10 * 60 + 1 + 30 }; // editó antes, pero su reloj miente\nconsole.log(\"gana por reloj:\", JSON.stringify(porCampo([A2, B2])), \"(la edición más nueva de A se pierde)\");",
+   "cap": "«Gana el último» por registro contra por campo, y qué pasa cuando un reloj miente. Corrido en Node 22 antes de ponerlo acá."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La primera política perdió el cambio de color de A solo porque B tenía una edición con la hora más nueva sobre *otro* campo. La segunda conservó los dos. Y en la última prueba se ve la trampa de resolver por reloj: B editó antes, pero su reloj estaba 30 minutos adelantado, y su versión pisó una edición más nueva de A. Los relojes de los teléfonos se ajustan solos con la red, pero pueden desviarse, o alguien puede cambiarlos a mano. Ordenar eventos de forma segura en sistemas distribuidos exige otros relojes (los de Lamport, 1978 [#lamport-time]), que veremos en [@12-21].",
+    "Con CRDT la idea cambia: en lugar de decidir quién gana después, se elige una estructura de datos tal que **el orden en que lleguen las ediciones no cambia el resultado**. Los autores que lo formalizaron en 2011 lo llaman consistencia eventual fuerte: todas las copias que recibieron las mismas ediciones quedan idénticas, sin coordinarse [#mob16-crdt-shapiro]. El precio es tener que modelar cada dato con un tipo especial. Para la mayoría de las apps, una política por campo y reglas del servidor alcanzan."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Qué hace WatermelonDB",
+   "x": "Su protocolo de sincronización ordena el servidor así: si un registro que el teléfono quiere subir fue modificado en el servidor después de la última descarga (`lastPulledAt`), el servidor debe abortar y devolver un error; el teléfono vuelve a descargar y reintenta [#mob16-watermelon-sync]. Su página de limitaciones menciona un resolvedor de «el cliente gana, por columna» [#mob16-watermelon-limites]. Es decir: el conflicto se detecta por tiempo del servidor, no por el reloj del teléfono, y se resuelve por campo. Es lo que dice la documentación; no lo corrí."
+  },
+  {
+   "t": "senda",
+   "titulo": "Cómo evita Senda los conflictos, y dónde los deja abiertos",
+   "x": [
+    "Senda elige por dato. **Duelos:** un solo escritor. La función `jugar_turno` de la base bloquea la fila de la partida (`for update`), devuelve la partida tal como está si ya vio ese `cliente_id` y rechaza con `no_es_tu_turno` o `partida_cerrada` lo que no corresponde. **Copas:** el servidor es árbitro. `marca_copa` solo acepta resultados dentro de la ventana de la copa (`torneo_cerrado` si ya cerró) y deja contar el primer resultado de cada persona; los siguientes se devuelven con `oficial` en falso. **Respuestas:** solo agregar, con `cliente_id` único.",
+    "El caso abierto es la copia del progreso con Google. `guardar_progreso` hace un reemplazo del objeto completo (un `on conflict ... do update`), con no más de una escritura cada 10 segundos. Al recuperar en otro teléfono, `aplicarCopia` reemplaza lo local por lo traído, después de mostrarle a la persona el nivel, los Talentos y la fecha. **No hay mezcla por campo.** El documento de escala de la app proponía una (la fusión «el mayor gana»), pero no se implementó. Y `subirProgreso` no lee la copia antes de escribir, así que con dos teléfonos activos con la misma cuenta, gana silenciosamente el último que suba. Es una consecuencia de lo que leí en el código, no algo que probé: el diseño supone un teléfono activo por persona, y para un progreso personal es una decisión defendible. Commit `25e08fa`."
+   ],
+   "archivos": [
+    "src/util/respaldo.ts",
+    "src/componentes/guardarProgreso.tsx",
+    "supabase/migrations/20261130000006_progreso_nube.sql",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que Senda no tiene: una base local",
+   "x": [
+    "En `package.json` no hay `expo-sqlite`, Realm, MMKV ni WatermelonDB, y el mapa técnico lo registra: lo local es AsyncStorage con JSON. Los ocho textos bíblicos, entre 3,9 y 4,5 MB cada uno, son archivos de recurso (`assets/biblia/*.bib`) que la app lee y convierte con `JSON.parse` cuando hace falta (`src/datos/biblia.ts`). Para un contenido que no cambia y se lee de a un libro, no hace falta una base. Lo que sí cambia con cada uso, como los resaltados y las notas, vive dentro de `senda-usuario`, el valor entero que reescribe `persist` ([@10-15]), con el amortiguador de los 400 ms.",
+    "Mi lectura, como criterio y no como regla: mientras esos datos sean de cientos de elementos, el diseño aguanta. Si algún día fueran miles que se buscan y se filtran, sería el momento de una base local. El costo de decidirlo ahora es cero, y el de migrar a ciegas con usuarios activos, alto."
+   ],
+   "archivos": [
+    "package.json",
+    "src/datos/biblia.ts",
+    "src/util/almacen.ts"
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una app de entregas (inventada) funciona sin señal. En cada parada, el chofer marca «entregada» y saca una foto del remito. En paralelo, el supervisor, desde un panel web, puede corregir la dirección de la parada y cambiar el orden de las que faltan. Para cada dato, elegí una política de conflicto de la tabla de arriba y decí qué tendría que llevar la cola de salida.",
+   "pista": "Preguntate quién puede escribir cada campo. Si solo puede un lado, no hay conflicto. Después fijate en lo que no se puede deshacer: la foto del remito.",
+   "solucion": "Estado «entregada»: solo lo escribe el chofer, así que no hay conflicto de campo; basta con que el servidor acepte el cambio con su cliente_id y lo aplique una sola vez (idempotente). Dirección: solo la corrige el supervisor, mismo razonamiento; el teléfono la recibe en la próxima descarga. Orden de las paradas que faltan: es el campo en disputa, porque supervisor y chofer podrían reordenar. Una regla simple: el servidor es árbitro y el orden del supervisor gana; el teléfono recibe el nuevo orden y avisa si el chofer ya había hecho una parada saltada. Foto del remito: solo agregar. Se guarda como archivo, se anota en la cola con su cliente_id y se sube cuando hay señal; el servidor ignora los duplicados. La cola necesita tope y un aviso, porque mientras no se suba es la única copia de la foto."
+  }
+ ],
+ "recap": [
+  "Una base SQLite local sirve cuando hay muchos registros que se buscan, se filtran y se cambian de a uno; con un índice, la consulta pasó de recorrer 60.000 filas a saltar directo a las 200 necesarias.",
+  "Offline-first es trabajar siempre contra los datos locales y tratar la red como una tarea de fondo; el costo es que hay dos copias que pueden cambiar sin verse.",
+  "Una cola de salida guarda lo que falta mandar, con un identificador único por cambio, reintentos con espera creciente y azar, y un servidor que ignora los repetidos.",
+  "Un conflicto de sincronización aparece cuando dos copias cambian el mismo dato; se evita con un solo escritor, con datos de solo agregar o con un árbitro, y si no se resuelve con una política elegida por dato.",
+  "Resolver por reloj es frágil, porque los relojes de los teléfonos pueden estar desfasados; la resolución por campo pierde menos que por registro.",
+  "Senda no tiene base local: usa tres colas de salida con identificador único, un servidor que arbitra duelos y copas, y una copia de progreso con Google que reemplaza sin mezclar."
+ ],
+ "repaso": [
+  {
+   "p": "Un teléfono manda un cambio, el servidor lo aplica, pero la respuesta no llega. La cola lo reintenta. Si el servidor no tiene ninguna defensa, ¿qué pasa?",
+   "o": [
+    "El cambio se aplica dos veces, porque el servidor no puede distinguir el reintento del cambio nuevo",
+    "El cambio se ignora, porque el servidor rechaza todo lo que ya vio",
+    "Se aplica una sola vez, porque el sistema operativo descarta el reintento",
+    "Se produce un conflicto de sincronización, que se resuelve por reloj"
+   ],
+   "c": 0,
+   "e": "Sin identificador único ni chequeo, el servidor ve un mensaje nuevo cada vez. Eso es lo que reproduje con 30 contra 15 Talentos. La opción del conflicto confunde dos problemas: acá hay una sola copia que cambia y un mensaje duplicado, que se arregla con idempotencia."
+  },
+  {
+   "p": "Una app consulta con frecuencia «las entregas pendientes de la ruta X» entre 60.000 registros guardados como un solo texto JSON en AsyncStorage. ¿Qué cambio resuelve mejor el problema?",
+   "o": [
+    "Guardar el JSON comprimido para que se lea más rápido",
+    "Pasar a MMKV, que lee el mismo JSON de forma sincrónica",
+    "Subir el límite de AsyncStorage a 20 MB para que entre todo",
+    "Pasar a una base SQLite con un índice sobre ruta y estado"
+   ],
+   "c": 3,
+   "e": "El problema es la forma de acceso: hay que buscar entre muchos registros. Una base con índice salta directo a los de esa ruta, como medí con SEARCH contra SCAN. Comprimir, un almacén más rápido o más espacio siguen obligando a leer y recorrer todo el JSON."
+  },
+  {
+   "p": "Dos teléfonos editan campos distintos del mismo registro sin señal y el servidor resuelve «gana el último, por registro». ¿Qué ocurre?",
+   "o": [
+    "Se conservan las dos ediciones, porque los campos son distintos",
+    "El servidor rechaza las dos y pide a las personas que resuelvan a mano",
+    "Se pierde la edición del teléfono que subió con la hora más vieja, aunque tocara otro campo",
+    "Se conserva la más vieja, porque es la que el servidor vio primero"
+   ],
+   "c": 2,
+   "e": "Por registro significa que el registro entero de un teléfono reemplaza al del otro, y la hora decide cuál. Por eso se pierde un cambio que no tenía conflicto real. La política por campo evita eso y conserva las dos ediciones."
+  },
+  {
+   "p": "¿Cuál es el riesgo principal de resolver un conflicto comparando la hora que anotó cada teléfono?",
+   "o": [
+    "Que el servidor tarde demasiado en comparar las horas",
+    "Que los relojes de los teléfonos pueden estar desfasados y ganar una edición más vieja",
+    "Que las horas ocupan demasiado espacio en la cola de salida",
+    "Que dos ediciones nunca pueden tener la misma hora"
+   ],
+   "c": 1,
+   "e": "Un reloj adelantado, o cambiado a mano, hace que una edición vieja parezca la más nueva. Por eso hay protocolos que no dependen de relojes de pared, o que usan la hora del servidor. Comparar, el espacio y las horas repetidas no son el problema real."
+  },
+  {
+   "p": "La copa de Senda deja contar solo el primer resultado de cada persona, y rechaza lo que llega después de que cerró. ¿Qué política de conflicto es?",
+   "o": [
+    "Gana el último por reloj del teléfono",
+    "Mezcla automática con una estructura CRDT",
+    "El servidor como árbitro, con una regla fija",
+    "Un solo escritor, por turnos"
+   ],
+   "c": 2,
+   "e": "La regla vive en el servidor (`marca_copa`) y decide con su propia hora y con «cuenta el primero». No depende del reloj del teléfono, no mezcla nada y no hay turnos de escritura: es un árbitro con reglas."
+  },
+  {
+   "p": "En una cola de salida, un cambio falla con un error de regla del servidor («partida cerrada»). ¿Qué es lo más sensato hacer con ese cambio?",
+   "o": [
+    "Reintentarlo cada 5 segundos hasta que funcione",
+    "Descartarlo y avisar, porque la regla lo va a rechazar siempre",
+    "Dejarlo al frente de la cola, para que no se salteen las reglas",
+    "Reescribirlo con otro identificador para que el servidor lo acepte"
+   ],
+   "c": 1,
+   "e": "Un rechazo por regla no depende de la señal, así que reintentar no lo arregla y además traba a los demás cambios. Cambiar el identificador para esquivar la regla sería hacer trampa y podría duplicar lo que sí se aplicó. Lo correcto es descartar y avisar a la persona."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa qué quiere decir que una app «funcione sin señal» y qué problema aparece cuando dos personas tocan lo mismo sin conexión. Usá un ejemplo propio que no sea un repartidor ni un duelo, y marcá hasta dónde sirve.",
+ "para_profundizar": [
+  {
+   "fuente": "mob16-expo-sqlite-57",
+   "nota": "La documentación de expo-sqlite del SDK 57: buscá el ejemplo de migración con `PRAGMA user_version` y las advertencias sobre `execAsync`."
+  },
+  {
+   "fuente": "mob16-local-first",
+   "nota": "El ensayo «Local-first software»: leé los siete ideales y la sección de CRDT para ver el problema desde el lado de la persona que usa la app."
+  },
+  {
+   "fuente": "mob16-watermelon-sync",
+   "nota": "La especificación del protocolo de sincronización de WatermelonDB: sirve para ver qué debe cumplir un servidor para que la descarga y la subida sean consistentes."
+  },
+  {
+   "fuente": "back17-aws-expo-backoff-jitter",
+   "nota": "El artículo de AWS sobre espera exponencial con azar: explica con simulaciones por qué sumar jitter reduce la competencia entre clientes."
+  }
+ ],
+ "videos": [
+  {
+   "q": "local-first software offline first sync conflict resolution explained",
+   "por_que": "Para ver con otros ejemplos cómo se plantea la sincronización de datos entre dispositivos sin servidor central."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "SQLite móvil",
+   "d": "El motor SQLite de [@09-33] funcionando dentro de una app de teléfono, con todos los datos en un único archivo local. Permite consultas, índices y transacciones sin servidor; en React Native se usa con `expo-sqlite` u otras librerías."
+  },
+  {
+   "t": "sincronización",
+   "d": "Proceso de poner de acuerdo dos copias de los mismos datos, por ejemplo la del teléfono y la del servidor: lo que cambió de un lado se manda al otro y, si hay diferencias, se aplica una política."
+  },
+  {
+   "t": "conflicto de sincronización",
+   "d": "Situación en que dos copias de un mismo dato cambiaron, cada una por su lado y sin conocer la otra. Hay que elegir qué versión vale, o cómo mezclarlas, según una política decidida de antemano para cada tipo de dato."
+  },
+  {
+   "t": "offline-first",
+   "d": "Diseño en que la app lee y escribe siempre contra datos locales, y manda y recibe lo de la red en segundo plano cuando puede. La señal intermitente deja de ser un error y pasa a ser una condición normal."
+  },
+  {
+   "t": "cola de salida",
+   "d": "Lista guardada en el teléfono con los cambios que todavía no llegaron al servidor. Cada cambio lleva un identificador único para que reintentar no lo duplique, y la cola tiene un tope para no crecer sin límite."
+  }
+ ],
+ "siguiente": "los permisos del teléfono: cómo pide una app acceso a la cámara, la ubicación o los contactos, qué es una justificación y qué decide el sistema operativo.",
+ "fuentes_nuevas": [
+  {
+   "id": "mob16-expo-sqlite-57",
+   "t": "SQLite (Expo SDK 57 documentation)",
+   "a": "Expo",
+   "tipo": "doc",
+   "url": "https://docs.expo.dev/versions/v57.0.0/sdk/sqlite/"
+  },
+  {
+   "id": "mob16-local-first",
+   "t": "Local-first software: You own your data, in spite of the cloud",
+   "a": "Martin Kleppmann, Adam Wiggins, Peter van Hardenberg y Mark McGranaghan (Ink & Switch)",
+   "tipo": "articulo",
+   "anio": 2019,
+   "url": "https://www.inkandswitch.com/essay/local-first/"
+  },
+  {
+   "id": "mob16-crdt-shapiro",
+   "t": "Conflict-free Replicated Data Types",
+   "a": "Marc Shapiro, Nuno Preguiça, Carlos Baquero y Marek Zawirski",
+   "tipo": "paper",
+   "anio": 2011,
+   "url": "https://inria.hal.science/inria-00609399"
+  },
+  {
+   "id": "mob16-watermelon-sync",
+   "t": "Sync: Backend (WatermelonDB)",
+   "a": "Nozbe",
+   "tipo": "doc",
+   "url": "https://watermelondb.dev/docs/Sync/Backend"
+  },
+  {
+   "id": "mob16-watermelon-limites",
+   "t": "Sync: Limitations (WatermelonDB)",
+   "a": "Nozbe",
+   "tipo": "doc",
+   "url": "https://watermelondb.dev/docs/Sync/Limitations"
+  },
+  {
+   "id": "mob16-realm-deprecation",
+   "t": "Atlas Device SDKs Deprecation",
+   "a": "MongoDB",
+   "tipo": "doc",
+   "url": "https://www.mongodb.com/docs/atlas/device-sdks/deprecation/"
+  }
+ ]
+}
