@@ -1,0 +1,568 @@
+{
+ "id": "10-07",
+ "titulo": "El ciclo de vida de una app móvil",
+ "bajada": "Tu app no decide cuándo vive ni cuándo muere: lo decide el sistema, y lo que no está en el disco se pierde sin aviso.",
+ "minutos": 27,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Distinguir los cuatro momentos de una app móvil (primer plano, segundo plano, suspendida y terminada) y qué puede hacer la app en cada uno.",
+  "Explicar por qué el sistema mata procesos y por qué la app no recibe un aviso garantizado antes de morir.",
+  "Decidir qué datos van a memoria, cuáles al disco y en qué momento conviene escribirlos.",
+  "Leer cómo Senda usa `AppState` y su almacén con lotes de 400 ms, y calcular qué se pierde en cada caso.",
+  "Comparar cómo Android e iOS manejan el paso a segundo plano y la restauración del estado."
+ ],
+ "venis_de": "En [@10-02] viste cómo Android arma el proceso de una app con Zygote y ART, y en [@10-05] cómo iOS organiza una app dentro de su bundle y su sandbox. Falta lo que pasa con ese proceso a lo largo del tiempo: cuándo el sistema lo deja correr, cuándo lo congela y cuándo lo elimina, y qué hace una app bien escrita para que la persona no lo note.",
+ "se_apoya_en": [
+  "10-02",
+  "10-05",
+  "02-31"
+ ],
+ "gancho": [
+  "Imaginá a un repartidor que llena en su teléfono la planilla de entrega: dirección, firma del cliente, tres fotos, una observación de dos renglones. Justo cuando va a apretar «Enviar» le entra un llamado, atiende, después abre el mapa para buscar la siguiente calle y, a los veinte minutos, vuelve a la app. La planilla está vacía. Nadie la borró; el sistema necesitaba memoria para el mapa y la app quedó en el lote de lo que se puede sacrificar. (Ejemplo inventado, pero es la queja más repetida de cualquier app mal preparada para esto.)",
+  "Una app de escritorio vive mientras la ventana esté abierta. Una app de teléfono no: el sistema operativo la pone y la saca de escena todo el tiempo, y es el dueño de su vida. Hoy aprendés ese ciclo con nombres y reglas concretas, y al final lo vas a ver en el código de Senda, donde un reloj de 400 milisegundos separa «guardado» de «perdido»."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Cuatro momentos, no dos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Desde afuera parece que una app está abierta o cerrada. Por dentro hay más matices. Los nombres de abajo son los que usa la industria, con una salvedad: Android e iOS los dibujan de forma un poco distinta, y más adelante vas a ver dónde.",
+    "El **[[primer plano]]** es el estado en que la app está en pantalla y la persona la está usando. Es el único en el que la app tiene la atención del usuario y, por eso, la prioridad del sistema: CPU, memoria y pantalla son suyos. Apple lo dice así: una app en primer plano tiene la atención de la persona y por eso tiene prioridad sobre los recursos del sistema [#apple-uikit-lifecycle].",
+    "El **[[segundo plano]]** empieza cuando la persona se va: abre otra app, vuelve al inicio o bloquea el teléfono. La app sigue existiendo, con su memoria intacta, pero ya no se ve. En este estado la regla de las dos plataformas es la misma: hacer lo mínimo, y de preferencia nada. La guía de Apple dice que una app en segundo plano debe hacer lo menos posible, y preferentemente nada, porque está fuera de pantalla [#apple-uikit-lifecycle].",
+    "Después viene un estado que la persona no ve y que el programador casi nunca puede observar: la app **suspendida** (en iOS) o **en caché** (en Android). El proceso sigue en la memoria RAM, pero el sistema no le da tiempo de CPU. Está congelado, listo para volver en un instante si el usuario regresa, y listo para ser eliminado si hace falta lugar.",
+    "El último es el **[[proceso terminado]]**: el sistema liberó la memoria del proceso, o la persona lo cerró a mano. Para una app bien hecha, esto no tiene por qué notarse. Para una mal hecha, es la planilla vacía."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "cap": "Los cuatro momentos de una app móvil, simplificados. Cada plataforma tiene más estados internos; este es el mapa que alcanza para razonar.",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Primer plano",
+       "s": "en pantalla, con CPU y atención",
+       "k": "ok"
+      },
+      {
+       "t": "Segundo plano",
+       "s": "fuera de pantalla, con poco tiempo",
+       "k": "red",
+       "e": "la persona se va"
+      },
+      {
+       "t": "Suspendida o en caché",
+       "s": "en RAM, sin CPU",
+       "k": "os",
+       "e": "pasan unos segundos o minutos"
+      },
+      {
+       "t": "Terminada",
+       "s": "sin proceso, sin RAM",
+       "k": "alerta",
+       "e": "el sistema necesita memoria"
+      }
+     ],
+     "baja": "Desde segundo plano o suspendida se vuelve a primer plano si el proceso sigue vivo. Si no, hay un arranque nuevo desde cero."
+    }
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: un camión en el predio",
+   "x": [
+    "Pensá en camiones que trabajan para un depósito grande. El que está en el muelle cargando es el primer plano: tiene el muelle, el autoelevador y al personal. El que espera estacionado en la playa con el motor en marcha es el segundo plano. El que está estacionado con el motor apagado y las llaves en la oficina es el suspendido. Y cuando la playa se llena y entra un camión urgente, el encargado manda retirar a uno de los apagados sin pedirle permiso al chofer: es el proceso terminado.",
+    "La analogía deja de valer en un punto importante: al camión retirado se lo puede volver a llamar y conserva la carga que tenía arriba. Un proceso terminado pierde todo lo que tenía en la memoria. Solo sobrevive lo que alguien dejó en el disco."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Quién decide: el sistema, no la app"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En un programa de escritorio vos controlás cuándo termina: cerrás la ventana, se acaba el proceso. En Android esa idea no existe. La documentación oficial arranca diciendo que la vida del proceso de una app no la controla la propia app: la determina el sistema a partir de qué partes de la app sabe que están corriendo, qué tan importantes son para el usuario y cuánta memoria hay en total [#android-process-lifecycle]. Dicho más corto: **la app puede pedir que no la maten, pero no puede impedirlo**.",
+    "Para decidir a quién matar cuando falta memoria, Android ordena todos los procesos en una jerarquía de importancia. De más a menos importante, según la misma documentación: proceso en primer plano, proceso visible, proceso de servicio y proceso en caché [#android-process-lifecycle]. Un proceso en caché es uno que no se necesita en este momento, de modo que el sistema es libre de eliminarlo cuando falta memoria. En un sistema que funciona normalmente, esos son los únicos procesos que se sacrifican."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Nivel (Android)",
+    "Qué lo define",
+    "Cuándo lo matan"
+   ],
+   "filas": [
+    [
+     "Primer plano",
+     "Una pantalla de la app arriba, con la que la persona interactúa",
+     "Casi nunca: solo como último recurso, si ni siquiera esos pueden seguir"
+    ],
+    [
+     "Visible",
+     "Una pantalla visible pero sin foco (por ejemplo, detrás de un diálogo), o un servicio con aviso permanente",
+     "Solo si hace falta para mantener vivos los de primer plano"
+    ],
+    [
+     "Servicio",
+     "Un servicio iniciado que hace algo que el usuario valora (una subida de datos)",
+     "Solo si falta memoria para los dos niveles de arriba"
+    ],
+    [
+     "En caché",
+     "La app salió de pantalla y no tiene nada activo",
+     "Cuando el sistema quiera, en cualquier momento"
+    ]
+   ],
+   "cap": "Resumen de la jerarquía descripta en la documentación de Android (consultada el 16-11-2026) [#android-process-lifecycle]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para las apps comunes, como un juego o una app de lectura, la consecuencia práctica es una sola: en cuanto la persona sale de pantalla y no hay nada activo, la app pasa al último nivel, el de caché, y desde ahí el sistema puede quitarla cuando quiera. La misma página lo dice sin vueltas: como un proceso en caché puede ser eliminado en cualquier momento, la app debería dejar de hacer trabajo mientras está en ese estado [#android-process-lifecycle]. Y agrega algo que explica muchos misterios: **`onDestroy()` no se garantiza cuando el sistema mata el proceso**. Si tu plan de guardado era «lo hago cuando me avisen que me cierran», no hay aviso."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un compañero dice: «Guardo el progreso en el evento de cierre de la app, así no escribo cada vez que algo cambia». ¿Qué le responderías con lo que acabás de leer?",
+   "resp": "Que en un teléfono ese evento no es confiable. Cuando el sistema elimina un proceso por falta de memoria, no hay una etapa final en la que la app pueda correr código. El momento seguro para guardar es antes: al salir de pantalla, que es cuando todavía hay tiempo de CPU, y también cada tanto mientras la persona usa la app."
+  },
+  {
+   "t": "h",
+   "x": "En iOS: las mismas reglas con otro dibujo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "iOS sigue la misma lógica con otras palabras. Desde iOS 13, la unidad que cambia de estado es la **escena** (scene), que representa una instancia de la interfaz de tu app; una persona puede tener varias, y cada una está en un estado distinto [#apple-uikit-lifecycle]. Cuando la persona se va, UIKit mueve la escena a segundo plano y después a suspendida. Y Apple avisa en su documentación que UIKit puede desconectar una escena en segundo plano o suspendida en cualquier momento para recuperar sus recursos [#apple-uikit-lifecycle]: la versión de Apple del proceso terminado.",
+    "Apple, además, le pide cosas concretas al desarrollador en cada transición. Al desactivarse (cuando la persona se va, o cuando entra una llamada o aparece una alerta del sistema), guardar los datos del usuario en disco y cerrar los archivos abiertos, no programar tareas nuevas, invalidar temporizadores y pausar el juego. Al pasar a segundo plano, liberar memoria y recursos compartidos, porque en iOS el sistema termina apps en segundo plano a medida que necesita memoria [#apple-uikit-background]. Fijate en el orden: **guardar es lo primero que se hace al dejar de estar activa**, no lo último antes de morir."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que dicen las guías, con fecha",
+   "x": "Esto lo leí en las guías de Apple (UIKit, consultadas el 16-11-2026) y en la documentación de Android; no corrí nada en un iPhone ni en un teléfono. Los nombres de métodos y estados cambian de versión en versión; el principio (el sistema manda y el tiempo para guardar es el de antes de irse) no."
+  },
+  {
+   "t": "h",
+   "x": "Qué se pierde y qué sobrevive"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando el proceso muere, se pierde todo lo que vivía solo en la memoria RAM del proceso. En una app de React Native eso incluye las variables de JavaScript, el estado de cada componente, la pila de pantallas por las que navegaste y cualquier cálculo a medias. Sobrevive lo que está en el almacenamiento del teléfono: archivos, bases locales y los pares clave-valor que guardan bibliotecas como AsyncStorage (las vas a ver en [@10-15]). Todo eso vive en el directorio privado de la app, el mismo que viste en [@02-31]: se conserva entre arranques y se borra si la app se desinstala.",
+    "Con esto se puede armar una tabla para razonar cualquier dato de una app, y es la pregunta que conviene hacerle a un equipo de desarrollo cuando algo se pierde."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dato",
+    "¿Dónde vive?",
+    "¿Sobrevive a un proceso terminado?",
+    "¿Qué hacer?"
+   ],
+   "filas": [
+    [
+     "Lo que escribió la persona en un formulario a medias",
+     "En el estado de la pantalla (RAM)",
+     "No",
+     "Guardar un borrador al salir de pantalla"
+    ],
+    [
+     "Pantalla abierta y posición en la navegación",
+     "En el estado del navegador (RAM)",
+     "No, salvo que se guarde aparte",
+     "Decidir si vale la pena restaurarla o volver a la pantalla de inicio"
+    ],
+    [
+     "Progreso y puntos ganados",
+     "En el disco, si se escribió",
+     "Sí, solo lo que ya se escribió",
+     "Escribir en cuanto cambia o dentro de una ventana corta"
+    ],
+    [
+     "Datos de la nube (el pedido de un cliente)",
+     "En el servidor",
+     "Sí, pero hay que volver a pedirlos",
+     "Pedirlos de nuevo al abrir"
+    ],
+    [
+     "Una descarga en curso",
+     "En un hilo del proceso",
+     "No",
+     "Usar un mecanismo del sistema para trabajo en segundo plano ([@10-20])"
+    ]
+   ],
+   "cap": "El criterio es siempre el mismo: lo que importa más que un reinicio va al disco o al servidor, lo demás se puede recalcular."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«Segundo plano» no quiere decir «sigue trabajando»",
+   "x": [
+    "Mucha gente entiende que una app en segundo plano sigue corriendo como si nada. La documentación de React Native lo deja claro: `background` significa que el usuario está en otra app, en el inicio, o, en Android, en otra pantalla, incluso las que el sistema abre un momento, como el selector de credenciales de autocompletar [#mob1007-rn-appstate]. Y desde Android 13, un proceso puede recibir tiempo de ejecución limitado o nulo hasta que vuelva a un estado activo [#android-process-lifecycle]. Si necesitás que algo ocurra con la app fuera de pantalla (una subida, un recordatorio), no se logra «dejando la app corriendo»: se pide al sistema, con las herramientas que vas a ver en [@10-19] y [@10-20]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Los avisos que sí llegan, y cómo los ve React Native"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el sistema no avisa cuando mata, sí avisa cuando la app pasa de estado. En Android son los métodos de la `Activity` (`onPause`, `onStop`, y otros); en iOS son los métodos del delegado de la escena. React Native los junta en una sola interfaz de JavaScript, `AppState`. Tiene tres valores: `active` (en primer plano), `background` (fuera de pantalla) e `inactive`, que existe solo en iOS y describe las transiciones y las interrupciones, como abrir el centro de notificaciones o recibir una llamada [#mob1007-rn-appstate]. Se escucha el evento `change`, y la propiedad `currentState` dice cuál es el estado actual.",
+    "Hay una asimetría útil de recordar: **en Android, `background` no siempre significa que la persona se fue de la app**. Como cualquier otra pantalla cuenta (incluso un selector del sistema), un pasaje breve por una pantalla ajena ya dispara el evento. Por eso conviene que lo que haga el oyente sea barato y seguro de repetir, como guardar, y no algo costoso como cerrar sesión."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { AppState } from 'react-native';\n\nconst suscripcion = AppState.addEventListener('change', (siguiente) => {\n  // 'active' | 'background' | 'inactive' (este último, solo en iOS)\n  if (siguiente !== 'active') {\n    guardarYa(); // escribe en el disco lo que esté pendiente\n  }\n});\n\n// Cuando el componente o el módulo ya no lo necesita:\nsuscripcion.remove();",
+   "cap": "Forma típica de usar `AppState` según la documentación de React Native. `guardarYa` es una función de ejemplo, no de la biblioteca. No lo corrí en un teléfono."
+  },
+  {
+   "t": "h",
+   "x": "El dilema del guardado: ¿cada cambio o por lotes?"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con todo esto aparece un dilema real. Escribir en el disco es lento comparado con la memoria, y hacerlo en el medio de una animación puede trabar la pantalla. Si escribís cada vez que algo cambia, es seguro pero lento. Si escribís cada tanto, es rápido pero hay una ventana de tiempo en la que un cambio solo existe en memoria. Esa ventana es el costo de la decisión, y conviene poder medirla.",
+    "Senda tomó el segundo camino y lo cuenta en un comentario del propio código: antes, cada cambio convertía a texto todo el progreso y lo escribía en el acto, en medio de la animación, y marcar un versículo quedaba lento. Ahora los cambios se juntan y se escriben de una vez 400 milisegundos después del primero, y **al pasar la app a segundo plano se escribe en el acto**, para no perder nada. Para mirarlo de cerca, copié la lógica de ese archivo a un script de Node con un «disco» falso, y simulé tres casos: la app muere a los 300 ms sin haber pasado por segundo plano, la persona sale de pantalla a los 300 ms y recién después muere, y la app muere a los 500 ms."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const disco = new Map();\nconst AsyncStorage = { multiSet: async (l) => { for (const [k, v] of l) disco.set(k, v); } };\nconst pendientes = new Map();\nlet reloj = null;\n\nfunction guardarYa() {\n  if (reloj) clearTimeout(reloj);\n  reloj = null;\n  if (!pendientes.size) return;\n  const lote = [];\n  pendientes.forEach((v, k) => lote.push([k, JSON.stringify(v)]));\n  pendientes.clear();\n  AsyncStorage.multiSet(lote);\n}\n\nfunction setItem(k, v) {\n  pendientes.set(k, v);\n  if (!reloj) reloj = setTimeout(guardarYa, 400); // un solo reloj por lote\n}\n\nsetItem('senda-usuario', { talentos: 115 }); // t = 0: ganás Talentos\nsetTimeout(() => {\n  console.log('a los 300 ms, en disco:', disco.get('senda-usuario') ?? 'nada');\n}, 300);\nsetTimeout(() => {\n  console.log('a los 500 ms, en disco:', disco.get('senda-usuario') ?? 'nada');\n}, 500);",
+   "cap": "Versión mínima del mecanismo de `src/util/almacen.ts` de Senda (commit 25e08fa): el cambio queda pendiente 400 ms. El «disco» es un `Map`; el original usa AsyncStorage.",
+   "ejecutable": true
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node sim.js    # tres escenarios sobre la lógica copiada de almacen.ts",
+     "s": "A. kill a los 300 ms, sin pasar por background -> en disco: NADA (se perdió)\nB. background a los 300 ms, después kill     -> en disco: {\"talentos\":115}\nC. kill a los 500 ms (ya pasó el lote)       -> en disco: {\"talentos\":115}"
+    }
+   ],
+   "cap": "Simulación mía, corrida en una VM el 16-11-2026. Simula la lógica, no un teléfono: en un teléfono real el momento exacto del corte lo decide el sistema."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El caso A es el costo de la decisión: si el proceso muere dentro de los 400 ms posteriores a un cambio y sin que la app haya pasado antes por segundo plano, ese cambio se pierde. El caso B muestra para qué sirve el aviso de `AppState`: cierra la ventana en el momento en que el sistema todavía le da tiempo de CPU a la app. El caso C es el funcionamiento normal.",
+    "Para que el caso A ocurra el proceso tiene que morir en 0,4 segundos y sin salida previa de pantalla: es posible (batería agotada, app colgada), pero poco frecuente, y a cambio la pantalla no se traba. No existe el guardado perfecto: existe la ventana de pérdida que el equipo acepta y mide."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Si Senda bajara el reloj de 400 ms a 40 ms, ¿qué ganaría y qué perdería?",
+   "resp": "Ganaría una ventana de pérdida diez veces más chica. Perdería lo que motivó el lote: más escrituras por segundo y más trabajo de convertir el estado a texto justo cuando la pantalla está animando, que es lo que hacía lento marcar un versículo. Como en toda decisión de ingeniería, se cambia un costo por otro."
+  },
+  {
+   "t": "h",
+   "x": "Restaurar: volver donde estabas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Que el proceso muera no significa que la persona tenga que notarlo. La idea se llama **[[estado restaurado]]**: al volver, la app reconstruye lo suficiente de lo que había para que parezca que nunca se fue. Cuánto reconstruir es una decisión de producto. Un lector de libros debería volver a la página exacta; una app de pedidos, probablemente a la lista del pedido; un juego, a la pantalla de inicio con el progreso intacto.",
+    "Android prevé tres capas para esto, que su documentación compara en una tabla [#mob1007-android-saving-states]: el `ViewModel` (en memoria; sobrevive a rotar la pantalla pero **no** a que maten el proceso), el estado guardado del sistema (`rememberSaveable`, `SavedStateHandle`; sobrevive a ambos, pero es solo para cosas chicas) y el almacenamiento persistente (disco o red; sobrevive a todo, pero es más lento de leer). La recomendación oficial es dividir el trabajo: en el estado guardado, una cantidad mínima, como un identificador o la consulta de una búsqueda; en el disco, los datos de verdad.",
+    "iOS tiene su par: en SwiftUI, la propiedad `@SceneStorage` guarda y restaura valores por escena, y Apple aclara que el sistema no garantiza cuándo ni con qué frecuencia los persiste, que no debe guardarse información sensible ni datos grandes y que se destruye si la escena se destruye de forma explícita [#apple-scenestorage]. Hay una guía completa con un proyecto de ejemplo sobre preservar y restaurar el estado de la interfaz cuando el sistema termina la app [#apple-swiftui-restoring]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "El detalle que casi nadie nota: Expo apaga la restauración de Android",
+   "x": [
+    "Generé una app mínima con `create-expo-app` y corrí `npx expo prebuild` para ver qué sale. El `MainActivity.kt` que produce llama a `super.onCreate(null)`, es decir, **descarta el estado guardado** que el sistema le entrega al recrear la pantalla. Es una decisión de la plantilla de Expo, no de Android: la plantilla elige no usar el mecanismo nativo de restauración y se apoya en que cada app de JavaScript guarde lo suyo. El mismo archivo declara `android:configChanges` con `orientation|screenSize` y otros valores, que le dice a Android que no destruya la pantalla al rotar o cambiar de tamaño.",
+    "Lo que acabo de describir salió de una app mínima con Expo SDK 58.0.25 y React Native 0.88.1, que es lo que `create-expo-app` bajó el 16-11-2026. Senda está en Expo SDK 57 y no versiona su carpeta `android/`, así que no puedo afirmar que su archivo generado sea idéntico; la conclusión general (el estado de la app vive en JavaScript y en el disco, no en el Bundle del sistema) sí aplica."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda, caso real: qué guarda, cuándo y qué no restaura"
+  },
+  {
+   "t": "senda",
+   "titulo": "Cuatro oyentes de AppState, cuatro razones",
+   "x": [
+    "En el commit 25e08fa, el código registra `AppState.addEventListener('change', …)` en varios lugares, cada uno con una razón distinta (la lista es la de `grep` sobre `src/`; el código cambia, la forma permanece):",
+    "1. **`src/util/almacen.ts`**: si el estado no es `active`, llama a `guardarYa()` y escribe lo que esté pendiente del lote de 400 ms. Es el oyente del caso B de arriba.",
+    "2. **`src/App.tsx`**: al pasar a `active` pide novedades (`cargarNovedades`); al pasar a `background` llama a `subirProgreso()`, la copia del progreso a la nube que existe solo para quienes guardaron la cuenta con Google (el mapa técnico lo describe en su sección 5.4). Las cuentas anónimas no tienen copia en la base: para ellas, el teléfono es la única copia.",
+    "3. **`src/util/nube.ts`** y **`src/util/metricas.ts`**: al salir de `active`, intentan enviar lo que haya en cola (respuestas del Espadeo y métricas anónimas). Es el mismo patrón: aprovechar el último momento con CPU.",
+    "4. **`src/sonido.ts`**: al salir de `active`, calla todo, apaga la música y suspende el contexto de audio; al volver, retoma la música del juego. Acá el motivo no es guardar sino no seguir sonando con el teléfono bloqueado.",
+    "Hay más: el lector (`src/pantallas/Lector.tsx`) guarda la última lectura al salir de pantalla, y `src/componentes/descanso.tsx` usa el estado para no contar como «tiempo de uso» el rato en que la app está fuera de pantalla."
+   ],
+   "archivos": [
+    "src/util/almacen.ts",
+    "src/App.tsx",
+    "src/util/nube.ts",
+    "src/util/metricas.ts",
+    "src/sonido.ts",
+    "src/pantallas/Lector.tsx",
+    "src/componentes/descanso.tsx"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que Senda no restaura, y está bien",
+   "x": [
+    "El `NavigationContainer` de `src/App.tsx` se declara sin `initialState`: la pila de pantallas **no se guarda**. Si el sistema elimina el proceso mientras la persona estaba en una lección, al volver la app arranca de nuevo, con la bienvenida si nunca se completó o con las pestañas principales si ya se vio. Lo que sí vuelve es lo que está en los almacenes persistidos (progreso, Talentos, racha, lecciones, resaltados, notas, cintas, última lectura), que viven en AsyncStorage bajo claves que empiezan con `senda-` (`senda-usuario` entre ellas, según el mapa técnico)."
+   ],
+   "archivos": [
+    "src/App.tsx",
+    "src/estado/usuario.ts",
+    "src/navegacion.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Errores y mitos frecuentes"
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "Mito: «Si no cerré la app, sigue abierta y guardada»",
+   "x": "Que una app figure en la lista de recientes no prueba que su proceso esté vivo: puede estar en caché o haber sido eliminado. Desde la app no se distingue a simple vista, por eso se programa siempre para el peor caso."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Guardar, pero tarde o mal",
+   "x": "Tres patrones que se repiten: guardar solo al salir de pantalla (si la app se cuelga antes, no hay guardado), escribir en el disco en cada pulsación de tecla (traba la interfaz) y suponer que lo guardado siempre se lee bien. Senda se cubre del tercero con versiones del estado guardado: `useUsuario` está en la versión 5 y migra formatos viejos."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un equipo de logística (inventado) tiene una app de repartidores: la planilla de entrega se llena con firma, foto y observación. Hoy guarda solo al apretar «Enviar». Proponé un plan de guardado en tres puntos: cuándo escribe un borrador en el disco, qué va al servidor y qué vuelve a pedir al abrir, y qué perdería la persona si el sistema mata el proceso a mitad de la carga.",
+   "pista": "Separá lo que cuesta mucho repetir (la firma y la foto) de lo que se puede pedir otra vez (el listado de paradas). Y pensá en qué momento hay CPU garantizada.",
+   "solucion": "Un plan razonable: (1) escribir un borrador en disco al terminar cada campo importante (la firma, cada foto) y al pasar a segundo plano, no en cada tecla; (2) mandar la planilla al servidor al apretar «Enviar» con un identificador generado en el teléfono, para que un reintento no duplique el registro, y pedir de nuevo el listado de paradas al abrir; (3) con ese plan, si matan el proceso a mitad de la carga, se pierde como máximo lo escrito después del último guardado de borrador, y al volver la app ofrece retomar el borrador."
+  },
+  {
+   "t": "h",
+   "x": "Android e iOS, lado a lado"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Aspecto",
+    "Android",
+    "iOS"
+   ],
+   "filas": [
+    [
+     "Quién decide cuándo vive el proceso",
+     "El sistema, con una jerarquía de importancia",
+     "El sistema, con estados de app y de escena"
+    ],
+    [
+     "Nombre del estado fuera de pantalla sin trabajo",
+     "Proceso en caché",
+     "Suspendida"
+    ],
+    [
+     "¿Hay aviso garantizado antes de eliminar el proceso?",
+     "No: `onDestroy()` no está garantizado",
+     "No: se puede terminar sin pasar por un método final"
+    ],
+    [
+     "Momento recomendado para guardar",
+     "Al salir de pantalla y al detenerse la pantalla",
+     "Al desactivarse la escena y al pasar a segundo plano"
+    ],
+    [
+     "Estados que expone `AppState` en React Native",
+     "`active` y `background` (más `focus` y `blur` solo en Android)",
+     "`active`, `background` e `inactive`"
+    ],
+    [
+     "Mecanismo propio de restauración",
+     "Estado guardado del sistema, `ViewModel` con `SavedStateHandle`",
+     "`@SceneStorage` y el estado de la escena (SwiftUI)"
+    ]
+   ],
+   "cap": "Resumen mío a partir de las fuentes citadas; las dos plataformas se parecen más de lo que se diferencian."
+  },
+  {
+   "t": "p",
+   "x": "Desde el [@10-08] se compara cómo se arma una app sobre estas dos bases. Lo de hoy vale igual para todos los caminos: el proceso lo sigue manejando el sistema operativo."
+  }
+ ],
+ "recap": [
+  "Una app móvil pasa por cuatro momentos: primer plano, segundo plano, suspendida (o en caché) y terminada. Solo en el primero tiene la prioridad del sistema.",
+  "El sistema operativo decide cuándo vive el proceso. La app puede pedir trabajo, pero no impedir que la quiten cuando está fuera de pantalla.",
+  "Al morir el proceso se pierde todo lo que estaba solo en memoria (estado de JavaScript, pila de navegación). Sobrevive lo que ya se escribió en disco o está en un servidor.",
+  "No hay un aviso garantizado antes de morir: el momento seguro para guardar es al dejar de estar activa, cuando todavía hay CPU, y cada tanto mientras se usa.",
+  "`AppState` de React Native expone `active`, `background` e `inactive` (este último solo en iOS) y sirve para disparar guardados y envíos al salir de pantalla.",
+  "Guardar por lotes de 400 ms más un guardado inmediato al ir a segundo plano, como hace Senda, es un compromiso medible: la ventana de pérdida es de menos de medio segundo y solo cuenta si el proceso muere sin salida previa.",
+  "Restaurar el estado es una decisión de producto: se guarda lo que cuesta caro perder y se reconstruye el resto. Senda no restaura la pila de pantallas, y lo que importa (el progreso) vuelve desde el disco."
+ ],
+ "repaso": [
+  {
+   "p": "Un usuario deja una app en segundo plano y vuelve una hora después: la app arranca de cero. ¿Qué explica mejor lo ocurrido?",
+   "o": [
+    "El sistema eliminó el proceso para recuperar memoria y la app no tenía el estado en el disco",
+    "La app se cerró sola porque llevaba demasiado tiempo en segundo plano",
+    "El teléfono borró los datos de la app para ahorrar batería mientras no se usaba",
+    "La app funciona con un reloj que la desconecta a los 30 minutos sin actividad"
+   ],
+   "c": 0,
+   "e": "Lo normal es que el sistema elimine procesos en caché cuando falta memoria; no hay un reloj fijo en la app ni se borran datos del disco por inactividad. La app solo se vio afectada en lo que vivía solo en RAM."
+  },
+  {
+   "p": "¿En qué momento tiene sentido guardar datos que no se pueden perder, sabiendo que el sistema puede eliminar el proceso sin aviso?",
+   "o": [
+    "En el evento de cierre de la app, que siempre se ejecuta antes de que muera",
+    "Al salir de pantalla y cada tanto mientras la persona usa la app, no al final",
+    "Solo cuando la persona toca un botón explícito de guardar dentro de la app",
+    "Cada vez que cambia el valor, sin excepción, porque cualquier retraso es un riesgo"
+   ],
+   "c": 1,
+   "e": "No hay un evento de cierre garantizado, así que se guarda antes: al dejar de estar activa y de forma periódica. Escribir en cada cambio es seguro pero puede trabar la interfaz; un botón manual no es razonable para un progreso automático."
+  },
+  {
+   "p": "En la jerarquía de procesos de Android, ¿cuál de estos es el primero en ser sacrificado cuando falta memoria?",
+   "o": [
+    "El proceso de una app visible detrás de un diálogo de otra aplicación",
+    "El proceso en caché, que ya no tiene nada activo en pantalla",
+    "El proceso de una app con una pantalla en primer plano arriba de todo",
+    "El proceso con un servicio iniciado que sube datos al servidor ahora"
+   ],
+   "c": 1,
+   "e": "Los procesos en caché son los primeros candidatos. Los de primer plano, los visibles y los de servicio se mantienen mientras se pueda, justamente porque la persona los está usando o los valora."
+  },
+  {
+   "p": "En React Native, un oyente de `AppState` recibe `background` en Android. ¿Qué es lo más prudente que puede hacer?",
+   "o": [
+    "Cerrar la sesión del usuario, porque seguramente se fue de la app para siempre",
+    "Guardar lo pendiente, una acción barata y segura de repetir si vuelve enseguida",
+    "Borrar los datos temporales, porque el sistema ya no los va a reconstruir",
+    "Ignorarlo, ya que solo indica una pausa muy corta y no cambia nada para la app"
+   ],
+   "c": 1,
+   "e": "`background` también se dispara con pantallas ajenas que pasan un instante, como un selector de autocompletar. Por eso conviene hacer algo barato y repetible, como guardar; cerrar sesión o borrar datos castigaría a quien volvió a los dos segundos."
+  },
+  {
+   "p": "Con un reloj de 400 ms y un guardado inmediato al pasar a segundo plano, ¿en cuál de estos casos se pierde un cambio?",
+   "o": [
+    "La persona hace un cambio y sale de la app a los 100 ms; después matan el proceso",
+    "La persona hace un cambio y deja la app abierta; el sistema la mata a los 600 ms",
+    "El proceso muere a los 200 ms del cambio, sin que haya habido salida de pantalla",
+    "La persona hace un cambio y se bloquea el teléfono a los 300 ms; luego matan el proceso"
+   ],
+   "c": 2,
+   "e": "Solo se pierde si el proceso muere dentro de la ventana de 400 ms sin que haya habido antes un paso a segundo plano. En los otros casos el cambio ya se escribió, por el reloj o por el guardado inmediato."
+  },
+  {
+   "p": "Un equipo propone guardar la pila de navegación de la app completa para restaurarla siempre. ¿Qué pregunta conviene hacer antes de aceptar?",
+   "o": [
+    "Si el sistema permite guardar más de 100 pantallas en el estado de la navegación",
+    "Qué pierde la persona sin eso: si volver a Inicio es un costo bajo, quizá no valga",
+    "Si la plantilla del proyecto ya incluye una librería que lo resuelve por defecto",
+    "Cuánto tarda el servidor en responder cuando se vuelve a pedir cada pantalla"
+   ],
+   "c": 1,
+   "e": "Restaurar es una decisión de producto: se compara el costo de implementarlo y mantenerlo con lo que pierde la persona al volver al inicio. En apps de lecciones cortas con progreso persistido, a menudo no compensa."
+  },
+  {
+   "p": "¿Por qué el `ViewModel` de Android no alcanza para que una pantalla sobreviva a un proceso eliminado?",
+   "o": [
+    "Porque vive en memoria y se destruye cuando el sistema elimina el proceso",
+    "Porque solo funciona cuando la pantalla rota y nunca en otras circunstancias",
+    "Porque el sistema no permite guardar datos de pantalla en ningún formato",
+    "Porque el `ViewModel` se borra en cuanto la app pasa a segundo plano"
+   ],
+   "c": 0,
+   "e": "El `ViewModel` sobrevive a rotar la pantalla pero está en la memoria del proceso: si el proceso muere, desaparece. Para eso existen el estado guardado del sistema y el almacenamiento persistente."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa por qué una app de teléfono puede «olvidar» lo que estabas haciendo aunque nunca la hayas cerrado, y qué hace una app bien hecha para que no se note. Usá una analogía propia (que no sea la del camión en el predio) e indicá en qué punto tu analogía deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "android-process-lifecycle",
+   "nota": "La página oficial de Android sobre procesos y ciclo de vida: la jerarquía de importancia y la frase sobre `onDestroy()`. Es la fuente de la sección «Quién decide»."
+  },
+  {
+   "fuente": "apple-uikit-background",
+   "nota": "La guía de Apple sobre preparar la app para ser suspendida: qué guardar al desactivarse y qué liberar al pasar a segundo plano."
+  },
+  {
+   "fuente": "mob1007-android-saving-states",
+   "nota": "La tabla que compara `ViewModel`, estado guardado y almacenamiento persistente, y cuándo conviene cada uno. Sirve para decidir qué va dónde."
+  },
+  {
+   "fuente": "mob1007-rn-appstate",
+   "nota": "La referencia de `AppState` en React Native: estados, evento `change` y las notas específicas de Android."
+  }
+ ],
+ "videos": [
+  {
+   "q": "android process death explained saved state viewmodel",
+   "por_que": "Para ver con animaciones cómo se pierde y se restaura el estado cuando el sistema elimina un proceso."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "primer plano",
+   "d": "Estado en que la app está en pantalla y la persona la usa. Es el único en el que el sistema le da prioridad en CPU, memoria y pantalla."
+  },
+  {
+   "t": "segundo plano",
+   "d": "Estado en que la app sigue existiendo pero está fuera de pantalla porque la persona abrió otra cosa o bloqueó el teléfono. Debe hacer lo mínimo, y de preferencia nada."
+  },
+  {
+   "t": "proceso terminado",
+   "d": "Estado en que el sistema (o la persona) eliminó el proceso de la app y liberó su memoria. Se pierde todo lo que vivía solo en RAM; sobrevive lo que se escribió en disco o está en un servidor."
+  },
+  {
+   "t": "estado restaurado",
+   "d": "La app reconstruye, al volver tras un proceso terminado, lo suficiente de lo que la persona estaba haciendo como para que parezca que nunca se fue. Cuánto reconstruir es una decisión de producto."
+  },
+  {
+   "t": "AppState",
+   "d": "Interfaz de React Native que informa en qué estado está la app (`active`, `background` o, solo en iOS, `inactive`) y avisa cuando cambia."
+  }
+ ],
+ "siguiente": "la comparativa honesta entre hacer una app nativa, híbrida o multiplataforma: qué se gana y qué se paga con cada camino, con datos fechados.",
+ "fuentes_nuevas": [
+  {
+   "id": "mob1007-rn-appstate",
+   "t": "AppState (React Native)",
+   "a": "Meta Platforms",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/docs/appstate"
+  },
+  {
+   "id": "mob1007-android-saving-states",
+   "t": "Save UI states (Android Developers)",
+   "a": "Google",
+   "tipo": "doc",
+   "url": "https://developer.android.com/topic/libraries/architecture/saving-states"
+  },
+  {
+   "id": "apple-scenestorage",
+   "t": "SceneStorage (SwiftUI)",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/documentation/swiftui/scenestorage"
+  },
+  {
+   "id": "apple-swiftui-restoring",
+   "t": "Restoring your app's state with SwiftUI",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/documentation/swiftui/restoring-your-app-s-state-with-swiftui"
+  }
+ ]
+}
