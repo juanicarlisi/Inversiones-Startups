@@ -307,6 +307,58 @@ gastando casi nada.
 
 ---
 
+## 5 bis. Recalculo del 16-11-2026: un juego, dos puertas (DEC-2026-11-15-5)
+
+> Reemplaza la compuerta C3 de 5.1 y corrige una cifra de DEC-2026-11-15-5. Las secciones 1 a 5 quedan como se escribieron el 15-11.
+
+**Qué cambió.** El fundador probó la versión 3D y pidió profundidad: oficina, carrera, épocas hasta hoy y un juego con el que se
+aprende (`diseno-carrera.md`). Ese producto no es el de los portales (1.1: los dominan el hipercasual y el idle) sino el de Steam
+(1.4: la profundidad se paga). Entonces: la carrera completa va a Steam con precio único cerca de USD 10, y el portal web recibe la
+demo gratis de 1929, que mide y manda gente a la página de Steam.
+
+**Corrección.** DEC-2026-11-15-5 estimó ~USD 7 netos por copia. Es optimista: con la comisión de la tienda (30%, a verificar en
+Steamworks al abrir la página), precios regionales, descuentos, devoluciones e impuestos, la cuenta prudente es **~USD 5 por copia**
+(ESTIMACIÓN: 9,99 × 0,70 × ~0,72). Con 2.000 deseados y 27% de conversión el primer mes (1.4) son ~540 copias y **~USD 2.700**, no 3.800.
+
+| Paso | Probabilidad (INFERENCIA o HIPÓTESIS) | Qué pasa después |
+|---|---|---|
+| La etapa 2 pasa la prueba a ciegas (4 de 5) | 70% | Se abre la página de Steam (USD 100, con OK del fundador) |
+| La página junta 2.000 deseados o más en seis meses | 20% de las que abren (HIPÓTESIS: la mayoría de los juegos chicos junta mucho menos; ayudan la demo web y un Next Fest) | Se lanza |
+| Junta entre 700 y 2.000 | 30% | Una vuelta más de difusión de tres meses; si no llega, queda como juego web |
+| Junta menos de 700 | 50% | No se lanza: queda como juego web gratis, sin más horas |
+
+| Resultado en Steam | Prob. total | Copias de por vida (HIPÓTESIS) | Neto de por vida |
+|---|---|---|---|
+| No se lanza | 86% | 0 | −USD 100 si se abrió la página |
+| Lanzamiento modesto | 10% | ~1.300 (el primer mes × ~2,4) | ~USD 6.500 |
+| Pega en su nicho (un quinto de *Mini Airways*) | 4% | ~6.000 | ~USD 30.000 |
+
+**Valor esperado (ESTIMACIÓN).** Steam: 0,10 × 6.500 + 0,04 × 30.000 − ~70 ≈ **USD 1.800** de por vida. Demo en el portal: se
+supone la mitad del caso de 4.2 (no hay capítulos nuevos ahí), ≈ **USD 1.600** a tres años. Total ≈ **USD 3.400 a tres años, unos
+USD 95 por mes**: casi igual que antes. Lo que cambia no es el valor esperado sino **dónde está el techo** (USD 30.000 o más contra
+USD 1.000 por mes de un portal que pega) y **a quién se le pregunta** si el juego vale.
+
+**Costo.** Efectivo: los mismos USD 100 del alta (Steam los devuelve al pasar USD 1.000 de ventas; a verificar) y la consulta legal
+ya prevista. El costo real sube en capacidad de Claude: cuatro etapas en vez de un capítulo corto. Se paga con la regla de siempre:
+Hub no le saca lugar al lanzamiento de Senda, y cada etapa se corta con su prueba a ciegas.
+
+**Por qué igual conviene (INFERENCIA).** (1) El efectivo en riesgo sigue por debajo de USD 500. (2) El diferencial —aprender
+logística de verdad jugando— solo existe en la versión profunda. (3) El 3D, la oficina y el estimador de decisiones se reusan en
+Andén. (4) Un juego de logística serio y lindo es vidriera para Andén y abre un canal educativo que el juego de portal no abre.
+
+**Compuertas vigentes.** C0 a C2 de 5.1 siguen, aplicadas a la demo de 1929. C3 pasa a ser: abrir la página de Steam cuando la
+etapa 2 pase la prueba a ciegas; lanzar con 2.000 deseados o más a los seis meses; con menos de 700, juego web gratis y sin más
+horas; si la etapa 2 falla la prueba a ciegas dos veces, se congela.
+
+**Estado al 16-11-2026.** Etapa 1 («Decidir sabiendo») construida y publicada para probar: tarjetas con costo, ganancia por día y
+recupero (el estimador simula el modelo: 0% de error contra la misma partida sin tocar nada más; con un jugador que sigue comprando,
+la nota de resultado dice «se cumplió» en el 60% de los casos, error mediano 22%), reloj frenado al decidir, velocidad tranquila
+(día de 311 s contra 145), nunca dos carteles a la vez (0 s en 30 minutos medidos), parte de la mañana, oficina de 1929 con nombre y
+color de la empresa, y los seis defectos de zoom cerrados. Nombre de fábrica «Correo Aéreo Lucero»: dos búsquedas web del 16-11-2026
+no encontraron una empresa con ese nombre (no es una búsqueda de marcas).
+
+---
+
 ## 6. Fuentes (consultadas el 15-11-2026 salvo indicación)
 
 - CrazyGames: [Basic Launch metrics](https://docs.crazygames.com/resources/basic-launch-metrics/) · [guía de anuncios](https://docs.crazygames.com/resources/ad-monetization-guide/) · [portalready.world, básico contra completo](https://portalready.world/portals/crazygames-basic-launch-vs-full-launch/) (03-10-2026)

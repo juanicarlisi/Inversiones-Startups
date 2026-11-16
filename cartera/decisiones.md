@@ -1888,3 +1888,8 @@ se aprueba, la recomendación de lanzar sin EE. UU., Brasil ni la UE (DEC-2026-1
   se abre una tercera puerta, cursos de logística (HIPÓTESIS, no cuenta en los números).
 - **Freno:** si la etapa 2 falla dos veces la prueba a ciegas, se congela. Hub no le saca prioridad al lanzamiento de Senda.
 - **Pendiente de Claude:** recalcular el caso de negocio y `P6-juegos.yaml` con estas compuertas cuando la etapa 1 esté probada.
+
+> **Corrección del 16-11-2026 a DEC-2026-11-15-5.** La cifra de ~USD 7 netos por copia era optimista. Con comisión de la tienda,
+> precios regionales, descuentos, devoluciones e impuestos, la cuenta prudente es ~USD 5 por copia (ESTIMACIÓN): 2.000 deseados
+> equivalen a ~540 copias y ~USD 2.700 el primer mes, no 3.800. El valor esperado total queda en ~USD 95 por mes a tres años; lo
+> que sube es el techo. Las compuertas no cambian. Detalle: `oportunidades/proyectos/hub-nocturno/producto-y-negocio.md` §5 bis.
