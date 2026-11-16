@@ -1,0 +1,595 @@
+{
+ "id": "12-24",
+ "titulo": "Sistemas distribuidos V: replicar y repartir datos",
+ "bajada": "Cómo repartir datos entre máquinas sin que agregar una obligue a mover casi todo, y cuántas copias hay que consultar para no leer algo viejo, con tres simulaciones corridas.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Mostrar con números por qué repartir claves con «hash módulo N» obliga a mover la mayor parte de los datos al sumar un nodo.",
+  "Explicar el [[hashing consistente]] con su anillo y medir cuántas claves se mueven, con y sin nodos virtuales.",
+  "Calcular qué combinaciones de N, R y W dan un [[quórum]] que se superpone y cuáles pueden leer un dato viejo.",
+  "Describir qué problema resolvió [[Dynamo]] y con qué técnicas (cuórum aflojado, entrega de pistas, lectura reparadora).",
+  "Elegir entre un sistema de consenso con líder y uno de estilo Dynamo según lo que el negocio tolera perder."
+ ],
+ "venis_de": "Ayer ([@12-23]) viste cómo varias máquinas se ponen de acuerdo con un líder y una mayoría: consistente, pero con un cuello de botella y parada sin mayoría. Hoy el camino opuesto: repartir y copiar datos sin un jefe único, aceptando algunas inconsistencias a cambio de seguir escribiendo.",
+ "se_apoya_en": [
+  "12-22",
+  "12-23",
+  "09-29",
+  "09-30",
+  "03-27"
+ ],
+ "gancho": [
+  "Una distribuidora (inventada) reparte sus 20.000 clientes entre 4 depósitos con la regla más simple que existe: el número del cliente, dividido por 4, y el resto indica el depósito. Funciona perfecto hasta que abren un quinto depósito. La regla pasa a dividir por 5 y, sin tocar a un solo cliente, **8 de cada 10 cambian de depósito**: hay que mover las cargas, los historiales, los remitos pendientes. Todo por sumar una sucursal.",
+  "Ese tropiezo es el problema de repartir datos en muchas máquinas, y hoy lo medís en una simulación. Después viene la otra mitad: tener copias de cada dato para que una máquina caída no se lleve nada, y decidir **cuántas copias hay que consultar** para no leer algo desactualizado. Todo apoyado en un paper famoso de Amazon, Dynamo, que eligió seguir escribiendo aunque el sistema se rompa."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos verbos distintos: repartir y copiar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@09-29] viste la [[réplica]]: copiar un dato en varias máquinas para sobrevivir a una caída y para leer desde más lugares. En [@09-30], el [[sharding]]: partir los datos para que cada máquina guarde un trozo y entre más capacidad que la de una sola. Son decisiones independientes que casi siempre se toman juntas. **Repartir** da capacidad: más nodos, más datos totales. **Copiar** da durabilidad y disponibilidad: cada dato vive en varios nodos a la vez.",
+    "Ayer los datos estaban todos en cada nodo y mandaba un líder. Hoy cada nodo guarda solo parte, cada parte tiene algunas copias y, en el estilo de hoy, no hay un líder único que ordene todo. La pregunta se parte en dos: **¿en qué nodos vive cada dato?** y **¿cuántas copias tengo que tocar al leer o escribir?**"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El reparto ingenuo: hash módulo N"
+  },
+  {
+   "t": "p",
+   "x": "La forma más directa es aplicar una [[función hash]] ([@03-27]) a la clave del dato y quedarse con el resto de dividir por la cantidad de nodos: `hash(clave) % N`. La función hash reparte bien: claves parecidas caen en lugares muy distintos, así que la carga queda pareja. Pero la regla depende de N, y N cambia cada vez que se agrega o se saca un nodo. El Apache Cassandra lo describe así en su documentación: con este esquema, sumar un nodo puede invalidar casi todas las asignaciones [#arq1224-cassandra-dynamo]. Corré la medición:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Hashing: repartir 20.000 clientes entre depósitos, con módulo y con anillo.\nfunction hash(s) {                       // FNV-1a de 32 bits + mezcla final para repartir bien los bits\n  let h = 0x811c9dc5;\n  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }\n  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;\n  return h >>> 0;                        // entero sin signo, de 0 a 2^32 - 1\n}\nclass Anillo {\n  constructor(nodos, v, sal) {           // v = puntos (nodos virtuales) por nodo físico\n    this.pts = [];\n    for (const n of nodos) for (let i = 0; i < v; i++) this.pts.push([hash(`${sal}|${n}#${i}`), n]);\n    this.pts.sort((a, b) => a[0] - b[0]);\n  }\n  dueño(clave) {                         // primer punto con posición >= hash(clave); si no hay, da la vuelta\n    const h = hash(clave); let lo = 0, hi = this.pts.length;\n    while (lo < hi) { const m = (lo + hi) >> 1; if (this.pts[m][0] < h) lo = m + 1; else hi = m; }\n    return this.pts[lo % this.pts.length][1];\n  }\n}\nconst claves = Array.from({ length: 20000 }, (_, i) => `cliente-${i}`);\nconst carga = (f) => { const c = {}; for (const k of claves) { const n = f(k); c[n] = (c[n] || 0) + 1; } return c; };\nconst desbalance = (c) => Math.max(...Object.values(c)) / (claves.length / Object.keys(c).length);\n\n// 1) Módulo: de 4 a 5 depósitos\nconst mod = (n) => (k) => hash(k) % n;\nlet movidas = claves.filter((k) => mod(4)(k) !== mod(5)(k)).length;\nconsole.log(`módulo, 4 -> 5 depósitos: se mueven ${(100 * movidas / claves.length).toFixed(1)} % de las claves (ideal: 20 %)`);\n\n// 2) Anillo con v puntos por nodo, promediado sobre 20 «sales» (20 anillos distintos)\nconsole.log('\\nanillo 4 -> 5 nodos, 20 anillos distintos por fila');\nconsole.log('v (puntos por nodo) | movidas (prom.) | movidas que van al nodo nuevo | carga del más cargado / ideal (peor de 20)');\nfor (const v of [1, 10, 100, 1000]) {\n  let mov = 0, alNuevo = 0, peor = 0;\n  for (let s = 0; s < 20; s++) {\n    const a4 = new Anillo(['A', 'B', 'C', 'D'], v, 's' + s), a5 = new Anillo(['A', 'B', 'C', 'D', 'E'], v, 's' + s);\n    for (const k of claves) { const x = a4.dueño(k), y = a5.dueño(k); if (x !== y) { mov++; if (y === 'E') alNuevo++; } }\n    peor = Math.max(peor, desbalance(carga((k) => a5.dueño(k))));\n  }\n  console.log(`${String(v).padStart(6)}              | ${(100 * mov / 20 / claves.length).toFixed(1).padStart(6)} %        | ${(100 * alNuevo / mov).toFixed(0).padStart(4)} %                        | ${peor.toFixed(2)}`);\n}",
+   "cap": "Dos formas de repartir 20.000 claves. La función hash es FNV-1a con una mezcla final; el anillo se explica en la sección que sigue."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node reparto.js   # salida real de este bloque, Node 22",
+     "s": "módulo, 4 -> 5 depósitos: se mueven 80.0 % de las claves (ideal: 20 %)\n\nanillo 4 -> 5 nodos, 20 anillos distintos por fila\nv (puntos por nodo) | movidas (prom.) | movidas que van al nodo nuevo | carga del más cargado / ideal (peor de 20)\n     1              |   19.0 %        |  100 %                        | 2.79\n    10              |   19.4 %        |  100 %                        | 1.90\n   100              |   19.9 %        |  100 %                        | 1.22\n  1000              |   19.9 %        |  100 %                        | 1.10"
+    }
+   ],
+   "cap": "Para cada fila del anillo se armaron 20 anillos distintos (cambiando el nombre de los nodos) y se promedió. Medición de una sola VM y de datos sintéticos: sirve para ver los órdenes de magnitud."
+  },
+  {
+   "t": "p",
+   "x": "La primera línea es la del gancho: con módulo, pasar de 4 a 5 nodos mueve el **80 %** de las claves. Es lo esperable: una clave se queda quieta solo cuando su resto al dividir por 4 y por 5 coincide, y eso pasa en 4 de cada 20 casos. El mínimo teórico, si cada nodo viejo le cede una parte pareja al nuevo, es 20 %: 1 de cada 5 claves. El módulo se mueve cuatro veces más de lo necesario."
+  },
+  {
+   "t": "h",
+   "x": "Hashing consistente: un anillo en vez de un resto"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[hashing consistente]] lo propusieron en el MIT Karger, Lehman, Leighton, Panigrahy, Levine y Lewin, para repartir cachés web y aliviar los «puntos calientes» (sitios que reciben una avalancha de visitas) [#arq1224-karger-chash]. Su definición cabe en una línea:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "a consistent hash function is one which changes minimally as the range of the function changes.",
+   "autor": "Karger et al., «Consistent Hashing and Random Trees», resumen",
+   "fuente": "arq1224-karger-chash"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La construcción es esta. Imaginá los resultados posibles del hash (de 0 a 2³²−1 en la simulación) acomodados en un **círculo**: después del último número viene el cero. A cada nodo le toca uno o más puntos del círculo, que sale de aplicarle el hash a su nombre. Para saber dónde vive una clave, se le aplica el hash, se cae en un punto del círculo y se camina **en sentido horario hasta el primer nodo**: ese es el dueño. Dynamo lo describe igual: cada nodo queda a cargo de la región entre él y su predecesor, y la llegada o salida de un nodo solo afecta a sus vecinos inmediatos [#dynamo].",
+    "En el código de arriba eso es la clase `Anillo`: una lista ordenada de puntos y una búsqueda binaria."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 340,
+   "nodos": [
+    {
+     "id": "a",
+     "x": 50,
+     "y": 8,
+     "t": "Nodo A",
+     "k": "servidor"
+    },
+    {
+     "id": "b",
+     "x": 92,
+     "y": 50,
+     "t": "Nodo B",
+     "k": "servidor"
+    },
+    {
+     "id": "c",
+     "x": 50,
+     "y": 92,
+     "t": "Nodo C",
+     "k": "servidor"
+    },
+    {
+     "id": "d",
+     "x": 8,
+     "y": 50,
+     "t": "Nodo D",
+     "k": "servidor"
+    },
+    {
+     "id": "k",
+     "x": 79,
+     "y": 22,
+     "t": "clave K",
+     "k": "alerta"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "a",
+     "a": "b",
+     "t": "",
+     "dir": true,
+     "dash": true
+    },
+    {
+     "de": "b",
+     "a": "c",
+     "t": "",
+     "dir": true,
+     "dash": true
+    },
+    {
+     "de": "c",
+     "a": "d",
+     "t": "",
+     "dir": true,
+     "dash": true
+    },
+    {
+     "de": "d",
+     "a": "a",
+     "t": "",
+     "dir": true,
+     "dash": true
+    },
+    {
+     "de": "k",
+     "a": "b",
+     "t": "primer nodo en sentido horario",
+     "dir": true
+    }
+   ],
+   "cap": "El anillo con cuatro nodos. La clave K cae entre A y B, así que su dueño es B. Si D desaparece, solo se mueven sus claves, y todas van a su vecino A."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La avenida circular",
+   "x": [
+    "Pensalo como una avenida circular con depósitos en algunos puntos. Cada pedido tiene una «dirección» (el hash de su clave) y lo atiende el primer depósito que aparece yendo en sentido horario. Si se abre un depósito nuevo en la avenida, solo le pasan pedidos los vecinos de ese tramo: los demás depósitos no cambian nada.",
+    "Dónde la analogía deja de valer: en una avenida real, la dirección tiene que ver con la geografía. Acá las posiciones salen de una función hash, sin relación con nada físico: dos clientes vecinos en la ciudad pueden quedar en puntos opuestos del círculo, y eso es justamente lo que parejiza la carga."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Ahora el resultado, en la tabla de salida. Con un solo punto por nodo (primera fila), pasar de 4 a 5 nodos mueve en promedio un 19 % de las claves: casi el mínimo, contra el 80 % del módulo. Y la última columna de movidas lo confirma: el **100 %** de las claves que se mueven van al nodo nuevo. Ningún otro nodo recibe ni pierde nada que no sea para el nuevo, y eso es lo «consistente» del nombre."
+  },
+  {
+   "t": "pensa",
+   "x": "Si en el anillo se cae un nodo (digamos D, en el dibujo), ¿qué pasa con sus claves y cuánto trabajo le toca a cada nodo vecino?",
+   "resp": "Sus claves pasan al siguiente nodo en sentido horario (A, en el dibujo). Nadie más se entera. El problema: todo el trabajo cae sobre un solo vecino, que puede quedar sobrecargado. Para esto sirven los nodos virtuales, que siguen."
+  },
+  {
+   "t": "h",
+   "x": "El problema del azar y la solución: nodos virtuales"
+  },
+  {
+   "t": "p",
+   "x": "La misma tabla muestra el defecto del anillo simple. Con 1 punto por nodo, los puntos caen donde cae el hash de sus nombres: pueden quedar apretados o muy separados. En la peor de las 20 pruebas, el nodo más cargado tenía **2,79 veces** lo que le toca si el reparto fuera parejo. El paper de Dynamo lo nombra como el primer desafío del algoritmo básico: la posición aleatoria de los nodos da una distribución de datos y de carga despareja [#dynamo]."
+  },
+  {
+   "t": "p",
+   "x": "La solución de Dynamo, que Cassandra también adoptó, es darle a cada nodo físico **muchos puntos** en el anillo, los «nodos virtuales» o *tokens* [#dynamo][#arq1224-cassandra-dynamo]. El dueño real se reparte en muchas porciones chicas y salteadas, y los promedios hacen el resto. La tabla lo mide: con 10 puntos el peor desbalance baja a 1,90; con 100, a 1,22; con 1.000, a 1,10. Las claves movidas no cambian (todas van al nodo nuevo, cerca del 20 %), pero ahora el nodo nuevo recibe un trocito de cada uno de los otros en vez de la mitad de un vecino."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Lo que ganás con los nodos virtuales",
+   "x": "Según el paper de Dynamo: si un nodo cae, su carga se reparte entre todos los demás; si entra uno nuevo, recibe una porción parecida de cada uno; y la cantidad de puntos de cada nodo se puede ajustar a su capacidad, útil si las máquinas no son iguales [#dynamo]. Lo que se paga: cada nodo tiene que conocer y mantener una tabla de miles de puntos, y las estructuras por rango (como los árboles de Merkle que usa para comparar réplicas) cambian cuando entra o sale un nodo."
+  },
+  {
+   "t": "h",
+   "x": "Copiar sobre el anillo: la lista de preferencia"
+  },
+  {
+   "t": "p",
+   "x": "Con el anillo resuelto, copiar es fácil: se guarda cada clave en su dueño y en los **N−1 nodos siguientes** en sentido horario. Dynamo llama a esa lista de nodos «lista de preferencia» y aclara un detalle fino: con nodos virtuales, los primeros N puntos del anillo pueden pertenecer a menos de N máquinas distintas (una máquina puede tener dos puntos seguidos), así que se salta posiciones hasta juntar N nodos **físicos** distintos [#dynamo]. Si no, las tres copias podrían estar en la misma máquina y una sola caída se llevaría todo. Cassandra describe lo mismo: caminar el anillo hasta encontrar tres nodos distintos para un factor de replicación de 3 [#arq1224-cassandra-dynamo]."
+  },
+  {
+   "t": "h",
+   "x": "Cuántas copias consultar: R + W > N"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay N copias de cada dato. Cuando se escribe, se espera la confirmación de **W** de ellas; cuando se lee, se pregunta a **R** y se queda con la versión más nueva. Dynamo lo llama un protocolo «parecido a los de los sistemas de [[quórum]]», y la regla central es que si R + W > N, cada lectura toca al menos una copia que participó en la última escritura exitosa [#dynamo]. Es el mismo argumento de ayer ([@12-23]), el de que dos mayorías comparten un nodo, generalizado: la escritura toca W nodos, la lectura R, y si suman más que N, **tienen que cruzarse**.",
+    "En lugar de creérselo, se prueba. El código siguiente toma N réplicas, hace que una escritura llegue a todas las combinaciones posibles de W réplicas (las demás se quedan con la versión vieja) y que una lectura pregunte a todas las combinaciones posibles de R, y cuenta en cuántos casos la lectura ve la versión nueva. No hay azar: se enumeran todos los casos."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Quórum R + W > N: probamos TODAS las combinaciones posibles de réplicas, sin azar.\nfunction subconjuntos(n, k) {            // todos los subconjuntos de k réplicas elegidos entre n\n  const out = [];\n  (function rec(ini, acc) {\n    if (acc.length === k) { out.push(acc.slice()); return; }\n    for (let i = ini; i < n; i++) { acc.push(i); rec(i + 1, acc); acc.pop(); }\n  })(0, []);\n  return out;\n}\nfunction prueba(N, R, W) {\n  let veNuevo = 0, total = 0;\n  for (const escr of subconjuntos(N, W)) {          // la escritura (versión 2) solo llega a estas W réplicas\n    const versiones = Array(N).fill(1);             // el resto se queda con la versión 1\n    for (const i of escr) versiones[i] = 2;\n    for (const lect of subconjuntos(N, R)) {        // la lectura le pregunta a R réplicas y se queda con la versión más alta\n      total++;\n      if (Math.max(...lect.map((i) => versiones[i])) === 2) veNuevo++;\n    }\n  }\n  return [veNuevo, total];\n}\nconst casos = { 3: [[1,1],[2,1],[1,2],[2,2],[3,1],[1,3]], 5: [[1,1],[2,3],[3,3],[1,5]] };\nfor (const N of [3, 5]) {\n  console.log(`N = ${N}`);\n  for (const [R, W] of casos[N]) {\n    const [a, t] = prueba(N, R, W);\n    console.log(`  R=${R} W=${W}  R+W ${R + W > N ? '>' : '<='} N   la lectura ve la versión nueva en ${String(a).padStart(3)} de ${String(t).padStart(3)} combinaciones (${(100 * a / t).toFixed(0)} %)`);\n  }\n}",
+   "cap": "Enumeración exhaustiva de escrituras y lecturas posibles para N = 3 y N = 5."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node cuorum.js",
+     "s": "N = 3\n  R=1 W=1  R+W <= N   la lectura ve la versión nueva en   3 de   9 combinaciones (33 %)\n  R=2 W=1  R+W <= N   la lectura ve la versión nueva en   6 de   9 combinaciones (67 %)\n  R=1 W=2  R+W <= N   la lectura ve la versión nueva en   6 de   9 combinaciones (67 %)\n  R=2 W=2  R+W > N   la lectura ve la versión nueva en   9 de   9 combinaciones (100 %)\n  R=3 W=1  R+W > N   la lectura ve la versión nueva en   3 de   3 combinaciones (100 %)\n  R=1 W=3  R+W > N   la lectura ve la versión nueva en   3 de   3 combinaciones (100 %)\nN = 5\n  R=1 W=1  R+W <= N   la lectura ve la versión nueva en   5 de  25 combinaciones (20 %)\n  R=2 W=3  R+W <= N   la lectura ve la versión nueva en  90 de 100 combinaciones (90 %)\n  R=3 W=3  R+W > N   la lectura ve la versión nueva en 100 de 100 combinaciones (100 %)\n  R=1 W=5  R+W > N   la lectura ve la versión nueva en   5 de   5 combinaciones (100 %)"
+    }
+   ],
+   "cap": "Cada número sale de contar combinaciones, no de una muestra: es exacto para este modelo simple (una escritura, copias que se quedaron atrás, lecturas que toman la versión más alta)."
+  },
+  {
+   "t": "p",
+   "x": "Mirá las líneas con `R+W > N`: dan **100 %**, sin excepción. Las de `R+W <= N` fallan en una parte de los casos: con R=1 y W=1 en tres réplicas, la lectura ve el dato nuevo solo una de cada tres veces. Y R=2, W=3 en cinco réplicas, que *casi* alcanza, falla en 1 de cada 10 combinaciones. Esos son los casos que aparecen «a veces» en producción y que nadie logra reproducir."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "N, R, W",
+    "Qué obtenés",
+    "Qué te cuesta"
+   ],
+   "filas": [
+    [
+     "3, 2, 2",
+     "Cada lectura cruza la última escritura; tolera la caída de un nodo",
+     "Cada operación espera a 2 de 3 nodos"
+    ],
+    [
+     "3, 1, 3",
+     "Lecturas rápidas (1 nodo) y siempre actualizadas",
+     "La escritura se frena con un solo nodo caído"
+    ],
+    [
+     "3, 3, 1",
+     "Escrituras rápidas y siempre aceptadas",
+     "La lectura se frena con un nodo caído"
+    ],
+    [
+     "3, 1, 1",
+     "Lo más rápido y disponible",
+     "Puede leer datos viejos (un tercio de aciertos en la medición)"
+    ]
+   ],
+   "cap": "La configuración (3, 2, 2) es la que el paper de Dynamo da como común entre sus instancias [#dynamo]. El paper agrega que la latencia de una operación la marca la réplica más lenta entre las R (o W) consultadas, por eso R y W suelen ser menores que N."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Cuórum no es linealizabilidad",
+   "x": "Que una lectura cruce a la última escritura no la hace [[linealizable|linealizabilidad]]. En el modelo de la simulación una escritura llega completa o no llega, y eso es una simplificación: si una escritura llega a una sola réplica y falla, la lectura puede verla o no según a quién le pregunte, y dos lecturas seguidas pueden contradecirse. Dynamo ni siquiera lo promete: el propio paper dice que R + W > N da un sistema «parecido a un cuórum» [#dynamo], y [@12-22] te mostró que linealizable es una garantía bastante más fuerte."
+  },
+  {
+   "t": "h",
+   "x": "Dynamo: elegir seguir escribiendo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[Dynamo]] es el almacén clave-valor que Amazon describió en el congreso SOSP de 2007 [#dynamo]. Su decisión de diseño más famosa es la inversa de la de Raft: el paper dice que apunta a un almacén «siempre escribible», porque rechazar una actualización de un cliente puede dar una mala experiencia, y que para eso empuja la complejidad de resolver conflictos **hacia la lectura** [#dynamo]. El ejemplo del paper es el carrito de compras: agregar un ítem nunca debe perderse ni rechazarse; si la última versión del carrito no está disponible, el cambio se aplica sobre una versión vieja y las versiones divergentes se reconcilian después.",
+    "Eso se logra con una caja de herramientas. La tabla resume la que da el paper (su Tabla 1), con una columna mía sobre lo que implica:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Problema",
+    "Técnica en Dynamo",
+    "Qué implica"
+   ],
+   "filas": [
+    [
+     "Repartir datos",
+     "Hashing consistente",
+     "Crecer sumando nodos, moviendo poco"
+    ],
+    [
+     "Escribir siempre",
+     "Relojes de versión (vectoriales) y reconciliación al leer",
+     "Pueden existir varias versiones del mismo dato"
+    ],
+    [
+     "Fallas temporales",
+     "Cuórum aflojado y entrega de pistas",
+     "Se escribe aunque falte un dueño"
+    ],
+    [
+     "Fallas permanentes",
+     "Anti-entropía con árboles de Merkle",
+     "Las réplicas se comparan y se igualan en segundo plano"
+    ],
+    [
+     "Quién está vivo",
+     "Protocolo de chisme (gossip)",
+     "Sin un registro central de miembros"
+    ]
+   ],
+   "cap": "Basada en la Tabla 1 del paper [#dynamo]. Los [[relojes vectoriales|reloj vectorial]] son los de [@12-21]: permiten saber si una versión desciende de otra o si son concurrentes y hay que reconciliarlas."
+  },
+  {
+   "t": "p",
+   "x": "Tres de esas técnicas se pueden simular en pocas líneas, y vale la pena verlas funcionar. La simulación tiene cuatro nodos (A, B, C son los dueños de la clave y D es el siguiente en el anillo), N=3, R=2 y W=2. La versión es un simple contador, porque hay un solo escritor: no hace falta un reloj vectorial para este ejemplo, y por eso es una simplificación respecto del paper."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Mini-Dynamo: lista de preferencia [A, B, C] con N = 3 y un nodo extra D que ayuda cuando alguien cae.\nconst nodos = Object.fromEntries('ABCD'.split('').map((n) => [n, { vivo: true, datos: new Map(), pistas: [] }]));\nconst lista = ['A', 'B', 'C', 'D'];       // los primeros N = 3 son los dueños; D es el siguiente en el anillo\nconst N = 3, R = 2, W = 2;\nlet version = 0;\nconst estado = (k) => lista.map((n) => `${n}${nodos[n].vivo ? '' : '(caído)'}=${nodos[n].datos.get(k)?.v ?? '-'}`).join(' ');\n\nfunction put(k, valor) {                  // cuórum «descuidado» (sloppy): usa los primeros N nodos SANOS de la lista\n  const sanos = lista.filter((n) => nodos[n].vivo).slice(0, N);\n  version++; let acks = 0;\n  for (const n of sanos) {\n    nodos[n].datos.set(k, { v: version, valor });\n    if (!lista.slice(0, N).includes(n)) {  // D guarda la réplica con una pista: «esto es de A»\n      const dueño = lista.slice(0, N).find((x) => !nodos[x].vivo);\n      nodos[n].pistas.push({ k, para: dueño });\n    }\n    acks++;\n  }\n  return acks >= W ? 'ok' : 'rechazada';\n}\nfunction get(k, quienes) {                // lectura con R nodos; repara a los atrasados\n  const resp = quienes.map((n) => ({ n, d: nodos[n].datos.get(k) }));\n  const mejor = resp.reduce((a, b) => ((b.d?.v ?? 0) > (a.d?.v ?? 0) ? b : a));\n  for (const r of resp) if ((r.d?.v ?? 0) < mejor.d.v) { nodos[r.n].datos.set(k, mejor.d); console.log(`   reparación: ${r.n} estaba en v${r.d?.v ?? '-'} y pasa a v${mejor.d.v}`); }\n  return mejor.d;\n}\nconst traer = () => { // cuando un nodo vuelve, los que guardan pistas para él se las entregan\n  for (const n of lista) for (const p of nodos[n].pistas.splice(0)) if (nodos[p.para].vivo) {\n    nodos[p.para].datos.set(p.k, nodos[n].datos.get(p.k)); nodos[n].datos.delete(p.k);\n    console.log(`   entrega pendiente: ${n} le pasa «${p.k}» a ${p.para} y la borra de su disco`);\n  } else nodos[n].pistas.push(p);\n};\n\nconst k = 'despacho-101';\nput(k, 'sin asignar'); console.log('1) todos sanos        ', estado(k));\nnodos.A.vivo = false;\nconsole.log('2) cae A; escritura  ', put(k, 'asignado a AA111AA'), '|', estado(k));\nnodos.A.vivo = true; console.log('3) A vuelve           ', estado(k));\nconsole.log('4) leo en A y B (R=2): ', JSON.stringify(get(k, ['A', 'B'])));\nconsole.log('   ', estado(k));\ntraer(); console.log('5) tras la entrega    ', estado(k));\nnodos.B.vivo = false; nodos.C.vivo = false;\nconsole.log('6) caen B y C; escritura:', put(k, 'entregado'), '|', estado(k));\nconsole.log('   «ok» con solo A y D: D no es dueño de la clave. El cuórum se aflojó para no rechazar la escritura.');\nnodos.B.vivo = true; nodos.C.vivo = true;\nconsole.log('7) B y C vuelven; leo en B y C (R=2):', JSON.stringify(get(k, ['B', 'C'])));\nconsole.log('   ', estado(k), ' <- R + W > N, pero la lectura devolvió el valor viejo');\ntraer(); console.log('8) tras la entrega    ', estado(k));\nconsole.log('9) leo en B y C otra vez:', JSON.stringify(get(k, ['B', 'C'])));\nconsole.log('   ', estado(k));",
+   "cap": "Cuórum aflojado, entrega de pistas y lectura reparadora en un mini-Dynamo de cuatro nodos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node mini_dynamo.js",
+     "s": "1) todos sanos         A=1 B=1 C=1 D=-\n2) cae A; escritura   ok | A(caído)=1 B=2 C=2 D=2\n3) A vuelve            A=1 B=2 C=2 D=2\n   reparación: A estaba en v1 y pasa a v2\n4) leo en A y B (R=2):  {\"v\":2,\"valor\":\"asignado a AA111AA\"}\n    A=2 B=2 C=2 D=2\n   entrega pendiente: D le pasa «despacho-101» a A y la borra de su disco\n5) tras la entrega     A=2 B=2 C=2 D=-\n6) caen B y C; escritura: ok | A=3 B(caído)=2 C(caído)=2 D=3\n   «ok» con solo A y D: D no es dueño de la clave. El cuórum se aflojó para no rechazar la escritura.\n7) B y C vuelven; leo en B y C (R=2): {\"v\":2,\"valor\":\"asignado a AA111AA\"}\n    A=3 B=2 C=2 D=3  <- R + W > N, pero la lectura devolvió el valor viejo\n   entrega pendiente: D le pasa «despacho-101» a B y la borra de su disco\n8) tras la entrega     A=3 B=3 C=2 D=-\n   reparación: C estaba en v2 y pasa a v3\n9) leo en B y C otra vez: {\"v\":3,\"valor\":\"entregado\"}\n    A=3 B=3 C=3 D=-"
+    }
+   ],
+   "cap": "Una corrida, determinista, de este mismo código."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Cuórum aflojado y entrega de pistas** (pasos 2 y 5). El paper explica que, si usara un cuórum estricto, el sistema quedaría no disponible durante fallas de servidores y particiones de red. En cambio, las lecturas y escrituras se hacen en los primeros N nodos **sanos** de la lista, que pueden no ser los primeros N del anillo [#dynamo]. Si A está caído, su réplica va a D con una pista que dice «esto es de A». Cuando A vuelve, D se la entrega y la borra de su disco. En el paso 2 la escritura se confirma con A caído; en el 5, D ya devolvió el dato.",
+    "**Lectura reparadora** (pasos 3 y 4). Cuando A volvió estaba atrasado (versión 1). Al leer en A y B, el coordinador ve las dos versiones, devuelve la más nueva y **le escribe la nueva al atrasado**: el paper lo cuenta como «las versiones divergentes se reconcilian y la versión reconciliada se escribe de vuelta» [#dynamo]. Cada lectura es, de paso, una pequeña reparación.",
+    "**El precio** (pasos 6 y 7). Caen B y C. La escritura sigue siendo «ok» porque se confirma con A y D, y D no es dueño de la clave. Cuando B y C vuelven, una lectura en B y C devuelve el valor viejo, aunque R + W > N. No es un error del código: es lo que significa «aflojar» el cuórum. Se compró disponibilidad pagando con una garantía. En el paso 8 la entrega de la pista y en el 9 la lectura reparadora arreglan el estado, pero entre el 6 y el 8 hubo una ventana con datos viejos."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En el paso 7, un cliente leyó «asignado a AA111AA» cuando ya existía «entregado». ¿Qué tipo de sistema aceptaría ese comportamiento y cuál no?",
+   "resp": "Lo aceptaría uno donde ver un dato levemente viejo no cuesta dinero y se corrige solo: un carrito, un contador de vistas, un historial. No lo aceptaría uno donde dos operaciones sobre el mismo dato deben ser exactamente una antes de la otra: el saldo de una cuenta o la asignación de la última unidad de un producto. Para esos, se usa consenso con líder, como en [@12-23]."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "¿Qué tan seguido pasa tener versiones distintas?",
+   "x": "El paper midió el carrito de compras durante 24 horas: el 99,94 % de los pedidos vio exactamente una versión; 0,00057 % vio dos, 0,00047 % tres y 0,00009 % cuatro [#dynamo]. Es el dato que justifica el diseño: los conflictos existen, son raros y se resuelven en la lectura. Es un número de un sistema real de 2007 con su carga; no se puede transferir tal cual a otro."
+  },
+  {
+   "t": "h",
+   "x": "Cuándo cada camino"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Consenso con líder (Raft, ayer)",
+    "Estilo Dynamo (hoy)"
+   ],
+   "filas": [
+    [
+     "Quién ordena",
+     "Un líder por mandato",
+     "Cualquiera de la lista de preferencia"
+    ],
+    [
+     "Con una partición",
+     "El lado sin mayoría se detiene",
+     "Los dos lados siguen escribiendo"
+    ],
+    [
+     "Qué se acepta perder",
+     "Disponibilidad",
+     "Orden estricto: puede haber versiones distintas"
+    ],
+    [
+     "Cuánto crece",
+     "Limitado por el líder; se divide en varios grupos",
+     "Crece sumando nodos al anillo"
+    ],
+    [
+     "Para qué sirve",
+     "Configuración, candados, metadatos, saldos",
+     "Volumen alto que tolera reconciliar: carritos, perfiles, sesiones, historiales"
+    ]
+   ],
+   "cap": "Criterio propio, no una norma. Los productos reales mezclan: muchos permiten elegir R y W por consulta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Cassandra** es el descendiente más conocido: su documentación dice que se apoya en el estilo Dynamo (partición con hashing consistente, replicación multi-maestro con versiones y consistencia ajustable, chisme para la membresía, escala incremental) [#arq1224-cassandra-dynamo]. Una diferencia que conviene saber: según esa misma documentación, en lugar de relojes vectoriales usa «última escritura gana», donde cada cambio lleva una marca de tiempo y gana la más nueva. Es más simple y más riesgoso: con relojes desfasados ([@12-21]), una escritura más vieja puede pisar a una más nueva.",
+    "**DynamoDB**, el servicio de AWS, es un producto distinto del sistema del paper. Su documentación ofrece lecturas de consistencia eventual (la opción por defecto) y lecturas fuertemente consistentes, con la advertencia de que las eventuales pueden devolver datos que no incluyen una escritura reciente [#bd0934-ddb-consistencia]: la misma disyuntiva de hoy, ofrecida como una opción por consulta."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambió y qué no, noviembre de 2026",
+   "x": "El paper de Dynamo es de 2007 y describe un sistema interno de Amazon; no es el diseño de DynamoDB ni de Cassandra de hoy. Las técnicas (anillo, nodos virtuales, cuórum, lectura reparadora) siguen en uso; los valores por defecto, los parámetros y las opciones de cada producto cambian y hay que leerlos en su documentación vigente. La página de Cassandra que consulté el 16 de noviembre de 2026 es la de su rama `latest`."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no reparte ni copia datos por su cuenta",
+   "x": [
+    "Esto corresponde al commit `25e08fa` de Senda; el código cambia, la forma permanece. Todo lo compartido vive en **una** base Supabase: el mapa técnico lo dice así: proyecto único, región única, sin réplica de lectura. No hay anillo, ni cuórum, ni reparto de claves en el código. A la escala de la app hoy, no hace falta: el repartir y copiar son problemas de cuando una máquina ya no alcanza.",
+    "Lo que sí existe es **planificado**, no implementado: el documento de escala de Senda prevé, para la etapa de 100.000 a 1 millón de personas, una réplica de lectura y particionar la tabla `respuestas` por mes. Es un tipo de partición distinto del de hoy: por **rango de fechas**, no por hash. Parte los datos de forma que se pueda borrar o archivar un mes entero, pero deja una parte caliente (el mes actual). Hoy es la decisión correcta: partir cuando los datos lo pidan, no antes."
+   ],
+   "archivos": [
+    "docs/ESCALA.md",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«El hashing consistente reparte parejo»",
+   "x": "No por sí solo. El anillo con un punto por nodo mueve poco, pero reparte mal: en la medición de hoy, el peor nodo cargaba casi tres veces lo que le tocaba. Lo que reparte parejo son los nodos virtuales, y aun así con una carga muy desigual por clave (una clave «famosa» que recibe millones de pedidos) un solo nodo sigue recibiéndolos todos."
+  }
+ ],
+ "recap": [
+  "Repartir (dar capacidad) y copiar (dar durabilidad y disponibilidad) son decisiones independientes. Con `hash % N`, sumar un nodo de 4 a 5 movió el 80 % de las claves en la simulación; el mínimo teórico era 20 %.",
+  "El hashing consistente pone nodos y claves en un anillo; cada clave es del primer nodo en sentido horario. Al sumar un nodo, solo se mueven las claves que el nodo nuevo hereda (el 100 % de las que se movieron fueron al nuevo).",
+  "Con un punto por nodo el reparto es desparejo (el peor, 2,79 veces el ideal en la medición). Los nodos virtuales lo corrigen: 100 puntos por nodo bajaron el peor caso a 1,22 y 1.000 a 1,10.",
+  "Las copias se guardan en los N−1 nodos siguientes del anillo, saltando posiciones para que sean N máquinas físicas distintas. Si R + W > N, cada lectura toca a una copia de la última escritura: la enumeración dio 100 % y, por debajo, desde 20 % hasta 90 % según el caso.",
+  "Dynamo eligió escribir siempre: cuórum aflojado (se escribe en los primeros N nodos sanos), entrega de pistas para devolver lo guardado a su dueño y lectura reparadora para igualar. A cambio, puede devolver datos viejos y versiones divergentes.",
+  "Consenso con líder y estilo Dynamo son dos puntos de la misma disyuntiva de CAP. Se elige según lo que el negocio tolera: perder disponibilidad con una partición, o ver un dato levemente viejo."
+ ],
+ "repaso": [
+  {
+   "p": "Una distribuidora reparte clientes con `hash(cliente) % 4` y pasa a 5 depósitos. ¿Qué cambia, aproximadamente, en el reparto?",
+   "o": [
+    "Se mueve un 20 %: el quinto depósito toma una parte de cada uno",
+    "Se mueve un 80 %: casi todas las claves cambian de depósito",
+    "No se mueve ninguna: el hash fija el depósito de cada cliente",
+    "Se mueve el 50 %: se reparte la mitad con el depósito nuevo"
+   ],
+   "c": 1,
+   "e": "Una clave solo se queda quieta cuando su resto al dividir por 4 y por 5 coincide, y eso ocurre en 4 de cada 20 casos: se mueve el 80 %. La cifra del 20 % es lo que logra el hashing consistente."
+  },
+  {
+   "p": "En un anillo con un solo punto por nodo, se agrega un nodo. ¿Qué claves cambian de dueño?",
+   "o": [
+    "Todas las claves del anillo, porque el hash cambia de rango",
+    "Solo las que caen entre el nodo nuevo y su predecesor",
+    "Las de los dos nodos vecinos, en partes iguales entre ellos",
+    "Las claves más calientes, que se redistribuyen para equilibrar"
+   ],
+   "c": 1,
+   "e": "El nodo nuevo hereda únicamente el tramo del anillo entre su predecesor y él; el resto no se entera. En la simulación, el 100 % de las claves movidas fue al nodo nuevo. Cambiar todas es el módulo; repartir con vecinos y por calor no es lo que hace el anillo."
+  },
+  {
+   "p": "¿Para qué sirven los nodos virtuales?",
+   "o": [
+    "Para que haya más copias de cada dato sin sumar máquinas físicas",
+    "Para repartir la carga más parejo y que una caída se reparta entre muchos",
+    "Para que el anillo se pueda recorrer en los dos sentidos",
+    "Para que las lecturas no necesiten un cuórum de réplicas"
+   ],
+   "c": 1,
+   "e": "Con muchos puntos por nodo, los promedios emparejan el reparto (en la medición, de 2,79 a 1,10) y la carga de un nodo caído se dispersa entre todos. No agregan copias, no cambian el sentido del anillo ni reemplazan al cuórum."
+  },
+  {
+   "p": "Con N=3 réplicas, ¿cuál de estas configuraciones puede devolver un dato viejo aunque no haya ninguna falla?",
+   "o": [
+    "R=2 y W=2, porque la lectura puede no cruzar la escritura",
+    "R=1 y W=3, porque la lectura puede ir a la réplica más lenta",
+    "R=3 y W=1, porque la escritura llega a una sola réplica",
+    "R=1 y W=1, porque la lectura puede no tocar la escritura"
+   ],
+   "c": 3,
+   "e": "Con R + W ≤ N (1 + 1 ≤ 3) la lectura puede caer en una réplica que no recibió la escritura: la enumeración dio un tercio de aciertos. Las demás suman más que 3, así que las dos operaciones tienen que cruzarse."
+  },
+  {
+   "p": "Un sistema estilo Dynamo con N=3, R=2 y W=2 acepta una escritura con A caído usando a D, que no es dueña de la clave. ¿Qué garantía se debilitó?",
+   "o": [
+    "La durabilidad: el dato se guarda en una sola máquina",
+    "La disponibilidad: el sistema rechazó escrituras por la caída",
+    "El cruce garantizado entre lecturas y escrituras, que R + W > N prometía",
+    "El hashing consistente: la clave cambió de dueño para siempre"
+   ],
+   "c": 2,
+   "e": "Con el cuórum aflojado, la escritura se confirmó con un nodo que no está en la lista de dueños, así que una lectura posterior en los dueños puede no verla (pasos 6 y 7 de la simulación). La disponibilidad mejoró, la durabilidad se mantuvo y la clave no cambió de dueño."
+  },
+  {
+   "p": "Una app de saldos de cuenta en la que dos operaciones sobre la misma cuenta deben tener un orden estricto, ¿qué enfoque encaja mejor?",
+   "o": [
+    "Estilo Dynamo con W=1 para que nunca rechace una escritura",
+    "Estilo Dynamo con «última escritura gana» y relojes de cada nodo",
+    "Consenso con líder, aunque se detenga si el líder se queda sin mayoría",
+    "Sin réplicas, para que no haya copias que puedan quedar viejas"
+   ],
+   "c": 2,
+   "e": "Un saldo no tolera versiones divergentes ni datos viejos: conviene el consenso aunque cueste disponibilidad. Con W=1 o con última escritura gana pueden perderse operaciones, y no tener réplicas pierde durabilidad en vez de resolver el orden."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin decir «hash» ni «anillo», cómo repartir los clientes de una distribuidora entre depósitos de modo que abrir uno nuevo obligue a mover solo una parte chica de la carga. Después explicá cuántas copias del remito tenés que consultar para estar segura de no leer una versión vieja, y qué pasa si un depósito se cae justo en ese momento.",
+ "para_profundizar": [
+  {
+   "fuente": "dynamo",
+   "nota": "El paper de Dynamo. Leé la sección 4.2 (partición y nodos virtuales), 4.5 (R y W) y 4.6 (cuórum aflojado y pistas); la Tabla 1 resume todo en media página."
+  },
+  {
+   "fuente": "arq1224-karger-chash",
+   "nota": "El paper original del hashing consistente. Alcanzan el resumen y la introducción para ver el problema de los puntos calientes que querían resolver."
+  },
+  {
+   "fuente": "arq1224-cassandra-dynamo",
+   "nota": "La página de arquitectura de Cassandra explica con un anillo de ocho nodos y factor de replicación 3 cómo se reparten y copian los datos hoy."
+  },
+  {
+   "fuente": "ddia",
+   "nota": "El libro de Kleppmann trata los cuórums y sus casos raros (escrituras a medias, relojes) en sus capítulos de replicación. Lo menciono de memoria: no lo releí para este día."
+  }
+ ],
+ "videos": [
+  {
+   "q": "consistent hashing explained virtual nodes ring",
+   "por_que": "Animaciones del anillo, sumar y sacar nodos y nodos virtuales; refuerza lo que hoy viste medido."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "hashing consistente",
+   "d": "Forma de repartir claves entre nodos poniendo a ambos en un círculo de valores de hash: cada clave es del primer nodo en sentido horario. Al sumar o sacar un nodo, solo se mueven las claves de su tramo, no casi todas."
+  },
+  {
+   "t": "quórum",
+   "d": "Cantidad mínima de réplicas que tienen que participar de una lectura o escritura. Si las que escriben (W) y las que leen (R) suman más que el total (N), cada lectura toca al menos una copia de la última escritura."
+  },
+  {
+   "t": "Dynamo",
+   "d": "Almacén clave-valor interno de Amazon, descripto en un paper de 2007. Prioriza que las escrituras nunca se rechacen: reparte con hashing consistente, copia con cuórum aflojado y reconcilia versiones al leer."
+  },
+  {
+   "t": "nodo virtual",
+   "d": "Cada uno de los varios puntos del anillo de hashing consistente que se le asignan a un nodo físico. Emparejan el reparto, dispersan la carga de un nodo caído y permiten dar más puntos a máquinas más grandes."
+  },
+  {
+   "t": "lista de preferencia",
+   "d": "En Dynamo, la lista de nodos que guardan una clave: su dueño en el anillo y los siguientes, saltando posiciones para que sean máquinas físicas distintas, más algunos de reserva."
+  },
+  {
+   "t": "lectura reparadora",
+   "d": "Técnica por la que, al leer de varias réplicas y encontrar alguna atrasada, el coordinador devuelve la versión más nueva y se la escribe de vuelta a la atrasada."
+  },
+  {
+   "t": "cuórum aflojado",
+   "d": "Variante en la que las operaciones se hacen en los primeros N nodos sanos de la lista, aunque alguno no sea dueño de la clave. Mantiene la disponibilidad durante fallas; a cambio, una lectura puede no cruzarse con la última escritura."
+  },
+  {
+   "t": "entrega de pistas",
+   "d": "Cuando un dueño está caído, otro nodo guarda su réplica con una pista de a quién pertenece y se la entrega cuando el dueño vuelve."
+  }
+ ],
+ "siguiente": "Transacciones distribuidas: 2PC y sagas. Hoy repartiste y copiaste datos; mañana, qué pasa cuando una sola operación de negocio, como asignar un despacho y cobrar el envío, toca datos de máquinas distintas y tiene que valer entera o no valer.",
+ "fuentes_nuevas": [
+  {
+   "id": "arq1224-karger-chash",
+   "t": "Consistent Hashing and Random Trees: Distributed Caching Protocols for Relieving Hot Spots on the World Wide Web",
+   "a": "Karger, Lehman, Leighton, Panigrahy, Levine y Lewin",
+   "tipo": "paper",
+   "url": "https://www.cs.princeton.edu/courses/archive/fall09/cos518/papers/chash.pdf"
+  },
+  {
+   "id": "arq1224-cassandra-dynamo",
+   "t": "Dynamo (documentación de arquitectura de Apache Cassandra)",
+   "a": "Apache Cassandra",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cassandra.apache.org/doc/latest/cassandra/architecture/dynamo.html"
+  }
+ ]
+}

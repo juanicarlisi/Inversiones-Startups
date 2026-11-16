@@ -1,0 +1,608 @@
+{
+ "id": "13-06",
+ "titulo": "Cómputo II: contenedores gestionados",
+ "bajada": "Qué entrega el proveedor cuando le das una imagen de contenedor, qué le exige a cambio, cómo escala a cero y qué es un orquestador gestionado, con capas, un servidor real en runc y una simulación de concurrencia.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué entregás y qué recibís al usar un contenedor gestionado, y en qué se diferencia de alquilar una instancia.",
+  "Mostrar con un ejemplo corrido que una imagen son capas identificadas por una huella y que cambiar una línea reemplaza solo la capa de arriba.",
+  "Enumerar el contrato que un servicio como Cloud Run le exige al contenedor (puerto, estado, apagado).",
+  "Simular el efecto de la concurrencia por instancia y del mínimo de instancias sobre arranques en frío y minutos de cómputo.",
+  "Ubicar EKS, GKE y AKS en un mapa de quién maneja qué, sin entrar todavía en Kubernetes."
+ ],
+ "venis_de": "En [@02-24] viste qué es un contenedor por dentro: un proceso con vista recortada, tope de recursos y sistema de archivos propio. Ayer, en [@13-05], alquilaste máquinas enteras. Hoy el proveedor te alquila solo el contenedor.",
+ "se_apoya_en": [
+  "02-24",
+  "13-04",
+  "13-05"
+ ],
+ "gancho": [
+  "Un contenedor de carga estándar entra en cualquier barco, tren o camión sin que nadie tenga que saber qué hay adentro. La naviera mueve cajas del mismo tamaño y no le importa si llevan repuestos o fruta. El contenedor de software busca algo parecido: un paquete con su programa y sus dependencias que corre igual en cualquier máquina con el motor adecuado.",
+  "Ayer pagaste por la camioneta entera con su chofer, su patente y su tanque. Hoy el proveedor te dice: «dame solo la caja, yo pongo el camión, lo cargo, lo reparto y, si hace falta, lo multiplico». Eso se llama contenedor gestionado. Vas a ver qué caja le tenés que entregar, qué exige él a cambio, por qué puede apagar tu servicio cuando nadie lo usa y qué pasa cuando querés más control con un orquestador."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Lo que entregás: una imagen, que son capas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[contenedor gestionado]] es un servicio de la nube al que le entregás una [[imagen de contenedor]] y una configuración mínima (cuánta CPU y memoria, qué variables de entorno), y él se ocupa de encontrar máquinas, arrancar el contenedor, repartirle pedidos, reiniciarlo si falla y, según el servicio, multiplicarlo. Vos no elegís tipo de instancia, no mantenés un sistema operativo y no parcheás un servidor.",
+    "Para entenderlo hay que mirar bien qué es lo que se entrega. En [@02-24] viste que una imagen son capas de solo lectura apiladas. Acá importa un detalle más: cada capa se identifica por una **huella** (un hash SHA-256 de su contenido). Dos capas con exactamente los mismos bytes tienen la misma huella, y eso permite que el proveedor las guarde una sola vez y que tu máquina no vuelva a bajarlas [#ctr-oci-image-layer]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Lo armé a mano para que se vea. Dos capas de juguete: una base con un programa y un archivo del sistema, y otra con una aplicación de una línea. Las empaqueté como archivos `tar` ordenados y con fechas fijas, para que el resultado no dependa del momento en que se crea. Es una simplificación de lo que hacen las herramientas reales, pero el principio de la huella es el mismo. Corrido el 16-11-2026."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls -l c1.tar c2.tar | awk '{print $5, $9}'",
+     "s": "2129920 c1.tar\n10240 c2.tar"
+    },
+    {
+     "c": "sha256sum c1.tar c2.tar | cut -c1-20,65-",
+     "s": "99a003d87d65d7e7c37c  c1.tar\n1ea5a4c04261668c3430  c2.tar"
+    },
+    {
+     "c": "echo 'console.log(\"v2\")' > capa2/app/index.js   # cambio una línea de la app",
+     "s": ""
+    },
+    {
+     "c": "tar --sort=name --mtime='2026-01-01' --owner=0 --group=0 --numeric-owner -C capa2 -cf c2b.tar . ; tar ... -C capa1 -cf c1b.tar . ; sha256sum c1b.tar c2b.tar | cut -c1-20,65-",
+     "s": "99a003d87d65d7e7c37c  c1b.tar\n6e334bb9f90bd5ca9816  c2b.tar"
+    },
+    {
+     "c": "tar -C apilado -xf c1.tar; tar -C apilado -xf c2b.tar; find apilado -type f | sort",
+     "s": "apilado/app/index.js\napilado/bin/busybox\napilado/etc/os.txt"
+    }
+   ],
+   "cap": "La capa base (c1) conserva su huella al cambiar la aplicación. Solo cambió la de arriba (c2). Apilar es descomprimir una capa tras otra sobre la misma carpeta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la segunda y la cuarta línea. La base pesa 2 MB y tiene la huella `99a003…`; después de cambiar una línea de la aplicación, sigue siendo `99a003…`. La capa de arriba pasó de `1ea5a4…` a `6e334b…`. Cuando subas una versión nueva a un registro, la nube solo necesita recibir la capa que cambió, y las máquinas donde corre tu servicio solo bajan esa. Eso es lo que hace que desplegar una versión nueva sea rápido en vez de mover cientos de megabytes cada vez.",
+    "Dónde guardan las imágenes los proveedores: en un **registro de imágenes**, un servicio que almacena capas por huella y las sirve por nombre y etiqueta. AWS tiene Amazon ECR, que dice soportar imágenes de Docker y de la Open Container Initiative [#cloud0506-aws-ecr]; Google tiene Artifact Registry [#cloud0506-gcp-artifact]; Azure, Azure Container Registry, que la página de Container Apps nombra como origen válido [#cloud0506-azure-aca]. Un registro cobra por lo que guarda y por la transferencia, así que conviene limpiar imágenes viejas (ECR tiene políticas de ciclo de vida para eso)."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Las capas se identifican por huella. Si dos aplicaciones distintas usan la misma base, ¿cuántas veces se guarda esa base en el registro y en una máquina que corre ambas?",
+   "resp": "Una sola vez en cada lugar. Como la huella es la misma, el registro y el motor de contenedores reconocen que ya la tienen y no la repiten. Es lo mismo que pasa con las capas de juguete de arriba."
+  },
+  {
+   "t": "h",
+   "x": "Lo que te exigen: el contrato del contenedor"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un servicio gestionado puede mover tu contenedor de máquina en máquina, multiplicarlo y apagarlo. Para poder hacerlo exige reglas. Google las llama el contrato de ejecución del contenedor, y para un servicio de Cloud Run dicen cosas muy concretas [#cloud0506-cloudrun-contrato]. El contenedor tiene que escuchar en `0.0.0.0` y no en `127.0.0.1`, en el puerto que la plataforma le inyecta en la variable `PORT` (por defecto, 8080). La plataforma termina el cifrado TLS, así que el contenedor no tiene que hacerlo. Tiene que arrancar y empezar a escuchar dentro de los 4 minutos. Su sistema de archivos está en memoria: lo que escribe consume memoria y se pierde cuando la instancia se detiene. Y al apagarlo, la plataforma manda `SIGTERM` y espera 10 segundos antes de `SIGKILL`.",
+    "Traducido: tu programa tiene que ser **sin estado** (nada importante en su disco local), **rápido de arrancar** y **bueno para morir**. Son reglas de diseño que no dependen de un proveedor, y es razonable esperar variantes parecidas en los otros servicios, aunque acá solo verifiqué la de Cloud Run."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para ver la mecánica sin cuenta de ningún proveedor, usé `runc`, el mismo tipo de herramienta de bajo nivel de [@02-24] (un programa que arranca el contenedor a partir de una carpeta y un archivo de configuración). Armé una carpeta con un servidor web mínimo de BusyBox y le pasé la variable `PORT=25306`, como haría una plataforma. El programa lee esa variable y escucha ahí. Para poder llamarlo desde afuera quité el aislamiento de red del contenedor. No es lo que hace una plataforma real: es lo mínimo para el ejemplo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "runc run c1306web &   # config.json con process.env = [\"PORT=25306\"] y sin namespace de red",
+     "s": "arranco; escucho en el puerto 25306"
+    },
+    {
+     "c": "curl -s localhost:25306/index.html",
+     "s": "<h1>hola desde un contenedor</h1>"
+    },
+    {
+     "c": "curl -s -o /dev/null -w '%{http_code}\\n' localhost:25306/nada",
+     "s": "404"
+    }
+   ],
+   "cap": "BusyBox httpd dentro de un contenedor de runc 1.5.2, corrido el 16-11-2026. La plataforma real hace lo mismo a escala: inyecta PORT, espera que el programa escuche y le manda pedidos."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Escuchar en 127.0.0.1 es el error número uno",
+   "x": "Un servidor que escucha solo en `127.0.0.1` acepta conexiones únicamente desde adentro del propio contenedor. La plataforma le llega desde afuera, no recibe respuesta y marca el servicio como no saludable. Funciona en tu máquina y falla en la nube. El arreglo es escuchar en `0.0.0.0`, y la documentación de Cloud Run lo dice de forma explícita."
+  },
+  {
+   "t": "h",
+   "x": "Cuatro servicios, la misma idea"
+  },
+  {
+   "t": "p",
+   "x": "Los grandes ofrecen un servicio para «dame una imagen y yo la corro». Se parecen en lo central y difieren en lo que les importa a ellos. Esto es lo que leí en sus documentaciones oficiales el 16-11-2026."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Servicio",
+    "Qué le das",
+    "Qué hace por vos",
+    "Dato verificado"
+   ],
+   "filas": [
+    [
+     "Cloud Run (Google)",
+     "Imagen o código fuente; tipos: servicio, trabajo, grupo de workers",
+     "Sin clúster; escala de forma automática, incluida a cero",
+     "Concurrencia por defecto 80 por instancia, máximo 1.000"
+    ],
+    [
+     "ECS con Fargate (AWS)",
+     "Definición de tarea con CPU, memoria, red y permisos",
+     "Sin elegir servidores ni empaquetar nodos",
+     "Cada tarea tiene su propio límite de aislamiento y no comparte kernel con otras"
+    ],
+    [
+     "Azure Container Apps",
+     "Imagen de cualquier registro",
+     "Escala por HTTP, eventos, CPU, memoria o KEDA",
+     "La mayoría escala a cero; las que escalan por CPU o memoria, no"
+    ],
+    [
+     "AWS App Runner",
+     "Imagen o código",
+     "Despliegue directo a una app web escalable",
+     "Cerrado a clientes nuevos"
+    ]
+   ],
+   "cap": "Fuentes: guías oficiales de cada servicio, leídas el 16-11-2026."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cloud Run es el que Google presenta como plataforma totalmente gestionada para correr código, funciones o contenedores sin crear ni administrar un clúster. Tiene cuatro tipos de recurso: el *servicio* (responde pedidos HTTP con instancias sin estado que escalan), el *trabajo* (tareas que corren hasta terminar), el *grupo de workers* (procesos siempre activos que consumen colas) y la *instancia* (en vista previa) [#cloud0506-cloudrun-que-es]. Cobra por CPU y memoria asignadas con granularidad de 100 ms, en dos modos: por pedido (no se cobra mientras no procesa) o por instancia (se cobra toda su vida).",
+    "Fargate no es un servicio aparte sino una forma de correr tareas de Amazon ECS sin administrar las máquinas [#cloud0506-aws-fargate]. Vos definís cuánta CPU y memoria necesita la tarea, la red y los permisos. La documentación remarca que cada tarea tiene su propio límite de aislamiento y no comparte kernel, CPU, memoria ni interfaz de red con otra tarea. Eso responde a la preocupación de [@02-24] sobre compartir kernel, aunque la página no detalla cómo lo logra. También ofrece Fargate Spot: tareas tolerantes a interrupciones con descuento, que reciben un aviso de dos minutos antes de cortarse. Es el mismo trato que viste ayer con las instancias spot.",
+    "Azure Container Apps se presenta como plataforma serverless de contenedores. Escala por tráfico HTTP, eventos, uso de CPU o memoria o cualquier escalador compatible con KEDA, y lo hace sin que tengas que tocar la infraestructura [#cloud0506-azure-aca]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "AWS App Runner ya no admite clientes nuevos",
+   "x": [
+    "La guía oficial de AWS App Runner abre con un aviso: el servicio no está abierto a clientes nuevos, los existentes lo siguen usando con normalidad, y AWS recomienda Amazon ECS Express Mode a quien no sea cliente [#cloud0506-aws-apprunner]. Según la página de migración, Express Mode crea con una sola llamada un servicio de ECS sobre Fargate, un balanceador de carga, escalado y red. Leí ambas el 16-11-2026; la página no muestra fecha del cambio.",
+    "Es un buen recordatorio: los servicios en la nube aparecen, se transforman y a veces se cierran. Un principio que sigue valiendo es que tu contenedor sea portable (cumple el contrato, no depende de un servicio propietario); un nombre de producto, en cambio, tiene fecha de vencimiento."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Escala a cero y concurrencia: lo que cambia la factura"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos ideas explican por qué estos servicios se cobran distinto que una instancia. La primera es la **escala a cero**: si no llegan pedidos, el servicio apaga todas las instancias y no pagás cómputo. La documentación de Cloud Run lo describe así: sin pedidos entrantes, incluso la última instancia se retira. Pero cuando llega un pedido a un servicio con cero instancias, hay que crear una, y ese primer pedido es más lento. Eso se llama **arranque en frío**.",
+    "La segunda es la **concurrencia por instancia**: cuántos pedidos simultáneos atiende una misma instancia. Un contenedor con un servidor web moderno puede manejar muchos pedidos a la vez. Cloud Run usa 80 por defecto en su consola y permite hasta 1.000 [#cloud0506-cloudrun-concurrencia]. Con concurrencia 1, cada pedido simultáneo necesita su propia instancia. Con 80, una sola instancia absorbe una ráfaga que de otra forma pediría decenas de arranques."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Armé una simulación con una hora de tráfico inventada: veinte minutos sin pedidos, diez minutos de cinco por segundo, una ráfaga de un minuto a sesenta por segundo y después dos por segundo. Cada pedido dura 0,2 segundos. Un arranque tarda 2 segundos y una instancia ociosa se retira a los 60 segundos (todo inventado; la documentación real habla de hasta 15 minutos de espera). El código corre acá abajo."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Traza INVENTADA de 1 hora, un valor por segundo (pedidos por segundo)\nconst T = 3600, llegadas = [];\nfor (let s = 0; s < T; s++) {\n  let a = 0;\n  if (s >= 1200 && s < 1800) a = 5;\n  if (s >= 1800 && s < 1860) a = 60;   // ráfaga de un minuto\n  if (s >= 1860 && s < 2400) a = 2;\n  llegadas.push(a);\n}\nconst DURACION = 0.2;   // cada pedido tarda 0,2 s (inventado)\nconst ARRANQUE = 2;     // un arranque en frío tarda 2 s (inventado)\nconst ESPERA = 60;      // una instancia ociosa se retira a los 60 s (inventado; la doc de Cloud Run habla de hasta 15 min)\nfunction simular({ concurrencia, minimo }) {\n  let instancias = minimo, ocio = 0, arranques = 0, segInst = 0, pedidosLentos = 0, total = 0;\n  for (let s = 0; s < T; s++) {\n    const enVuelo = llegadas[s] * DURACION;\n    const necesarias = enVuelo > 0 ? Math.ceil(enVuelo / concurrencia) : 0;\n    if (necesarias > instancias) {\n      const nuevas = necesarias - instancias;\n      arranques += nuevas; pedidosLentos += llegadas[s]; instancias = necesarias; ocio = 0;\n    } else if (necesarias < instancias) {\n      ocio++;\n      if (ocio >= ESPERA) { instancias = Math.max(minimo, necesarias); ocio = 0; }\n    } else ocio = 0;\n    segInst += instancias; total += llegadas[s];\n  }\n  return { arranques, pedidosConEspera: pedidosLentos, deTotal: total, minutosInstancia: +(segInst / 60).toFixed(1) };\n}\nfor (const c of [1, 80]) for (const m of [0, 1])\n  console.log(`concurrencia ${c}, mínimo ${m}:`, JSON.stringify(simular({ concurrencia: c, minimo: m })));\n",
+   "ejecutable": true,
+   "cap": "Datos inventados. Cambiá `ESPERA`, `ARRANQUE` o la ráfaga para ver cómo se mueven los números."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Concurrencia",
+    "Mínimo",
+    "Arranques en frío",
+    "Pedidos con espera (aprox.)",
+    "Minutos de instancia"
+   ],
+   "filas": [
+    [
+     "1",
+     "0",
+     "12",
+     "65 de 7.680",
+     "42,8"
+    ],
+    [
+     "1",
+     "1",
+     "11",
+     "60 de 7.680",
+     "81,8"
+    ],
+    [
+     "80",
+     "0",
+     "1",
+     "5 de 7.680",
+     "21,0"
+    ],
+    [
+     "80",
+     "1",
+     "0",
+     "0 de 7.680",
+     "60,0"
+    ]
+   ],
+   "cap": "Salida de la simulación, corrida el 16-11-2026. «Con espera» cuenta los pedidos del segundo en que hace falta una instancia nueva: es una aproximación gruesa."
+  },
+  {
+   "t": "p",
+   "x": "Se ven tres cosas. Primero, la concurrencia manda: pasar de 1 a 80 bajó los arranques de doce a uno y los minutos de instancia a la mitad. Segundo, mantener una instancia mínima prendida elimina los arranques en frío, pero dejó el cómputo en 60 minutos: pagás una hora completa por una hora de servicio, incluso con veinte minutos sin tráfico. Tercero, con la ráfaga aparece el costo de no tener margen: el que escala a cero la paga con un pedido lento."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu servicio recibe tráfico casi todo el día pero tiene una ráfaga dos veces por semana. ¿Qué te conviene más: mínimo en 1 o mínimo en 0? ¿Qué cambia si es una app interna de un equipo que se usa de 9 a 18?",
+   "resp": "Con tráfico casi constante, la instancia mínima casi no agrega costo (de todos modos habría una instancia viva) y evita arranques en frío. Para una app interna usada 9 horas al día, un mínimo de 1 paga las otras 15 horas sin uso. Ahí suele convenir escalar a cero y aceptar el primer pedido lento de la mañana. Es un criterio que se decide con tu uso real."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Concurrencia alta exige un programa que la aguante",
+   "x": [
+    "Si tu código guarda datos de un pedido en una variable global, dos pedidos simultáneos en la misma instancia se pisan. Con concurrencia 1 ese error no se ve nunca; con 80 aparece en producción.",
+    "Y un tope de memoria compartido: Cloud Run avisa que superar el límite total termina la instancia y los pedidos en curso devuelven un error 500 [#cloud0506-cloudrun-contrato]. Más concurrencia es más gente usando la misma memoria."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Orquestador gestionado: cuando querés más control"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá, el proveedor decide dónde y cómo se ejecuta tu contenedor. A veces eso no alcanza: querés muchos servicios que se hablan, reglas de red propias, programas que no son HTTP o simplemente usar el mismo sistema en cualquier nube. Para eso existe Kubernetes, un sistema que programa contenedores sobre un conjunto de máquinas, y que se estudia a fondo en la Parte 14. Hoy alcanza con el mapa.",
+    "Un [[orquestador gestionado]] es Kubernetes con el proveedor operando la parte difícil. Todos los grandes ofrecen uno: Amazon EKS, Google Kubernetes Engine (GKE) y Azure Kubernetes Service (AKS). La diferencia clave entre ellos y los servicios de arriba es esta: acá seguís pensando en máquinas de cómputo (nodos) y en objetos de Kubernetes, aunque tengas modos que se las manejan."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Servicio",
+    "Lo que gestiona el proveedor",
+    "Lo que te queda",
+    "Cómo se cobra, según su guía"
+   ],
+   "filas": [
+    [
+     "Amazon EKS",
+     "El plano de control de Kubernetes; con el modo Auto Mode, también los nodos",
+     "Tus aplicaciones; los nodos si no usás Auto Mode",
+     "Por clúster; los recursos de los nodos se pagan aparte"
+    ],
+    [
+     "Google GKE",
+     "El plano de control; en modo Autopilot, también los nodos",
+     "Tus aplicaciones; los nodos en modo Standard",
+     "Autopilot: lo que piden tus pods. Standard: todos los recursos de los nodos"
+    ],
+    [
+     "Azure AKS",
+     "El plano de control, sin costo; en modo Automatic, también los nodos",
+     "Tus aplicaciones; los grupos de nodos en modo Standard",
+     "Se pagan los nodos que corren tus aplicaciones"
+    ]
+   ],
+   "cap": "Resumen de las guías oficiales de cada servicio, leídas el 16-11-2026. Los precios concretos se consultan en la página de precios el día de la decisión."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las tres guías dicen lo mismo con otras palabras [#cloud0506-aws-eks][#cloud0506-gcp-gke][#cloud0506-azure-aks]: el plano de control (la parte que decide qué corre dónde) lo opera el proveedor, y hay un modo «automático» que además se encarga de las máquinas. GKE dice que Autopilot es la forma recomendada de ejecutar GKE, y AKS recomienda Automatic para la mayoría de los equipos. Esa tendencia es información útil: hasta los orquestadores se empujan hacia que no veas máquinas.",
+    "Fijate en la escalera completa, de más a menos trabajo tuyo. Una instancia sola ([@13-05]) te deja todo. Un orquestador en modo estándar te saca el plano de control. En modo automático te saca además los nodos. Un servicio como Cloud Run o Container Apps te saca el orquestador entero. Y una función (la viste en [@13-04] y se estudia mañana) te saca hasta el servidor web."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Función (FaaS)",
+     "d": "Te da el código de un pedido; todo lo demás es del proveedor",
+     "k": "ok"
+    },
+    {
+     "n": "Contenedor gestionado",
+     "d": "Cloud Run, Container Apps, ECS con Fargate: entregás la imagen y la configuración",
+     "k": "servidor"
+    },
+    {
+     "n": "Orquestador en modo automático",
+     "d": "EKS Auto Mode, GKE Autopilot, AKS Automatic: manejás objetos de Kubernetes, no nodos",
+     "k": "datos"
+    },
+    {
+     "n": "Orquestador en modo estándar",
+     "d": "Manejás objetos de Kubernetes y grupos de nodos",
+     "k": "red"
+    },
+    {
+     "n": "Instancias",
+     "d": "Manejás máquinas, sistema operativo, parches e imagen",
+     "k": "hw"
+    }
+   ],
+   "cap": "De arriba hacia abajo crece el control y el trabajo. De abajo hacia arriba crece lo que delegás en el proveedor."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "De la camioneta propia a la naviera",
+   "x": [
+    "Instancia: tenés la camioneta, el chofer y el tanque. Orquestador: tenés una flota y un despachante que asigna viajes (que te pone el proveedor). Contenedor gestionado: le entregás la caja a la naviera. Función: le das solo el paquete.",
+    "Dónde deja de valer: una naviera real no te exige que la caja sea «sin estado» ni que arranque en cuatro minutos, y el software sí. La comodidad se paga con reglas."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Una regla práctica, que es criterio y no ley: empezá por el servicio más simple que cumpla con tu aplicación (un contenedor gestionado o, si alcanza, una función) y pasá a un orquestador cuando aparezca una necesidad concreta que el servicio simple no puede resolver. El orquestador agrega un lenguaje nuevo, una superficie de errores nueva y casi siempre una persona que lo entienda. Ese costo de complejidad lo viste en [@12-30]."
+  },
+  {
+   "t": "h",
+   "x": "Lo que aparece en el código de Senda"
+  },
+  {
+   "t": "p",
+   "x": "Senda no usa contenedores propios. En el repositorio de la app no hay ningún `Dockerfile` (lo verifiqué buscando en todo el árbol, sin contar `node_modules`), y los flujos de GitHub no construyen ni suben imágenes. Esto corresponde al commit `25e08fa` verificado el 09-11-2026, y lo que verifiqué ahora en el código del 16-11-2026."
+  },
+  {
+   "t": "senda",
+   "titulo": "Sin contenedores propios, con tres huellas",
+   "x": [
+    "Lo único de Docker que aparece en los flujos es una limpieza: el paso `sudo docker image prune --all --force`, que borra las imágenes de contenedor que ya trae la máquina virtual del ejecutor de GitHub para liberar espacio de disco. La imagen que usa GitHub para sus ejecutores incluye herramientas que Senda no necesita, y las borra para que el armado del APK entre en disco.",
+    "El lado servidor de Senda son tres funciones de borde de Supabase (`trivia-sermon`, `borrar-cuenta`, `compras`), escritas en TypeScript para el entorno Deno y desplegadas con `supabase functions deploy` desde `.github/workflows/supabase.yml`. Es decir, el equipo entrega código, no una imagen: no hay contrato de puerto ni de `SIGTERM` que cumplir. Es el nivel de FaaS de la escalera de hoy.",
+    "Hallazgo: si Senda algún día necesitara correr un programa que no entra en una función (por ejemplo, un proceso largo), el paso natural sería un contenedor gestionado. Está planteado como posibilidad de diseño, no como plan del proyecto."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/supabase.yml",
+    "supabase/functions/trivia-sermon/index.ts",
+    "supabase/functions/borrar-cuenta/index.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Confusiones frecuentes"
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Un contenedor gestionado es lo mismo que Kubernetes»",
+   "x": "No. Cloud Run, Fargate con ECS y Container Apps no te muestran Kubernetes. Pueden usar internamente la tecnología que elijan; lo que te venden es un servicio donde entregás una imagen. Kubernetes (en EKS, GKE o AKS) es otro nivel, con otro vocabulario y otro trabajo."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Escala a cero significa que es gratis cuando no lo usan»",
+   "x": "Es gratis el cómputo de las instancias, no todo lo demás. El registro de imágenes sigue guardando tus capas, la base de datos que usa tu servicio sigue encendida y puede haber costos por transferencia. Además, un servicio sin usar pierde calentamiento: el primer pedido de la mañana paga el arranque."
+  },
+  {
+   "t": "p",
+   "x": "Mañana, el siguiente peldaño: [@13-07] muestra funciones serverless, donde ni siquiera entregás una imagen sino código, y aparece el tiempo máximo de ejecución como una pared que hay que conocer."
+  }
+ ],
+ "recap": [
+  "Un **contenedor gestionado** recibe una imagen y la corre por vos. Te ahorra elegir instancias y mantener un sistema operativo, y a cambio te impone un contrato.",
+  "Una imagen son **capas con huella** (SHA-256). Cambiar una línea de la aplicación cambia solo la capa de arriba, y por eso subir y bajar versiones es rápido. Se guardan en un **registro de imágenes** (ECR, Artifact Registry, Azure Container Registry).",
+  "El **contrato** en Cloud Run: escuchar en `0.0.0.0` en el puerto de `PORT` (8080 por defecto), arrancar en 4 minutos, no depender del disco local y apagarse en 10 segundos tras `SIGTERM`.",
+  "Con **escala a cero** no pagás cómputo sin tráfico, pero el primer pedido paga un **arranque en frío**. La concurrencia por instancia (80 por defecto en Cloud Run) hizo bajar los arranques de 12 a 1 en la simulación.",
+  "Un **orquestador gestionado** (EKS, GKE, AKS) opera el plano de control de Kubernetes, y en modo automático también los nodos. Es otro nivel de trabajo que un servicio como Cloud Run.",
+  "Senda no tiene contenedores propios: sus flujos solo limpian imágenes de la máquina del ejecutor, y su servidor son funciones de borde de Supabase. AWS App Runner ya no admite clientes nuevos (leído el 16-11-2026)."
+ ],
+ "repaso": [
+  {
+   "p": "Cambiás una línea de tu aplicación y reconstruís la imagen. Su base no cambió. ¿Qué capas cambian de huella?",
+   "o": [
+    "Solo la capa donde está tu aplicación; la base conserva la suya.",
+    "Todas las capas, porque la huella de una imagen es única e indivisible.",
+    "Solo la capa base, porque es la que contiene el sistema de archivos.",
+    "Ninguna capa, porque la huella depende del nombre del archivo y no del contenido."
+   ],
+   "c": 0,
+   "e": "La huella se calcula sobre el contenido de cada capa. La base tiene los mismos bytes y conserva su huella; la capa de la aplicación cambió. Por eso solo se suben y bajan las capas distintas. Que la huella dependa del nombre es falso, y no existe una huella única para toda la imagen que invalide las capas."
+  },
+  {
+   "p": "Desplegás un servidor en un servicio gestionado y no responde, aunque en tu máquina anda. Mirando el código ves que escucha en `127.0.0.1:3000`. ¿Cuál es la causa más probable?",
+   "o": [
+    "El puerto 3000 está reservado por la nube y ningún programa puede usarlo.",
+    "La imagen es demasiado pesada y la plataforma la rechaza al arrancar.",
+    "Solo acepta conexiones desde adentro de su propio contenedor, no desde la plataforma.",
+    "La plataforma exige que todos los servicios usen cifrado TLS dentro del código."
+   ],
+   "c": 2,
+   "e": "Escuchar en 127.0.0.1 es escuchar solo para uno mismo. La plataforma entra desde afuera, así que hay que escuchar en 0.0.0.0 y en el puerto indicado por PORT. El puerto no está prohibido, el peso de imagen no es la causa y en Cloud Run el TLS lo termina la plataforma."
+  },
+  {
+   "p": "Tu servicio escala a cero. Llega un pedido a las 3 de la mañana, después de horas sin tráfico. ¿Qué es lo más razonable esperar?",
+   "o": [
+    "Que falle con error 500 porque no había ninguna instancia disponible.",
+    "Que se atienda igual de rápido porque la plataforma guardó la instancia apagada.",
+    "Que sea más rápido de lo normal porque la instancia nueva arranca descansada.",
+    "Que ese pedido sea más lento porque hay que crear una instancia primero."
+   ],
+   "c": 3,
+   "e": "Un arranque en frío significa crear una instancia y esperar a que el contenedor escuche, y ese tiempo se suma al pedido. Los servicios están pensados para no fallar en ese caso (hacen cola con un tope), y no se guarda una instancia apagada lista para usarse."
+  },
+  {
+   "p": "Pasás un servicio de concurrencia 1 a concurrencia 80 sin tocar nada más. ¿Qué riesgo nuevo aparece en el código aunque las pruebas locales pasen?",
+   "o": [
+    "Que la plataforma deje de cobrar y el proveedor suspenda tu cuenta.",
+    "Que datos guardados en variables globales se mezclen entre pedidos simultáneos.",
+    "Que el arranque en frío se vuelva imposible de evitar con un mínimo.",
+    "Que las capas de la imagen cambien de huella cada vez que se atiende un pedido."
+   ],
+   "c": 1,
+   "e": "Con concurrencia 1 cada instancia atiende un pedido a la vez, y un error de estado compartido no se nota. Con 80, varios pedidos usan la misma memoria y las variables globales se pisan. Los otros tres efectos no ocurren: la concurrencia no cambia la facturación de esa forma, ni los mínimos, ni las huellas."
+  },
+  {
+   "p": "Un equipo de tres personas tiene una API HTTP simple y quiere evitar administrar servidores. ¿Qué punto de partida es más razonable como criterio inicial?",
+   "o": [
+    "Un contenedor gestionado, y evaluar un orquestador solo si aparece una necesidad concreta.",
+    "Un clúster de Kubernetes con nodos propios, porque será más barato desde el primer día.",
+    "Instancias sueltas con imagen propia, porque así el equipo controla todo el sistema.",
+    "Dividir la API en veinte microservicios, para estar listos para crecer sin cambiar nada."
+   ],
+   "c": 0,
+   "e": "Es una regla práctica: elegir el servicio más simple que resuelva el caso y subir de nivel con una razón concreta. El orquestador agrega complejidad que un equipo chico paga con tiempo, y fragmentar en veinte piezas multiplica costos sin necesidad probada."
+  },
+  {
+   "p": "En GKE Autopilot pagás lo que piden los pods; en GKE Standard pagás todos los recursos de los nodos aunque estén vacíos. ¿Qué situación favorece a Autopilot?",
+   "o": [
+    "Cargas que necesitan acceder al sistema operativo de cada nodo.",
+    "Cargas que corren siempre al máximo de lo que cada nodo ofrece.",
+    "Cargas que usan solo una parte de lo que ocuparía un nodo entero.",
+    "Cargas que deben correr en una nube distinta de la de Google."
+   ],
+   "c": 2,
+   "e": "Si tus pods ocupan poco de cada nodo, pagar solo lo que piden evita pagar espacio vacío. Si necesitás control del nodo o lo llenás siempre, Standard tiene sentido. Autopilot es un modo de GKE y no resuelve usar otra nube."
+  }
+ ],
+ "feynman": "Explicale a alguien que maneja logística qué entrega al usar un contenedor gestionado y qué le exige el proveedor a cambio. Usá la idea de «las cajas con huella» para explicar por qué desplegar una versión nueva es rápido, y la escala a cero para explicar el primer pedido lento.",
+ "para_profundizar": [
+  {
+   "fuente": "cloud0506-cloudrun-contrato",
+   "nota": "La página completa del contrato de ejecución de Cloud Run: puerto, arranque, apagado y estado. Leela con el código de tu servicio al lado."
+  },
+  {
+   "fuente": "ctr-oci-image-layer",
+   "nota": "La especificación de capas de la Open Container Initiative, para ver cómo se define formalmente lo que hoy armaste a mano con tar."
+  },
+  {
+   "fuente": "cloud0506-aws-apprunner",
+   "nota": "El aviso y la guía de migración de App Runner, un caso real de servicio que se cierra y de cómo se planifica la salida."
+  },
+  {
+   "fuente": "cloud0506-azure-aks",
+   "nota": "La comparación AKS Automatic contra Standard, la tabla más clara de «qué gestiona quién» en un orquestador."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Cloud Run concurrency cold start explained",
+   "por_que": "Para ver las consolas de un servicio con escala a cero y concurrencia configurable, sin necesitar cuenta propia."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "contenedor gestionado",
+   "d": "Servicio de la nube que recibe una imagen de contenedor y se encarga de ejecutarla, escalarla y reiniciarla, sin que administres máquinas."
+  },
+  {
+   "t": "Cloud Run",
+   "d": "Servicio de Google Cloud para correr contenedores, funciones y trabajos sin administrar un clúster; sus servicios escalan automáticamente, incluso a cero."
+  },
+  {
+   "t": "orquestador gestionado",
+   "d": "Kubernetes operado por el proveedor (EKS, GKE, AKS): el plano de control es suyo, y en modo automático también los nodos."
+  },
+  {
+   "t": "registro de imágenes",
+   "d": "Servicio que almacena capas de imágenes de contenedor identificadas por su huella y las entrega por nombre y etiqueta."
+  },
+  {
+   "t": "escala a cero",
+   "d": "Comportamiento de un servicio que apaga todas sus instancias cuando no recibe pedidos y las vuelve a crear al llegar uno."
+  },
+  {
+   "t": "arranque en frío",
+   "d": "Demora extra del primer pedido que obliga a crear una instancia nueva y esperar a que el contenedor esté escuchando."
+  },
+  {
+   "t": "concurrencia por instancia",
+   "d": "Cantidad de pedidos simultáneos que atiende una misma instancia; en Cloud Run es 80 por defecto y llega a 1.000."
+  }
+ ],
+ "siguiente": "Mañana el último peldaño del cómputo: funciones serverless, donde entregás solo código y aparece un límite de ejecución que hay que conocer.",
+ "fuentes_nuevas": [
+  {
+   "id": "cloud0506-cloudrun-que-es",
+   "t": "What is Cloud Run",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "url": "https://docs.cloud.google.com/run/docs/overview/what-is-cloud-run"
+  },
+  {
+   "id": "cloud0506-cloudrun-contrato",
+   "t": "Container runtime contract (Cloud Run)",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "url": "https://docs.cloud.google.com/run/docs/container-contract"
+  },
+  {
+   "id": "cloud0506-cloudrun-concurrencia",
+   "t": "Maximum concurrent requests for services (Cloud Run)",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "url": "https://docs.cloud.google.com/run/docs/about-concurrency"
+  },
+  {
+   "id": "cloud0506-aws-apprunner",
+   "t": "AWS App Runner availability change",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/apprunner/latest/dg/apprunner-availability-change.html"
+  },
+  {
+   "id": "cloud0506-aws-fargate",
+   "t": "Architect for AWS Fargate for Amazon ECS",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html"
+  },
+  {
+   "id": "cloud0506-azure-aca",
+   "t": "Azure Container Apps overview",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/azure/container-apps/overview"
+  },
+  {
+   "id": "cloud0506-aws-eks",
+   "t": "What is Amazon EKS?",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/eks/latest/userguide/what-is-eks.html"
+  },
+  {
+   "id": "cloud0506-gcp-gke",
+   "t": "GKE overview",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "url": "https://docs.cloud.google.com/kubernetes-engine/docs/concepts/kubernetes-engine-overview"
+  },
+  {
+   "id": "cloud0506-azure-aks",
+   "t": "What is Azure Kubernetes Service (AKS)?",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/azure/aks/what-is-aks"
+  },
+  {
+   "id": "cloud0506-aws-ecr",
+   "t": "What is Amazon Elastic Container Registry?",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/AmazonECR/latest/userguide/what-is-ecr.html"
+  },
+  {
+   "id": "cloud0506-gcp-artifact",
+   "t": "Artifact Registry overview",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "url": "https://docs.cloud.google.com/artifact-registry/docs/overview"
+  }
+ ]
+}
