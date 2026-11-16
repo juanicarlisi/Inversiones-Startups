@@ -6,6 +6,9 @@
 // Desde la etapa 1 (16-11-2026): con un panel abierto el reloj está frenado, así que el jugador decide y cierra antes de seguir;
 // el parte de la mañana se cierra con su botón («A trabajar») como cualquier ventana; compra solo lo que marca «Siguiente paso»
 // (el botón que late) y, si la tarjeta de un panel dice que la compra pierde plata, no la hace.
+// Desde los arreglos de la prueba a ciegas 1 (16-11-2026): toca «Seguir» en el cartel de misión cumplida (si no, se va solo a los
+// 9 s), no toca el paso cuando dice «te faltan $ X» (ahí se espera) y mide, con el reloj de verdad, cuántos segundos hubo dos o
+// más carteles con texto a la vez (el festejo, la tarjeta de arriba, la burbuja de la guía y el aviso de abajo): tiene que dar 0.
 const { chromium } = require('/opt/node22/lib/node_modules/playwright');
 const path = require('path');
 
@@ -20,6 +23,19 @@ const path = require('path');
   await p.goto(`${url}?calidad=${process.env.CALIDAD ?? 'bajo'}&nuevo=1&saltar=guia&lang=es`);
   await p.waitForFunction(() => window.__hn?.estado?.escena === 'juego', null, { timeout: 60000 });
   if (process.env.VEL) await p.evaluate((v) => window.__hn.fijarVel(+v), process.env.VEL);
+  // carteles a la vez: una muestra cada 100 ms del reloj de verdad
+  await p.evaluate(() => {
+    const L = window.__carteles = { dos: 0, alguno: 0, total: 0, juntos: {}, pasos: 0 };
+    const vis = (sel) => { const e = document.querySelector(sel); return !!e && !e.hidden && e.offsetParent !== null && getComputedStyle(e).opacity !== '0'; };
+    let ult = performance.now(), ultPaso = null;
+    setInterval(() => {
+      const ahora = performance.now(), dt = (ahora - ult) / 1000; ult = ahora;
+      const v = ['#cartel', '#momento', '#burbuja'].filter(vis); if (document.querySelector('#avisos .aviso:not(.fuera)')) v.push('#avisos');
+      L.total += dt; if (v.length) L.alguno += dt;
+      if (v.length >= 2) { L.dos += dt; const k = v.join(' + '); L.juntos[k] = +((L.juntos[k] ?? 0) + dt).toFixed(1); }
+      const k = window.__hn.paso?.clave ?? null; if (k !== ultPaso) { ultPaso = k; L.pasos++; }
+    }, 100);
+  });
   let partes = 0, resultados = 0, frenado = 0, vueltas = 0;
   const foto = async (n) => { if (carpeta) { await p.waitForTimeout(2500); await p.screenshot({ path: path.join(carpeta, n) }); } };
   const hitos = [];
@@ -34,12 +50,13 @@ const path = require('path');
       const res = !!doc.querySelector('#momento.res:not([hidden])');
       const v = doc.querySelector('#ventana:not([hidden]) [data-accion="siguienteCapitulo"], #ventana:not([hidden]) [data-accion="cerrarVentana"].boton');
       if (v) v.click();
+      const festejo = doc.querySelector('#cartel:not([hidden])'); if (festejo) festejo.click();       // «Seguir» en la misión cumplida
       const el = doc.querySelector('#momento:not([hidden]) .elige button'); if (el) el.click();
       // seguir el consejo: tocar «Siguiente paso» y después el botón que late (con un panel abierto el reloj está frenado)
       const panel = doc.querySelector('#panel:not([hidden])');
       const late = [...doc.querySelectorAll('#panel .late:not(.no), #mision .late')].find((x) => x.offsetParent !== null);   // solo lo que se ve
       if (late) late.click();
-      else if (!panel) h.tocarPaso();
+      else if (!panel) { if (!String(h.paso?.clave ?? '').startsWith('junta')) h.tocarPaso(); }      // «te faltan $ X»: se espera
       else {
         // sin botón marcado: abre la ruta si es lo que hay; si no, cierra el panel para que el reloj siga
         const m = doc.querySelector('#panel [data-accion="abrirRuta"]:not(.no)');
@@ -61,10 +78,12 @@ const path = require('path');
   }
   const fin = await p.evaluate(() => ({ ...window.__hn.estado, misiones: window.__hn.s.misiones, dia: Math.round(window.__hn.s.t / 1440 * 10) / 10, diasLibro: window.__hn.libro.dias.length, promesas: window.__hn.libro.promesas.length, notas: window.__hn.libro.notas.length }));
   console.log(`partes de la mañana cerrados: ${partes} · vueltas con un resultado en pantalla: ${resultados} · vueltas con el reloj frenado al terminar: ${frenado} de ${vueltas}`);
+  const C = await p.evaluate(() => window.__carteles);
+  console.log(`carteles con texto: ${C.alguno.toFixed(0)} s con alguno a la vista de ${C.total.toFixed(0)} s de reloj · dos o más carteles a la vez: ${C.dos.toFixed(1)} s${C.dos > 0 ? ' ' + JSON.stringify(C.juntos) : ''} · «Siguiente paso» cambió de propuesta ${C.pasos} veces`);
   if (carpeta) await foto('j-fin.png');
   console.log(hitos.join('\n'));
   console.log('final:', JSON.stringify(fin));
   console.log(errores.length ? `ERRORES (${errores.length}):\n${[...new Set(errores)].join('\n')}` : 'sin errores de JavaScript');
   await b.close();
-  process.exit(errores.length ? 1 : 0);
+  process.exit(errores.length || C.dos >= 0.5 ? 1 : 0);
 })();

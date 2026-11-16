@@ -8,18 +8,26 @@ import { estimar } from '../src/estimador.js';
 import * as Libro from '../src/libro.js';
 
 // Aplica una acción del perfil como lo haría la interfaz: estima antes, compra, y anota la compra con su promesa.
-export function hacer(s, L, a, { conPromesa = true, alEstimar = null } = {}) {
+// (El costo de cada compra se mide por lo gastado, no por la caja: si la compra cumple una misión, el premio entra en el mismo
+// instante. Igual que en main.js. comoJuego: los eventos que deja la acción se toman y se anotan ahí mismo, como hace la interfaz;
+// si no, salen con el paso siguiente del modelo.)
+export function hacer(s, L, a, { conPromesa = true, alEstimar = null, comoJuego = false } = {}) {
+  const r = hacerSola(s, L, a, { conPromesa, alEstimar });
+  if (comoJuego) Libro.anotarEventos(L, s, M.tomarEventos(s));
+  return r;
+}
+function hacerSola(s, L, a, { conPromesa, alEstimar }) {
   const promesa = (d, comprar, info) => {
     const est = conPromesa ? estimar(s, d) : null;
-    const caja = s.dinero;
+    const marca = Libro.marcaGastos(s);
     const r = comprar();
     if (!r?.ok) return r;
-    const p = Libro.anotarCompra(L, s, d, est, { costo: caja - s.dinero, ...info(r) });
+    const p = Libro.anotarCompra(L, s, d, est, { costo: Libro.costoDesde(s, marca), ...info(r) });
     alEstimar?.(d, est, p);
     return r;
   };
   switch (a.tipo) {
-    case 'ruta': { const caja = s.dinero, r = M.abrirRuta(s, a.a, a.b); if (r.ok) Libro.anotarCompra(L, s, { tipo: 'ruta', a: a.a, b: a.b }, null, { costo: caja - s.dinero, ruta: r.ruta.id }); return r; }
+    case 'ruta': { const marca = Libro.marcaGastos(s), r = M.abrirRuta(s, a.a, a.b); if (r.ok) Libro.anotarCompra(L, s, { tipo: 'ruta', a: a.a, b: a.b }, null, { costo: Libro.costoDesde(s, marca), ruta: r.ruta.id }); return r; }
     case 'avion': return promesa({ tipo: 'avion', id: a.id, ruta: a.ruta }, () => M.comprarAvion(s, a.id, a.ruta), (r) => ({ ruta: a.ruta, avion: r.avion.id, tipoAvion: a.id }));
     case 'balizas': return promesa({ tipo: 'faros', ruta: a.id }, () => M.ponerBalizas(s, a.id), () => ({ ruta: a.id }));
     case 'transbordo': return promesa({ tipo: 'correo', ap: a.id }, () => M.mejorarTransbordo(s, a.id), () => ({ ap: a.id }));
@@ -34,12 +42,12 @@ export function hacer(s, L, a, { conPromesa = true, alEstimar = null } = {}) {
 
 // Juega «dias» días de juego. cada: cada cuántos pasos mira el perfil (6 pasos = 30 minutos de juego). El capítulo no avanza
 // (la partida se queda en 1929, como quien elige «Quedarme un rato más»).
-export function partida({ semilla = 3, dias = 6, perfil = 'listo', cada = 6, conPromesa = true, alPaso = null, alEstimar = null } = {}) {
+export function partida({ semilla = 3, dias = 6, perfil = 'listo', cada = 6, conPromesa = true, alPaso = null, alEstimar = null, comoJuego = false } = {}) {
   const s = M.nuevoEstado(semilla), L = Libro.nuevo(s), ctx = {};
   const partes = [], notas = [];
   const pasos = Math.round(dias * 1440 / M.PASO);
   for (let i = 0; i < pasos; i++) {
-    if (i % cada === 0) { const a = PERFILES[perfil](s, ctx); if (a) hacer(s, L, a, { conPromesa, alEstimar }); }
+    if (i % cada === 0) { const a = PERFILES[perfil](s, ctx); if (a) hacer(s, L, a, { conPromesa, alEstimar, comoJuego }); }
     const ev = M.paso(s);
     for (const e of ev) { if (e.tipo === 'rondaDisponible') ctx.rondaDisponible = true; if (e.tipo === 'rondaCorte') ctx.rondaDisponible = false; }
     const c = Libro.alPaso(L, s, ev);

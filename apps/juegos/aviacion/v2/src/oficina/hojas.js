@@ -83,7 +83,10 @@ const cuentaCartas = (x) => Math.abs((x.aTiempo ?? 0) + (x.tarde ?? 0) - (x.cart
 export function filaDia(x, F) {
   const q = x.entro - x.salio, porCartas = cuentaCartas(x);
   const puntual = `${F.numero(x.aTiempo)} ${esc(F.t('aTiempo'))}${x.tarde ? ` · <b class="mal">${F.numero(x.tarde)} ${esc(F.t('tarde'))}</b>` : ''}`;
+  // las compras, los premios y las ventas van aparte: no son parte de lo que entró ni de lo que salió por volar
+  const aparte = [x.compras ? F.t('apCompraste', { monto: F.plata(x.compras) }) : '', x.premios ? F.t('apPremios', { monto: F.plata(x.premios) }) : '', x.ventas ? F.t('apVendiste', { monto: F.plata(x.ventas) }) : ''].filter(Boolean);
   return `<div class="tres"><div><small>${esc(F.t('entro'))}</small><b>${F.plata(x.entro)}</b></div><div><small>${esc(F.t('salio'))}</small><b>${F.plata(x.salio)}</b></div><div class="${q < 0 ? 'mal' : 'bien'}"><small>${esc(F.t('quedo'))}</small><b>${F.plataSigno(q)}</b></div></div>
+    ${aparte.length ? `<p class="d-aparte"><b>${esc(F.t('aparte'))}</b> ${esc(aparte.join(' · '))}</p>` : ''}
     <p class="d-pie">${porCartas ? `<span>${ico('cartas')}${F.numero(x.cartas)} ${esc(F.t('cartas').toLowerCase())}: ${puntual}</span><span>${ico('avion')}${F.numero(x.vuelos)} ${esc(F.t('vuelos').toLowerCase())}</span>`
     : `<span>${ico('cartas')}${F.numero(x.cartas)} ${esc(F.t('cartas').toLowerCase())}</span><span>${ico('avion')}${puntual}</span>`}</p>`;
 }
@@ -91,7 +94,7 @@ export function filaDia(x, F) {
 export function diasDelLibro(d, F) {
   const dias = (d.dias ?? []).slice(-13).map((x) => ({ ...x }));
   const h = d.hoy ?? {};
-  if (h.entro != null && h.salio != null && !dias.some((x) => x.n === h.dia)) dias.push({ n: h.dia, fecha: h.fecha, entro: h.entro, salio: h.salio, cartas: h.cartas ?? 0, vuelos: h.vuelos ?? 0, aTiempo: h.aTiempo ?? 0, tarde: h.tarde ?? 0, hoy: true });
+  if (h.entro != null && h.salio != null && !dias.some((x) => x.n === h.dia)) dias.push({ n: h.dia, fecha: h.fecha, entro: h.entro, salio: h.salio, cartas: h.cartas ?? 0, vuelos: h.vuelos ?? 0, aTiempo: h.aTiempo ?? 0, tarde: h.tarde ?? 0, compras: h.compras ?? 0, premios: h.premios ?? 0, ventas: h.ventas ?? 0, hoy: true });
   return dias;
 }
 export function hojaLibro(d, F, elegido = null) {
@@ -110,7 +113,7 @@ export function hojaLibro(d, F, elegido = null) {
   const parte = aT + ta ? aT / (aT + ta) : 1, porCartas = cuentaCartas(base0[base0.length - 1]);
   const puntual = ta === 0 ? F.t('todasATiempo') : parte >= 0.95 ? F.t('casiTodas') : F.t('deCada10', { n: Math.max(0, Math.min(9, Math.round(parte * 10))) });
   return `${cabecera}
-    <p class="h-lema ${total < 0 ? 'mal' : ''}">${esc(F.t(total < 0 ? 'perdioTotal' : 'quedoTotal', { dias: F.dias(base0.length).replace(/^(en|in) /, '') }))} <b>${F.plata(Math.abs(total))}</b></p>
+    <p class="h-lema ${total < 0 ? 'mal' : ''}">${esc(cerrados.length ? F.t(total < 0 ? 'perdioTotal' : 'quedoTotal', { dias: F.dias(base0.length).replace(/^(en|in) /, '') }) : F.t(total < 0 ? 'perdioHoy' : 'quedoHoy'))} <b>${F.plata(Math.abs(total))}</b></p>
     <div class="h-cuerpo">
       <section class="tarjeta dia"><div class="t-cab"><h3 id="of-dia-t">${esc(sel.hoy ? F.t('hoyVa') : F.t('diaN', { n: sel.n }))}</h3><span class="d-fecha">${esc(sel.fecha ?? '')}</span></div><div id="of-dia">${filaDia(sel, F)}</div></section>
       <section class="tarjeta grafico"><div class="t-cab"><h3>${esc(F.t('ultimos'))}</h3></div>

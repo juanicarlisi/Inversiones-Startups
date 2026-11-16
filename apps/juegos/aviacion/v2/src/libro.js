@@ -10,6 +10,10 @@
 // De dónde sale cada número:
 //  · por día (entró, salió, cartas, vuelos, a tiempo, tarde): diferencia de los contadores del modelo (s.stats) entre dos 6:00.
 //    «Salió» es lo gastado en volar y en tierra; las compras van aparte (el modelo las suma en el mismo contador y acá se restan).
+//  · «hoy» (una sola definición para todo el juego: la barra, el parte, el libro de la oficina y el puente): lo que entró menos lo
+//    que salió por operar desde el último parte de la mañana (las 6:00). Lo calcula hoyDe(); las compras son inversión y los
+//    premios son premios: van aparte y nunca se mezclan en «hoy».
+//  · la caja cierra a la vista: caja de ayer + lo que quedó − lo comprado + premios + ventas = caja de hoy (cierreCaja()).
 //  · por ruta: diferencia de lo que el modelo lleva por ruta (ingresos, costos, vuelos, unidades), últimos 7 días.
 //  · por avión: lo cobrado y lo llevado salen de los eventos de despegue y aterrizaje; lo gastado, de su resultado en el modelo.
 import * as M from '../../js/modelo.js';
@@ -28,7 +32,7 @@ const opAcum = (L, s) => s.stats.ingresos - s.stats.gastos + L.cAcum;
 
 export function nuevo(s) {
   const L = {
-    v: 1,
+    v: 1, fmt: 2,                // fmt 2 (16-11-2026): las compras se anotan por lo gastado y cada día guarda la caja del día anterior
     n: Math.max(1, Math.floor((s.t + 180) / MIN_DIA) + 1),   // día de la empresa (la partida arranca a las 9:00 del día 1)
     j: jornadaDe(s), f: Math.max(inicioJornada(s), s.t0), t: s.t,
     c: foto(s),
@@ -44,7 +48,17 @@ export function abrir(guardado, s) {
   const L = guardado;
   const ok = L && L.v === 1 && Number.isFinite(L.n) && Array.isArray(L.dias) && L.rutas && L.flota && Array.isArray(L.promesas) && Array.isArray(L.notas) && L.c && L.hoy;
   if (!ok) return nuevo(s);
-  L.cambios ??= []; L.tormentas ??= []; L.leidos ??= []; L.cAcum ??= 0; L.sig ??= 1;
+  L.cambios ??= []; L.tormentas ??= []; L.leidos ??= []; L.cAcum ??= 0; L.sig ??= 1; L.hoy.ventas ??= 0;
+  // Un libro de antes (fmt 1) anotaba una compra por lo que bajaba la caja: si esa compra cumplía una misión, el premio quedaba
+  // descontado de la compra y sin anotar como premio. Lo de los días cerrados ya no se puede saber; lo del día en curso sí: es
+  // justo lo que le sobra a la caja. Se corrige una vez, al abrirlo.
+  if (!(L.fmt >= 2)) {
+    const k = cuenta(L, s);
+    // (los premios de misión son miles redondos: lo que sobra por redondeo de lo operado no se le carga a la compra)
+    const x = Math.abs(k.otros - Math.round(k.otros / 1000) * 1000) <= 3 ? Math.round(k.otros / 1000) * 1000 : k.otros;
+    if (k.cajaAntes != null && x > 3) { L.hoy.compras += x; L.hoy.premios += x; L.cAcum += x; }
+    L.fmt = 2;
+  }
   sincronizar(L, s, false);
   return L;
 }
@@ -63,8 +77,10 @@ function sincronizar(L, s, viejo) {
   for (const id in L.flota) if (!avs.has(id)) delete L.flota[id];
 }
 
-// Después de cada paso del modelo. Devuelve { cerro: n } si a las 6:00 se cerró la jornada n (sale el parte de la mañana).
-export function alPaso(L, s, eventos) {
+// Lo que el modelo dejó anotado como eventos (en un paso o al aplicar una acción del jugador): premios, ventas forzadas, vuelos.
+// Una misión se puede cumplir en el mismo instante de una compra (el avión que completa la ruta pedida): ese premio llega como
+// evento de la acción, no de un paso, y también se anota acá.
+export function anotarEventos(L, s, eventos) {
   for (const e of eventos ?? []) {
     if (e.tipo === 'despegue') { const a = L.flota[e.avion]; if (a) { a.k += e.carga ?? 0; const av = s.aviones.find((x) => x.id === e.avion); if (av) a.w += M.capTotal(M.AV[av.tipo]); } }
     else if (e.tipo === 'aterrizaje') { const a = L.flota[e.avion]; if (a) a.e += e.ingreso ?? 0; }
@@ -72,23 +88,52 @@ export function alPaso(L, s, eventos) {
     else if (e.tipo === 'ventaForzada') L.hoy.ventas += e.monto ?? 0;
     else if (e.tipo === 'tormenta') { L.tormentas.push([L.n, e.zona ?? []]); if (L.tormentas.length > 8) L.tormentas.shift(); }
   }
+}
+// Un premio que no llega como evento (el de pasar de capítulo).
+export function anotarPremio(L, monto) { if (monto > 0) L.hoy.premios += monto; }
+// Para medir lo que cuesta una compra: se toma la marca antes de comprar y costoDesde() da lo que salió de verdad. (No se mide por
+// la caja: si la compra cumple una misión, el premio entra en el mismo instante y la caja baja menos que el precio. Medido el
+// 16-11-2026 en la prueba a ciegas: «salió» quedaba $ 8.000 de más, los premios de las dos primeras misiones.)
+export const marcaGastos = (s) => s.stats.gastos;
+export const costoDesde = (s, marca) => s.stats.gastos - marca;
+
+// Después de cada paso del modelo. Devuelve { cerro: n } si a las 6:00 se cerró la jornada n (sale el parte de la mañana).
+export function alPaso(L, s, eventos) {
+  anotarEventos(L, s, eventos);
   if (s.rutas.length !== Object.keys(L.rutas).length || s.aviones.length !== Object.keys(L.flota).length) sincronizar(L, s, false);
   const j = jornadaDe(s);
   if (j === L.j) return null;
   return { cerro: cerrarJornada(L, s, j) };
 }
 
+// La cuenta de la jornada en curso, con las cifras tal como se muestran (pesos enteros). La usan hoyDe() y el cierre de las 6:00:
+// por eso «hoy» en la barra y «Quedó» en el parte son el mismo número.
+// La caja tiene que cerrar al peso: caja de antes + entró − salió − compras + premios + ventas = caja de ahora. Lo que el redondeo
+// deja suelto (uno o dos pesos) va a «salió». Si sobra más que eso es plata que se movió por otro lado (lo acreditado al volver de
+// una ausencia): queda en «otros» y se dice.
+function cuenta(L, s) {
+  const a = L.c, b = foto(s);
+  const compras = Math.round(L.hoy.compras), premios = Math.round(L.hoy.premios), ventas = Math.round(L.hoy.ventas);
+  const entro = Math.round(b.ing - a.ing), caja = Math.round(b.din), cajaAntes = Number.isFinite(a.din) ? Math.round(a.din) : null;
+  let salio = Math.round(b.gas - a.gas - L.hoy.compras), otros = 0;
+  if (cajaAntes != null) {
+    const suelto = caja - (cajaAntes + entro - salio - compras + premios + ventas);
+    if (Math.abs(suelto) <= 3) salio -= suelto; else otros = suelto;
+  }
+  return { entro, salio, quedo: entro - salio, compras, premios, ventas, otros, caja, cajaAntes, a, b };
+}
+
 function cerrarJornada(L, s, j) {
   sincronizar(L, s, false);
-  const a = L.c, b = foto(s);
-  const compras = L.hoy.compras;
+  const k = cuenta(L, s), { a, b } = k;
   const dia = {
     n: L.n, f: L.f,
-    entro: Math.round(b.ing - a.ing), salio: Math.round(b.gas - a.gas - compras),
+    entro: k.entro, salio: k.salio,
     cartas: Math.round(b.ent - a.ent), vuelos: b.vue - a.vue, aTiempo: Math.round(b.at - a.at), tarde: Math.round(b.ta - a.ta),
-    compras: Math.round(compras), premios: Math.round(L.hoy.premios), ventas: Math.round(L.hoy.ventas), caja: Math.round(s.dinero),
+    compras: k.compras, premios: k.premios, ventas: k.ventas, caja: k.caja,
     horas: Math.round((s.t - L.t) / 60),
   };
+  if (k.cajaAntes != null) { dia.cajaAntes = k.cajaAntes; if (k.otros) dia.otros = k.otros; }
   L.dias.push(dia);
   if (L.dias.length > TOPE_DIAS) L.dias.splice(0, L.dias.length - TOPE_DIAS);
   for (const r of s.rutas) {
@@ -108,7 +153,7 @@ function cerrarJornada(L, s, j) {
 // info: { costo (lo que salió de la caja), ruta (id), avion (id del avión comprado), ap }.
 export function anotarCompra(L, s, d, est, info) {
   sincronizar(L, s, false);
-  const costo = info.costo ?? 0;
+  const costo = Math.round(info.costo ?? 0);          // los precios son pesos enteros (la resta de dos contadores puede dejar un pelo)
   L.hoy.compras += costo; L.cAcum += costo;
   const ruta = info.ruta ?? null;
   L.cambios.push({ t: s.t, tipo: d.tipo, ruta, ap: info.ap ?? null });
@@ -139,7 +184,7 @@ export function completarPromesa(L, s, p, est) {
   return p;
 }
 export function anotarVenta(L, s, monto, ruta = null) {
-  L.hoy.ventas += monto ?? 0;
+  L.hoy.ventas += Math.round(monto ?? 0);
   L.cambios.push({ t: s.t, tipo: 'venta', ruta, ap: null });
   if (L.cambios.length > 40) L.cambios.shift();
   sincronizar(L, s, false);
@@ -224,11 +269,21 @@ export function ritmoRuta(L, s, r) {
   return { entroDia: Math.round((f[0] - x.c[0]) * esc), salioDia: Math.round((f[1] - x.c[1]) * esc), dejaDia: Math.round((f[0] - x.c[0] - f[1] + x.c[1]) * esc),
     cartasDia: Math.round((f[3] - x.c[3]) * esc), llenado: +(r.ocup ?? 0).toFixed(2), dias: 0 };
 }
-// Lo que va de la jornada en curso.
+// «Hoy»: lo que va de la jornada en curso, desde el último parte de la mañana (las 6:00). ESTA es la única cuenta de «hoy» del
+// juego: la usan la barra del mapa, el libro de la oficina y el puente. quedo = entró − salió por operar (volar y estar en tierra);
+// las compras, los premios y las ventas van aparte.
 export function hoyDe(L, s) {
-  const a = L.c, b = foto(s);
-  return { entro: Math.round(b.ing - a.ing), salio: Math.round(b.gas - a.gas - L.hoy.compras), cartas: Math.round(b.ent - a.ent), vuelos: b.vue - a.vue,
-    aTiempo: Math.round(b.at - a.at), tarde: Math.round(b.ta - a.ta), compras: Math.round(L.hoy.compras), premios: Math.round(L.hoy.premios) };
+  const k = cuenta(L, s), { a, b } = k;
+  return { entro: k.entro, salio: k.salio, quedo: k.quedo, cartas: Math.round(b.ent - a.ent), vuelos: b.vue - a.vue,
+    aTiempo: Math.round(b.at - a.at), tarde: Math.round(b.ta - a.ta), compras: k.compras, premios: k.premios, ventas: k.ventas };
+}
+// El cierre de caja de un día cerrado, con las cifras tal como se muestran: antes + quedo − compras + premios + ventas + otros = caja
+// (exacto, peso por peso). null si el día es de un guardado de antes, que no anotaba la caja del día anterior.
+export function cierreCaja(dia) {
+  if (!dia || !Number.isFinite(dia.cajaAntes)) return null;
+  const c = { antes: dia.cajaAntes, quedo: dia.entro - dia.salio, compras: dia.compras ?? 0, premios: dia.premios ?? 0, ventas: dia.ventas ?? 0, otros: dia.otros ?? 0, caja: dia.caja };
+  c.cierra = c.antes + c.quedo - c.compras + c.premios + c.ventas + c.otros === c.caja;
+  return c;
 }
 
 // El parte de la mañana del día n (el último cerrado si no se dice): números, mejor y peor ruta y un consejo que sale de los datos.
@@ -244,7 +299,7 @@ export function parte(L, s, n = null) {
   const conAvion = filas.filter((f) => f.aviones > 0);
   const orden = [...conAvion].sort((x, y) => y.deja - x.deja);
   const mejor = orden[0] ?? null, peor = orden.length >= 2 ? orden[orden.length - 1] : null;
-  return { dia, quedo: dia.entro - dia.salio, mejor, peor, consejo: consejoDe(L, s, dia, filas), rutas: filas };
+  return { dia, quedo: dia.entro - dia.salio, cierre: cierreCaja(dia), mejor, peor, consejo: consejoDe(L, s, dia, filas), rutas: filas };
 }
 // Un consejo por mañana, el primero que aplique. Cada uno mira un dato de ayer; ninguno es una frase fija.
 function consejoDe(L, s, dia, filas) {
@@ -298,7 +353,7 @@ export function datosOficina(L, s, { ui, empresa, caja = null, camino = null }) 
       estado: av.fase === 'vuelo' ? 'volando' : av.espera === 'noche' ? 'durmiendo' : 'en tierra' };
   });
   const dias = L.dias.map((d) => ({ n: d.n, fecha: fecha(d.f), entro: d.entro, salio: d.salio, cartas: d.cartas, vuelos: d.vuelos, aTiempo: d.aTiempo, tarde: d.tarde,
-    compras: d.compras, premios: d.premios, caja: d.caja }));
+    compras: d.compras, premios: d.premios, ventas: d.ventas ?? 0, caja: d.caja, ...(Number.isFinite(d.cajaAntes) ? { cajaAntes: d.cajaAntes } : {}) }));
   const leido = (id) => L.leidos.includes(id);
   const bandeja = [];
   // encargos: los ofrecidos (con «Aceptar») y los aceptados (con su avance)

@@ -23,6 +23,7 @@ const _n = new THREE.Vector3(), _rayo = new THREE.Vector3(), _u = new THREE.Vect
 //  · de lejos crecen con la distancia (exponente 0,72) para seguir legibles con toda la red de la época en pantalla.
 export const DIST_MIN = 0.9, DIST_MAX_BASE = 40, ESCALA_MIN = 0.8, ESCALA_MAX = 9;
 const PASO_RUEDA = 0.0016, PASO_PELLIZCO = 0.01, PASO_BOTON = 1.6, DOBLE_MS = 320, DOBLE_PX = 30;
+const ALEJAR_SIGUIENDO = 1.7, SUELTA_SEGUIR = 8.5;       // siguiendo a un avión: cuánto más rinde alejar y a qué distancia se lo suelta
 const col = (hex, k = 1) => new THREE.Color(hex).multiplyScalar(k);
 
 export class Mundo {
@@ -364,7 +365,15 @@ export class Mundo {
     const c = this.controles, ahora = performance.now();
     const d = limitar(this.distFinal() * k, c.minDistance, c.maxDistance);
     this.manual();
-    if (this.siguiendo != null) { c.dollyTo(d, s); return d; }             // siguiendo a un avión, el centro es el avión
+    if (this.siguiendo != null) {
+      // Siguiendo a un avión, el centro es el avión. Alejar rinde más que acercar (del primer plano se sale con pocas muescas:
+      // en la prueba a ciegas del 16-11-2026 «casi no alejaba») y, pasado el primer plano, el seguimiento se suelta solo: la
+      // cámara queda donde está y la rueda vuelve a anclar en el cursor, como siempre.
+      const d2 = k > 1 ? limitar(this.distFinal() * k ** ALEJAR_SIGUIENDO, c.minDistance, c.maxDistance) : d;
+      c.dollyTo(d2, s);
+      if (d2 > SUELTA_SEGUIR) this.siguiendo = null;
+      return d2;
+    }
     let a = ancla ?? this.anclaZoom;
     if (!ancla && (!a || ahora - a.t > 260 || Math.hypot(a.x - x, a.y - y) > 8)) { const G = this.suelo(x, y); a = this.anclaZoom = G ? { x, y, G, t: ahora } : null; }
     if (a) a.t = ahora;

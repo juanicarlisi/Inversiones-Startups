@@ -52,7 +52,8 @@ export function crearEscena({ lienzo, q, vertical, t, datos, hora }) {
   let estantes = null;      // las tablas se arman con la flota (más aviones, más tablas)
   const mapa = crearMapaPared(mats, C, { ancho: plan.mapa.w, epoca: datos.hoy?.epoca ?? 1929, resolucion: q.mapa, altoMax: vertical ? 1.2 : 1.42 });
   mapa.grupo.position.set(plan.mapa.x, plan.mapa.y, zp); escena.add(mapa.grupo);
-  if (!vertical) { const p = Mu.crearPerchero(mats, C); p.grupo.position.set(plan.ancho / 2 - 0.42, 0, zp + 0.42); p.grupo.rotation.y = 2.2; escena.add(p.grupo); }
+  let perchero = null;
+  if (!vertical) { const p = perchero = Mu.crearPerchero(mats, C); p.grupo.position.set(plan.ancho / 2 - 0.42, 0, zp + 0.42); p.grupo.rotation.y = 2.2; escena.add(p.grupo); }
 
   // sombras de apoyo bajo lo que está sobre la mesa (dan peso aunque no pegue el sol)
   const texSombra = texturaMancha(64); propios.push(texSombra);
@@ -237,6 +238,21 @@ export function crearEscena({ lienzo, q, vertical, t, datos, hora }) {
     return mejor;
   }
   function senalar(id) { for (const o of objetos.values()) o.meta = o.id === id ? 1 : 0; }
+  // Los detalles del cuarto: no abren nada, pero responden cuando se los toca (el reloj dice la hora; la ventana, qué se ve).
+  const detalles = new Map();
+  function registrarDetalles() {
+    detalles.clear();
+    const cajaDe = (g, margen = 0.02) => { g.updateWorldMatrix(true, true); return new THREE.Box3().setFromObject(g).expandByScalar(margen); };
+    detalles.set('reloj', cajaDe(reloj.grupo)); detalles.set('almanaque', cajaDe(almanaque.grupo)); detalles.set('mate', cajaDe(mate.grupo, 0.03));
+    if (perchero) detalles.set('perchero', cajaDe(perchero.grupo));
+    const v = plan.ventana; detalles.set('ventana', new THREE.Box3(V(v.x - v.w / 2, v.y - v.h / 2, zp - 0.12), V(v.x + v.w / 2, v.y + v.h / 2, zp + 0.06)));
+  }
+  function apuntarDetalle(x, y) {
+    _p2.set(x / W * 2 - 1, -(y / H) * 2 + 1); _rayo.setFromCamera(_p2, camara);
+    let mejor = null, dMin = Infinity;
+    for (const [id, caja] of detalles) { const p = _rayo.ray.intersectBox(caja, _w); if (p) { const dd = p.distanceTo(camara.position); if (dd < dMin) { dMin = dd; mejor = id; } } }
+    return mejor;
+  }
   function aPantalla(p, out = {}) {
     _v.copy(p).project(camara);
     out.x = (_v.x * 0.5 + 0.5) * W; out.y = (-_v.y * 0.5 + 0.5) * H; out.visible = _v.z < 1 && _v.z > -1;
@@ -418,9 +434,10 @@ export function crearEscena({ lienzo, q, vertical, t, datos, hora }) {
   }
 
   ponerDatos(datos);
+  registrarDetalles();
   return {
     r, escena, camara, plan, casa, objetos, luces, afuera, mapa, cam, vertical,
-    medir, cuadro, irA, poseObjeto, apuntar, senalar, aPantalla, ponerDatos, ponerEmpresa, retratos, liberar,
+    medir, cuadro, irA, poseObjeto, apuntar, apuntarDetalle, senalar, aPantalla, ponerDatos, ponerEmpresa, retratos, liberar,
     ponerFrente, quitarFrente, posePuerta, poseUmbral,
     fijarHora(h) { horaActual = h; }, get hora() { return horaActual; }, get tiempo() { return tiempo; },
     fijarCursor(nx, ny) { cam.mx = nx; cam.my = ny; },

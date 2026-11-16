@@ -57,6 +57,7 @@ export function crearOficina({ contenedor, idioma = 'es', calidad = 'medio', dat
         <div class="ofi-pastilla ofi-reloj"><span></span><b></b><em>${ico('pausa')}${esc(F.t('relojQuieto'))}</em></div>
       </div>
       <p class="ofi-pista">${esc(F.t('pista'))}</p>
+      <p class="ofi-dicho" aria-live="polite"></p>
       <aside class="ofi-hoja" hidden></aside>
       <div class="ofi-primera" hidden></div>
       <div class="ofi-velo"></div>`;
@@ -137,30 +138,68 @@ export function crearOficina({ contenedor, idioma = 'es', calidad = 'medio', dat
   }
   // Rótulos sin choques: por prioridad, cada uno prueba arriba, abajo y corrido a los lados, y se queda con el primer lugar
   // que no pisa a otro ni a la barra (la misma idea que ui/rotulos.js en el mapa). Recuerda su lugar para no titilar.
-  const _p = {}, _q = {}, PRIORIDAD = ['mapa', 'flota', 'libro', 'bandeja', 'placa', 'cuaderno'], lugarRot = {}, puestoRot = {};
+  const _p = {}, _q = {}, PRIORIDAD = ['mapa', 'flota', 'libro', 'bandeja', 'placa', 'cuaderno'], PRIORIDAD_V = ['mapa', 'flota', 'libro', 'bandeja', 'cuaderno', 'placa']   /* en vertical el cuaderno queda en un rincón: elige antes que la placa, que tiene lugar a los lados */, lugarRot = {}, puestoRot = {};
   function ponerRotulos() {
     if (estado !== 'casa' && estado !== 'entrando') return;
-    const puestos = [[0, 0, W, 62]], pisa = (x, y, w, h) => x < 6 || x + w > W - 6 || y + h > H - 6 || puestos.some((r) => x < r[2] + 5 && x + w > r[0] - 5 && y < r[3] + 5 && y + h > r[1] - 5);
-    for (const id of PRIORIDAD) {
+    // la barra de arriba (en el celular tiene dos renglones) y un aire entre rótulos que se note (con el dedo, más)
+    // (uno al lado del otro alcanza con poco; uno encima del otro se ven pegados: ahí va más aire)
+    const barra = lugarBarra(), piso = barra.piso, aireY = tactil || angosto() ? 12 : 8, aireX = E.vertical ? 10 : 4;
+    const fuera = (x, y, w, h) => x < 4 || x + w > W - 4 || y + h > H - 6;
+    const tapa = (x, y, w, h, ax, ay) => puestos.reduce((a, r) => { const sx = Math.min(x + w, r[2] + ax) - Math.max(x, r[0] - ax), sy = Math.min(y + h, r[3] + ay) - Math.max(y, r[1] - ay); return a + (sx > 0 && sy > 0 ? sx * sy : 0); }, 0);
+    const puestos = [[0, 0, W, piso - aireY], ...barra.abajo.map((r) => [r[0] + 2, r[1] + aireY - 6, r[2] - 2, r[3]])], pisa = (x, y, w, h) => fuera(x, y, w, h) || tapa(x, y, w, h, aireX, aireY) > 0;
+    for (const id of (E.vertical ? PRIORIDAD_V : PRIORIDAD)) {
       const o = E.objetos.get(id), el = rot[id]; if (!o || !el) continue;
       E.aPantalla(o.ancla, _p); E.aPantalla(o.pie, _q);
       const w = el.offsetWidth, h = el.offsetHeight, s = 10;
       const arriba = [_p.x - w / 2, _p.y - h - s, 0], abajo = [_q.x - w / 2, _q.y + s, 1];
       const lados = [[_p.x - w * 0.86, _p.y - h - s, 0], [_p.x - w * 0.14, _p.y - h - s, 0], [_q.x - w * 0.86, _q.y + s, 1], [_q.x - w * 0.14, _q.y + s, 1], [_p.x - w / 2, _p.y - 2 * h - s - 6, 0]];
-      const opciones = id === 'placa' ? [abajo, arriba, ...lados] : [arriba, abajo, ...lados];
-      // el lugar preferido manda siempre que entre; si no, se queda donde estaba (para no titilar) o busca el primero libre
+      // (el último: abajo, un renglón más lejos, para lo que queda en un rincón del escritorio)
+      const masLugares = [[_q.x - w / 2, _q.y + s + h + aireY, 1]];
+      const opciones = id === 'placa' ? [abajo, arriba, ...lados, ...masLugares] : [arriba, abajo, ...lados, ...masLugares];
+      // un rótulo que quedaría debajo de la barra de arriba baja hasta su borde (antes de ver si pisa algo)
+      for (const c of opciones) { c[0] = Math.max(6, Math.min(W - 6 - w, c[0])); c[1] = Math.max(piso + 4, c[1]); }
+      // el lugar preferido manda siempre que entre; si no, se queda donde estaba (para no titilar) o busca el primero libre; y si
+      // ninguno queda libre del todo, el que menos pisa (nunca dos rótulos encimados porque sí)
       let k = 0;
-      if (pisa(opciones[0][0], opciones[0][1], w, h)) { k = lugarRot[id] ?? 0; if (pisa(opciones[k][0], opciones[k][1], w, h)) { k = opciones.findIndex((c) => !pisa(c[0], c[1], w, h)); if (k < 0) k = 0; } }
+      if (pisa(opciones[0][0], opciones[0][1], w, h)) {
+        k = lugarRot[id] ?? 0;
+        if (!opciones[k] || pisa(opciones[k][0], opciones[k][1], w, h)) {
+          k = opciones.findIndex((c) => !pisa(c[0], c[1], w, h));
+          if (k < 0) { let menos = Infinity; opciones.forEach((c, i) => { const x = Math.max(6, Math.min(W - 6 - w, c[0])), y = Math.max(piso + 4, c[1]); const v = (y + h > H - 6 ? 1e9 : 0) + tapa(x, y, w, h, aireX, aireY); if (v < menos) { menos = v; k = i; } }); }
+        }
+      }
       lugarRot[id] = k;
-      const c = opciones[k], x = Math.max(6, Math.min(W - 6 - w, c[0])), y = Math.max(66, c[1]);
+      const c = opciones[k], x = Math.max(6, Math.min(W - 6 - w, c[0])), y = Math.max(piso + 4, c[1]);
       puestos.push([x, y, x + w, y + h]);
       el.classList.toggle('abajo', c[2] === 1);
-      el.style.setProperty('--tx', `${(k < 2 || k === 6 ? 50 : (k % 2 ? 86 : 14)).toFixed(0)}%`);
+      el.style.setProperty('--tx', `${(k < 2 || k === 6 || k > 6 ? 50 : (k % 2 ? 86 : 14)).toFixed(0)}%`);
       // a píxeles enteros y solo si se movió de verdad: la letra no tiembla con la respiración de la cámara
       const u = puestoRot[id];
       if (!u || Math.abs(u[0] - x) >= 1 || Math.abs(u[1] - y) >= 1) { puestoRot[id] = [Math.round(x), Math.round(y)]; el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`; }
       el.style.visibility = _p.visible ? '' : 'hidden';
     }
+  }
+  // Dónde está la barra: el renglón de arriba (piso: hasta dónde llega) y, en el celular, las pastillas de abajo (la hora y la
+  // caja). Se mide una vez por tamaño de pantalla.
+  let _barra = { piso: 62, abajo: [], clave: '' };
+  function lugarBarra() {
+    if (_barra.clave !== `${W}x${H}`) {
+      const o = raiz.getBoundingClientRect(), R = [...raiz.querySelectorAll('.ofi-barra > *')].map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0);
+      if (R.length) _barra = { clave: `${W}x${H}`, piso: Math.round(Math.max(...R.filter((b) => b.top - o.top < H / 2).map((b) => b.bottom - o.top), 52)) + 4,
+        abajo: R.filter((b) => b.top - o.top >= H / 2).map((b) => [b.left - o.left, b.top - o.top, b.right - o.left, b.bottom - o.top]) };
+    }
+    return _barra;
+  }
+  const altoBarra = () => lugarBarra().piso;
+  // Un detalle del cuarto (no abre nada): al tocarlo dice una línea, cerca del dedo, y se va sola.
+  function decir(id, x, y) {
+    const el = $('.ofi-dicho'); if (!el) return;
+    const texto = id === 'reloj' ? F.t('d_reloj', { hora: horaTexto(d.hoy?.hora ?? hora) }) : id === 'almanaque' ? F.t('d_almanaque', { fecha: d.hoy?.fecha ?? '' }) : F.t(`d_${id}`);
+    el.textContent = texto;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    el.style.transform = `translate(${Math.round(Math.max(8, Math.min(W - w - 8, x - w / 2)))}px, ${Math.round(Math.max(altoBarra() + 4, y - h - 18))}px)`;
+    el.classList.add('ver'); sonar('toque');
+    clearTimeout(decir.t); decir.t = setTimeout(() => el.classList.remove('ver'), 3600);
   }
   function senalar(id) {
     if (sobre === id) return;
@@ -277,14 +316,18 @@ export function crearOficina({ contenedor, idioma = 'es', calidad = 'medio', dat
     if (!E || e.pointerType === 'touch') return;
     const r = lienzo.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
     E.fijarCursor(x / W * 2 - 1, y / H * 2 - 1);
-    if (estado === 'casa' || estado === 'foco') { const id = E.apuntar(x, y); senalar(id && id !== foco ? id : null); }
+    if (estado === 'casa' || estado === 'foco') { const id = E.apuntar(x, y); senalar(id && id !== foco ? id : null); if (!id && estado === 'casa') lienzo.classList.toggle('mano', !!E.apuntarDetalle(x, y)); }
   }
   function alSoltar(e) {
     if (!E || !abajo || Math.hypot(e.clientX - abajo.x, e.clientY - abajo.y) > 10) { abajo = null; return; }
     abajo = null;
     if (estado !== 'casa' && estado !== 'foco') return;
-    const r = lienzo.getBoundingClientRect(), id = E.apuntar(e.clientX - r.left, e.clientY - r.top, e.pointerType === 'touch' ? 0.06 : 0);
-    if (id && id !== foco) abrirHoja(id); else if (!id && foco) cerrarHoja();
+    // primero lo que el dedo toca de verdad (un objeto o un detalle del cuarto); si no toca nada, con el dedo vale lo que queda cerca
+    const r = lienzo.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+    let id = E.apuntar(px, py, 0);
+    const det = !id && estado === 'casa' ? E.apuntarDetalle(px, py) : null;
+    if (!id && !det && e.pointerType === 'touch') id = E.apuntar(px, py, 0.06);
+    if (id && id !== foco) abrirHoja(id); else if (!id && foco) cerrarHoja(); else if (det) decir(det, px, py);
   }
   function alTecla(e) {
     if (!abierta || !raiz) return;

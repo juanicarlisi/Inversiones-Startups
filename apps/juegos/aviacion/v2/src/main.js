@@ -5,7 +5,7 @@
 // el resultado contra lo prometido (libro.js). Los datos de la oficina salen por puente-oficina.js.
 import { Vector3 } from 'three';
 import * as M from '../../js/modelo.js';
-import { AEROPUERTOS, AVIONES, CAPITULOS, MISIONES, TRANSBORDO } from '../../js/datos.js';
+import { AEROPUERTOS, AVIONES, CAPITULOS, ECONOMIA, MISIONES, TRANSBORDO } from '../../js/datos.js';
 import { resolverClasificacion } from '../../js/ronda.js';
 import { Mundo, aMundo } from './mundo/mundo.js';
 import { RADIO_CIUDAD } from './mundo/ciudades.js';
@@ -14,7 +14,7 @@ import * as U from './ui/ui.js';
 import { icono } from './ui/iconos.js';
 import { t, hay, plata, plataSigno, numero, cambiarLengua, fijarTactil, fechaTexto, horaTexto, GLOSARIO } from './ui/textos.js';
 import * as A from './audio/audio.js';
-import { Tandas, avionMasBarato, costoDecision, firmaEstado, claveDecision } from './estimador.js';
+import { Tandas, avionMasBarato, costoDecision, firmaEstado, claveDecision, redondo } from './estimador.js';
 import * as Libro from './libro.js';
 import * as Puente from './puente-oficina.js';
 import './oficina/conectar.js';
@@ -51,7 +51,7 @@ let marcaBoton = null;                // selector del botón que hay que tocar (
 let guia = { paso: null, hecha: false, t: 0 };
 let vistos = {};                      // momentos ya mostrados (cada concepto se explica una vez)
 let premiosPendientes = 0;            // premios ya acreditados en el modelo pero todavía no festejados
-let sug = null, ultimaSug = 0, ultimaUI = 0, ultimoGuardado = 0, guardarPronto = false;
+let sug = null, pasoMision = null, ultimaSug = 0, ultimaUI = 0, ultimoGuardado = 0, guardarPronto = false;   // sug: lo que aconseja el modelo; pasoMision: lo que pide la misión
 let eraNoche = false, ocultoDesde = null, errores = 0;
 const cola = [];                      // carteles en fila: uno por vez (ver «carteles en fila»)
 let enPantalla = null;                // el cartel que se ve ahora: { tipo, hasta } (la decisión no tiene «hasta»: espera la respuesta)
@@ -61,7 +61,7 @@ let ayudaNoche = null;                // la guía de la primera noche: { ruta, h
 function guardar() {
   guardarPronto = false; ultimoGuardado = performance.now();
   if (!s || escena !== 'juego') return;
-  try { almacen.set(CLAVE, M.guardar(s)); almacen.set(CLAVE_EXTRA, JSON.stringify({ v: 2, guia: guia.hecha, vistos, vel: velElegida, empresa, libro })); } catch { /* sin almacenamiento */ }
+  try { almacen.set(CLAVE, M.guardar(s)); almacen.set(CLAVE_EXTRA, JSON.stringify({ v: 3, guia: guia.hecha, vistos, vel: velElegida, empresa, libro })); } catch { /* sin almacenamiento */ }
 }
 function leerGuardado() {
   const x = almacen.get(CLAVE);
@@ -132,14 +132,14 @@ async function arrancar() {
   if (guardado) { guia.hecha = !!extra.guia || s.rutas.length > 0; vistos = extra.vistos ?? {}; }
   // una partida guardada vuelve con la velocidad que eligió el jugador; una nueva (o una de antes de las tres velocidades, que
   // no guardaba una elección de verdad) arranca tranquila
-  velElegida = vel = extra.v === 2 && [0.5, 1, 3].includes(extra.vel) ? extra.vel : 0.5;
+  velElegida = vel = extra.v >= 2 && [0.5, 1, 3].includes(extra.vel) ? extra.vel : 0.5;
   // el libro y la empresa viven en el guardado «extra»: si faltan (partida de antes) o no sirven, se empieza de hoy sin romper nada
   libro = (() => { try { return Libro.abrir(extra.libro, s); } catch { return Libro.nuevo(s); } })();
   fijarEmpresa(extra.empresa && typeof extra.empresa === 'object' ? extra.empresa : {}, false);
   empresa.estrenada = !!extra.empresa?.estrenada;
   tandas.alTerminar = cuentaLista;
-  Puente.conectarJuego({ datos: datosOficina, accion: accionOficina, alAbrir: () => { oficinaAbierta = true; guardar(); }, alCerrar: () => { oficinaAbierta = false; ultimo = performance.now(); }, alConectar: () => U.botonOficina(Puente.hayOficina() && !!s && s.stats.vuelos > 0) });
-  U.botonOficina(Puente.hayOficina() && s.stats.vuelos > 0);
+  Puente.conectarJuego({ datos: datosOficina, accion: accionOficina, alAbrir: () => { oficinaAbierta = true; guardar(); }, alCerrar: () => { oficinaAbierta = false; ultimo = performance.now(); }, alConectar: () => { ultimaUI = 0; } });
+  if (empresa.estrenada) vistos.oficina = 1;            // quien ya entró a su oficina no necesita que se la presenten
   mundo.limites(ciudadesDeLaEpoca());
   window.__hn = depuracion();
   sincronizar(0);
@@ -165,7 +165,7 @@ function empezar(nueva) {
     almacen.del(CLAVE); almacen.del(CLAVE_EXTRA);
     s = M.nuevoEstado(q.get('semilla') ? +q.get('semilla') : Date.now() % 1e9); M.tomarEventos(s);
     guia = { paso: null, hecha: false, t: 0 }; vistos = {}; sel = null; premiosPendientes = 0; U.reiniciarPlata();
-    libro = Libro.nuevo(s); empresa = { nombre: null, color: null, estrenada: false }; fijarEmpresa({}, false); vel = velElegida = 0.5; partePend = null; cola.length = 0; enPantalla = null; cobros.clear();
+    libro = Libro.nuevo(s); empresa = { nombre: null, color: null, estrenada: false }; fijarEmpresa({}, false); vel = velElegida = 0.5; partePend = null; cola.length = 0; enPantalla = null; cobros.clear(); U.cartel(null); U.momento(null); pasoFijo = null; ayudaNoche = null;
     mundo.limites(ciudadesDeLaEpoca()); mundo.pedida();
     for (const v of mundo.rutas.values()) { mundo.escena.remove(v.grupo); v.liberar(); } mundo.rutas.clear();
   }
@@ -293,6 +293,9 @@ function momento(clave, m, siempre = false, { firme = false, urgente = false, va
 }
 
 // ───────────── eventos del modelo ─────────────
+// Lo que deja una acción del jugador (no un paso del reloj): se atiende y también se anota en el libro. Un premio que entra en el
+// mismo instante de una compra (el avión que cumple la misión) es un premio: no se descuenta de lo comprado.
+function trasAccion() { const ev = M.tomarEventos(s); Libro.anotarEventos(libro, s, ev); atender(ev); }
 const _tmp = new Vector3();
 function pantallaDe(idCiudad, alto = 0.55) {
   const c = mundo.ciudades.get(idCiudad);
@@ -349,7 +352,7 @@ function atender(eventos) {
       case 'avionNuevo': cola.push({ tipo: 'avionNuevo', avion: e.avion }); break;
       case 'ciudadesNuevas': cola.push({ tipo: 'ciudades', ciudades: e.ciudades }); break;
       case 'capitulo': cola.push({ tipo: 'capitulo' }); break;
-      case 'contrato': premiosPendientes += e.premio ?? 0; cola.push({ tipo: 'encargo', premio: e.premio ?? 0 }); break;
+      case 'contrato': premiosPendientes += e.premio ?? 0; cola.push({ tipo: 'encargo', premio: e.premio ?? 0, o: e.o, d: e.d }); break;
       case 'contratoVencido': aviso(t('encargoVencido'), { ico: 'encargo', tono: 'malo' }); break;
       case 'contratosNuevos': momento('encargo', { ico: 'encargo', titulo: t('mo_encargo_t'), texto: t('mo_encargo') }); break;
       case 'pronostico': momento('tormenta', { ico: 'tormenta', titulo: t('mo_tormenta_t'), texto: t('mo_tormenta', { lista: (e.zona ?? []).slice(0, 3).map((z) => M.AP[z].nombre).join(', ') }) }, true); break;
@@ -387,8 +390,10 @@ function mostrarOrden() {
   A.sonar('momento');
 }
 
-// La primera noche con aviones dormidos lleva a la acción con el patrón de la guía: una frase, la ruta abierta y el botón que
-// late con el dedo encima. Si la plata no alcanza para los faros, queda la tarjeta que explica qué pasa.
+// La primera noche con aviones dormidos lleva a la acción con el patrón de la guía: una frase y el dedo sobre «Siguiente paso»,
+// que propone los faros de esa ruta. El juego no abre el panel por su cuenta (en la prueba a ciegas del 16-11-2026 se abrió justo
+// cuando la persona tocaba «−» para alejar): lo abre el jugador al tocar el paso, y ahí el dedo pasa a «Poner faros». Si la plata
+// no alcanza para los faros, queda la tarjeta que explica qué pasa.
 function rutaParaFaros(aviones = null) {
   const dormidas = new Set((aviones ?? s.aviones.map((a) => a.id)).map((id) => s.aviones.find((a) => a.id === id)?.ruta).filter(Boolean));
   return s.rutas.filter((r) => !r.balizas && dormidas.has(r.id)).sort((a, b) => M.costoBalizas(a, s) - M.costoBalizas(b, s))[0] ?? null;
@@ -405,17 +410,18 @@ function primeraNoche(e) {
 function guiaNocheVale(id) { const r = rutaDe(id); return !!r && !r.balizas && M.esNoche(s) && s.aviones.some((a) => a.ruta === id) && s.dinero >= M.costoBalizas(r, s); }
 function abrirGuiaNoche(f) {
   if (guia.paso === 'sigue') terminarGuia();
-  elegir({ tipo: 'ruta', id: f.ruta });
-  marcarBoton('[data-accion="faros"]', 40000);
-  U.burbuja(t('g_noche'), 'faro');
   ayudaNoche = { ruta: f.ruta, hasta: performance.now() + 40000 };
+  marcarBoton('#paso', 40000);
+  U.burbuja(t('g_noche'), 'faro');
+  ultimaSug = 0; pasoFijo = null;
   A.sonar('momento');
 }
-const guiaNocheSigue = () => !!ayudaNoche && guiaNocheVale(ayudaNoche.ruta) && sel?.tipo === 'ruta' && sel.id === ayudaNoche.ruta && performance.now() < ayudaNoche.hasta;
+// sigue mientras los faros sigan haciendo falta y el jugador no se haya ido a mirar otra cosa (otro panel)
+const guiaNocheSigue = () => !!ayudaNoche && guiaNocheVale(ayudaNoche.ruta) && (!sel || (sel.tipo === 'ruta' && sel.id === ayudaNoche.ruta)) && performance.now() < ayudaNoche.hasta;
 function cerrarGuiaNoche() {
   if (!ayudaNoche) return;
-  ayudaNoche = null; U.burbuja(null);
-  if (marcaBoton === '[data-accion="faros"]') marcaBoton = null;
+  ayudaNoche = null; U.burbuja(null); pasoFijo = null;
+  if (marcaBoton === '[data-accion="faros"]' || marcaBoton === '#paso') marcaBoton = null;
 }
 
 // ───────────── carteles en fila ─────────────
@@ -430,7 +436,11 @@ function cerrarGuiaNoche() {
 // la mañana y el resultado de una compra. Nunca hay dos a la vez en pantalla (medido el 15-11-2026: había dos o más durante 87 s
 // de cada 10 minutos).
 const TURNO = { mision: 0, encargo: 0, guia: 0.5, capitulo: 1, parte: 1.5, decision: 2, guiaNoche: 3, avionNuevo: 4, ciudades: 4, momento: 4, resultado: 4.5, aviso: 5 };
-const DURA_CARTEL = 3600, CADUCA = 30000;
+// Una misión cumplida no se pierde: su cartel se queda hasta que se lo toca («Seguir») o, si nadie lo toca, 9 segundos (alcanza
+// para leerlo; en la prueba a ciegas del 16-11-2026 duraba 3,6 s y pasó sin verse). Lo que sigue espera su turno.
+const DURA_MISION = 9000, TOQUE_MIN = 900, DURA_ENCARGO = 5200, CADUCA = 30000;
+const RESPIRO = 420;                  // entre un cartel y el siguiente: lo que tarda el que se va en apagarse, y un aire
+let respiro = 0;
 const enFestejo = () => (enPantalla?.tipo === 'mision' ? enPantalla.f : null);
 function avanzarCola() {
   const ahora = performance.now();
@@ -451,9 +461,11 @@ function avanzarCola() {
       // (el resultado de una compra no: lleva dos números para leer y se queda su tiempo entero)
       const apuro = (enPantalla.tipo === 'momento' || enPantalla.tipo === 'aviso') && !enPantalla.firme && ahora - enPantalla.desde > 2500 && cola.some((f) => TURNO[f.tipo] < TURNO.guiaNoche);
       if (ahora < enPantalla.hasta && !apuro) return;
+      respiro = ahora + RESPIRO;
       if (enPantalla.tipo === 'momento') U.momento(null);
       if (enPantalla.tipo === 'aviso') U.limpiarAvisos();
-      if (enPantalla.tipo === 'mision' || enPantalla.tipo === 'encargo') U.cartel(null);
+      if (enPantalla.tipo === 'mision') U.cartel(null);
+      if (enPantalla.tipo === 'encargo') { enPantalla.cobrar?.(); U.momento(null); }
       if (enPantalla.tipo === 'guia') {
         // la frase del primer cobro deja paso a la que señala «Siguiente paso»; esa, a la guía terminada
         if (enPantalla.paso === 'cobro' && guia.paso === 'cobro') { pasoGuia('sigue'); enPantalla = { tipo: 'guia', paso: 'sigue', desde: ahora, hasta: ahora + 9000 }; return; }
@@ -465,7 +477,8 @@ function avanzarCola() {
   }
   if (!cola.length || U.ventanaAbierta() || oficinaAbierta) return;
   if (guia.paso === 'vuela' || enPausaGuia()) return; // la primera misión se festeja cuando llega el primer cobro
-  const turnoDe = (f) => (f.urgente ? 2.5 : TURNO[f.tipo]);
+  if (ahora < respiro) return;                         // el cartel anterior todavía se está yendo
+  const turnoDe = (f) => f.turno ?? (f.urgente ? 2.5 : TURNO[f.tipo]);
   let i = 0;
   for (let k = 1; k < cola.length; k++) if (turnoDe(cola[k]) < turnoDe(cola[i])) i = k;
   const f = cola[i];
@@ -485,8 +498,8 @@ function avanzarCola() {
       A.sonar('mision');
       const ciudad = mundo.ciudades.get(m.b ?? m.ciudad ?? M.HUB) ?? mundo.ciudades.get(M.HUB);
       mundo.papelitos(ciudad.pos, 70);
-      U.cartel(t('misionCumplida'), `${t('mision')} ${orden} · ${textoMision(m)}`, f.premio, () => { premiosPendientes = Math.max(0, premiosPendientes - f.premio); A.sonar('cobro'); }, DURA_CARTEL);
-      turno('mision', DURA_CARTEL + 250, { f });
+      U.cartel(t('misionCumplida'), `${t('mision')} ${orden} · ${textoMision(m)}`, f.premio, () => { premiosPendientes = Math.max(0, premiosPendientes - f.premio); A.sonar('cobro'); }, { seguir: t('seguirJugando') });
+      turno('mision', DURA_MISION, { f });
       // la red creció: se muestra entera, salvo que el jugador tenga la cámara donde la quiere
       setTimeout(() => { if (camaraLibre() && guia.hecha && !sel) verRed(); }, 3000);
       break;
@@ -497,8 +510,14 @@ function avanzarCola() {
       for (const x of otros) cola.splice(cola.indexOf(x), 1);
       const n = 1 + otros.length, premio = f.premio + otros.reduce((a, x) => a + x.premio, 0);
       A.sonar('mision');
-      U.cartel(n > 1 ? t('encargosCumplidos', { n }) : t('encargoCumplido'), '', premio, () => { premiosPendientes = Math.max(0, premiosPendientes - premio); A.sonar('cobro'); }, DURA_CARTEL);
-      turno('encargo', DURA_CARTEL + 250); break;
+      // el encargo cumplido va en su tarjeta, arriba y con fondo: no pisa los rótulos de las ciudades ni las cifras que flotan
+      // (antes era un cartel sin fondo en el medio del mapa)
+      const cual = n === 1 && M.AP[f.o] && M.AP[f.d] ? `<span class="de">${esc(t('encargoDe', { a: M.AP[f.o].nombre, b: M.AP[f.d].nombre }))}</span>` : '';
+      U.momento({ ico: 'encargo', clase: 'premio', titulo: n > 1 ? t('encargosCumplidos', { n }) : t('encargoCumplido'), texto: `${cual}<b class="prm">${icono('moneda')}+${plata(premio)}</b>`, dura: DURA_ENCARGO + 600 });
+      let cobrado = false;
+      const cobrar = () => { if (cobrado) return; cobrado = true; premiosPendientes = Math.max(0, premiosPendientes - premio); A.sonar('cobro'); };
+      setTimeout(() => { const r = $('#momento .prm')?.getBoundingClientRect(); if (cobrado || !r || !r.width) { cobrar(); return; } U.monedas({ x: r.left + 14, y: r.top + r.height / 2 }, Math.max(4, Math.min(8, Math.round(premio / 400))), cobrar); }, 900);
+      turno('encargo', DURA_ENCARGO, { cobrar }); break;
     }
     case 'decision':
       if (M.clasificacionActual(s)?.estado !== 'oferta') break;
@@ -518,7 +537,7 @@ function avanzarCola() {
       turno('aviso', (f.dura ?? 4200) + 350, { clave: f.clave }); break;
     case 'momento':
       if ((!f.firme && ahora - f.t > CADUCA) || (f.vale && !f.vale())) break; // esperó tanto que ya no viene a cuento
-      U.momento(f.m); A.sonar('momento');
+      U.momento(f.m); A.sonar('momento'); f.alMostrar?.();
       turno('momento', (f.m.dura ?? 6500) + 250); break;
     case 'avionNuevo': {
       const a = M.AV[f.avion];
@@ -559,7 +578,6 @@ function prepararParte(n) {
   for (const c of candidatos) if (c.decision) tandas.pedir(s, c.decision, { urgente: true });
   partePend = { n, p, candidatos, t: performance.now(), firma: firmaEstado(s) };
   cola.push({ tipo: 'parte', n });
-  U.botonOficina(Puente.hayOficina());
 }
 // Consejos que llevan una compra detrás, en orden: se dice el primero cuya cuenta da bien (deja plata y se paga en 10 días o menos).
 function consejosConCuenta(p) {
@@ -581,41 +599,68 @@ function parteListo(f, ahora) {
   if (ahora - partePend.t > 5000) return true;
   return partePend.candidatos.every((c) => !c.decision || tandas.listo(s, c.decision));
 }
+// Lo que deja una compra, dicho como consejo: «unos $ 14.000» (o el rango, si la cuenta es incierta). Es la misma cuenta que
+// muestra la tarjeta, hecha a la hora del parte; la tarjeta la muestra al peso.
+const dejaEnRedondo = (e) => (e.incierto ? t('entre', { a: plata(redondo(e.min)), b: plata(redondo(e.max)) }) : t('unos', { monto: plata(redondo(e.dejaDia)) }));
 function elegirConsejo() {
   const [base, ...conCuenta] = partePend.candidatos;
   // lo que hay que arreglar va primero (una ruta sin avión o que pierde); después, la mejor compra comprobada; si no, el dato del día
   if (['cj_sinAvion', 'cj_sobraAvion', 'cj_saleVacio', 'cj_pierde', 'cj_empezar'].includes(base.clave)) return base;
   let mejor = null;
   for (const c of conCuenta) {
-    const e = tandas.listo(s, c.decision);
+    const e = tandas.listo(s, c.decision, partePend.firma);    // la cuenta hecha a las 6:00, con el estado de ese momento
     if (!e || e.imposible || !(e.dejaDia >= 300) || e.recuperoDias == null || e.recuperoDias > 10) continue;
     if (!mejor || e.recuperoDias < mejor.e.recuperoDias) mejor = { c, e };
   }
-  if (mejor) return { ...mejor.c, deja: mejor.e.dejaDia, costo: mejor.e.costo };
+  if (mejor) return { ...mejor.c, deja: dejaEnRedondo(mejor.e), dejaExacto: mejor.e.dejaDia, costo: mejor.e.costo };
   return ['cj_duermen', 'cj_tardeCola', 'cj_llena'].includes(base.clave) ? { clave: partePend.p.quedo > 0 ? (partePend.p.rutas.filter((f) => f.aviones > 0).length === 1 ? 'cj_bien1' : 'cj_bien') : 'cj_flojo', n: partePend.p.rutas.filter((f) => f.aviones > 0).length } : base;
 }
 function textoConsejo(c) {
   const r = c.ruta ? rutaDe(c.ruta) : null;
-  const clave = c.clave === 'cj_bien' && c.n === 1 ? 'cj_bien1' : c.clave;
-  return t(clave, { ruta: r ? tituloRuta(r) : '', pct: c.pct ?? '', monto: c.monto != null ? plata(c.monto) : '', n: c.n ?? '', de: c.de ?? '', costo: c.costo != null ? plata(c.costo) : '', deja: c.deja != null ? plata(c.deja) : '' });
+  const clave = c.clave === 'cj_bien' && c.n === 1 ? 'cj_bien1' : c.clave === 'cj_duermen' && c.n === 1 ? 'cj_duerme1' : c.clave;
+  return t(clave, { ruta: r ? tituloRuta(r) : '', pct: c.pct ?? '', monto: c.monto != null ? plata(c.monto) : '', n: c.n ?? '', de: c.de ?? '', costo: c.costo != null ? plata(c.costo) : '', deja: c.deja ?? '' });
 }
+// La caja del parte, a la vista y en palabras: lo que había, lo que quedó de operar, lo comprado, los premios y lo que hay. La suma
+// da exacto (Libro.cierreCaja); lo que no hubo (compras, premios, ventas) no aparece.
+function cajaDelParte(p) {
+  const c = p.cierre;
+  if (!c) return '';                                   // un día de un guardado de antes: no se sabe con cuánto empezó
+  const paso = (k, v, clase = '') => `<span class="${clase}"><small>${esc(t(k))}</small><b>${v}</b></span>`;
+  // (si se compró algo después de las 6:00, la caja de ahora ya es otra: se dice «a las 6»)
+  const ahora = Math.round(s.dinero) === c.caja;
+  return `<div class="parte-caja">${paso(p.dia.n === 1 ? 'pc_empezaste' : 'pc_ayer', plata(c.antes))}${paso('pc_quedo', plataSigno(c.quedo), c.quedo >= 0 ? 'mas' : 'menos')}${c.compras ? paso('pc_compraste', plata(-c.compras), 'menos') : ''}${c.premios ? paso('pc_premios', plataSigno(c.premios), 'mas') : ''}${c.ventas ? paso('pc_vendiste', plataSigno(c.ventas), 'mas') : ''}${c.otros ? paso('pc_otros', plataSigno(c.otros), c.otros >= 0 ? 'mas' : 'menos') : ''}${paso(ahora ? 'pc_hoy' : 'pc_alas6', plata(c.caja), 'fin')}</div>`;
+}
+let consejoParte = null;                               // el consejo que mostró el último parte (para «Ver la cuenta»)
 function mostrarParte(f) {
   if (!partePend || partePend.n !== f.n) return;
-  const { p } = partePend, d = p.dia, consejo = elegirConsejo();
+  const { p } = partePend, d = p.dia, consejo = consejoParte = elegirConsejo();
   guardar();                                   // el parte es también el punto de guardado
   const cifra = (k, v, clase) => `<div class="${clase}"><b>${plata(v)}</b><span>${esc(t(k))}</span></div>`;
   const linea = (ico, rot, r, clase) => `<div class="parte-linea">${icono(ico)}<span><small>${esc(t(rot))}</small>${esc(`${M.AP[r.a].nombre} – ${M.AP[r.b].nombre}`)}</span><b class="${clase}">${plataSigno(r.deja)}</b></div>`;
   const total = d.aTiempo + d.tarde;
-  const extras = [d.compras > 0 ? esc(t('parte_compras', { monto: plata(d.compras) })) : '', d.premios > 0 ? esc(t('parte_premios', { monto: plata(d.premios) })) : ''].filter(Boolean).join(' ');
   A.sonar('dia');
-  U.ventana({ titulo: t('parte_t', { n: d.n }),
+  // el consejo que propone una compra lleva a su tarjeta: con el reloj frenado, la tarjeta muestra la misma cuenta, al peso
+  const ver = consejo.decision ? `<button class="mini" data-accion="verConsejo">${esc(t('parte_verCuenta'))}</button>` : '';
+  U.ventana({ titulo: t('parte_t', { n: d.n }), clase: 'parte',
     html: `<p class="parte-sub">${esc(fechaTexto(new Date(d.f)))} · ${esc(t('parte_entregas', { n: numero(d.cartas), pct: total ? `${numero(d.aTiempo / total * 100)}%` : '—' }))}</p>
       <div class="cifras tres">${cifra('parte_entro', d.entro, 'gris')}${cifra('parte_salio', d.salio, 'gris')}${cifra('parte_quedo', p.quedo, p.quedo >= 0 ? 'bien' : 'mal')}</div>
+      ${cajaDelParte(p)}
       ${p.mejor ? linea('mision', 'parte_mejor', p.mejor, p.mejor.deja >= 0 ? 'bien' : 'mal') : ''}${p.peor ? linea('ruta', 'parte_peor', p.peor, p.peor.deja >= 0 ? '' : 'mal') : ''}
-      <div class="consejo">${icono('ganancia')}<small>${esc(t('parte_consejo'))}</small><span>${esc(textoConsejo(consejo))}</span></div>
-      <p class="parte-pie"><span>${extras}</span><span>${esc(t('parte_caja'))}: <b>${plata(dineroVisible())}</b> · ${icono('check')} ${esc(t('parte_guardado'))}</span></p>`,
+      <div class="consejo${ver ? ' con-boton' : ''}">${icono('ganancia')}<small>${esc(t('parte_consejo'))}</small><span>${esc(textoConsejo(consejo))}</span>${ver}</div>
+      <p class="parte-pie"><span>${icono('check')} ${esc(t('parte_guardado'))}</span></p>`,
     botones: [{ txt: t('parte_seguir'), accion: 'cerrarVentana', ico: 'vel1' }, ...(Puente.hayOficina() ? [{ txt: t('parte_oficina'), accion: 'oficina', clase: 'suave', ico: 'oficina' }] : [])],
     alCerrar: () => { partePend = null; ultimo = performance.now(); } });
+}
+// «Ver la cuenta» del consejo del parte: cierra el parte y abre la tarjeta de esa compra. El reloj no llegó a correr: el estado
+// es el de las 6:00 y la tarjeta muestra la misma cuenta que dio el consejo (al peso; el consejo la dice en redondo).
+function verConsejo() {
+  const c = consejoParte, d = c?.decision;
+  U.ventana(null);
+  if (!d) return;
+  const pedida = { camara: 'pedida' };
+  if (d.tipo === 'avion' && rutaDe(d.ruta)) { elegir({ tipo: 'hangar', ruta: d.ruta, id: d.ruta }, pedida); marcarBoton(`[data-accion="comprar"][data-id="${d.id}"]`, 12000); }
+  else if (d.tipo === 'faros' && rutaDe(d.ruta)) { elegir({ tipo: 'ruta', id: d.ruta }, pedida); marcarBoton('[data-accion="faros"]', 12000); }
+  else if (d.tipo === 'correo') { elegir({ tipo: 'ciudad', id: d.ap }, pedida); marcarBoton('[data-accion="agrandar"]', 12000); }
 }
 // El resultado de una compra, a los 3 días. Mientras la oficina no esté, va como un cartel de la fila; con la oficina, queda en su
 // bandeja y acá solo se avisa.
@@ -648,7 +693,7 @@ function accionOficina(a) {
     }
     case 'bandeja': {
       Libro.marcarLeido(libro, a.id);
-      if (a.accion === 'aceptar' && String(a.id).startsWith('enc-')) { const r = M.aceptarContrato(s, +String(a.id).slice(4)); if (r?.ok) { atender(M.tomarEventos(s)); guardarPronto = true; } return { ok: !!r?.ok }; }
+      if (a.accion === 'aceptar' && String(a.id).startsWith('enc-')) { const r = M.aceptarContrato(s, +String(a.id).slice(4)); if (r?.ok) { trasAccion(); guardarPronto = true; } return { ok: !!r?.ok }; }
       if (a.accion === 'ver') { const n = libro.notas.find((x) => x.id === a.id); if (n?.ruta && rutaDe(n.ruta)) { elegir({ tipo: 'ruta', id: n.ruta }, { camara: 'pedida' }); return { ok: true, salir: true }; } }
       return { ok: false };
     }
@@ -699,8 +744,10 @@ function finCapitulo() {
 }
 function siguienteCapitulo() {
   U.ventana(null);
+  const antes = s.dinero;
   if (!M.avanzarCapitulo(s).ok) return;
-  atender(M.tomarEventos(s));
+  Libro.anotarPremio(libro, s.dinero - antes);          // el premio de pasar de época entra a la caja sin evento: se anota acá
+  trasAccion();
   sel = null;
   guardar();
   Libro.alPaso(libro, s, []);                           // la época nueva empieza un día nuevo en el libro
@@ -855,15 +902,85 @@ function objetivos() {
   }
   return out;
 }
-// «Siguiente paso» dice siempre lo que conviene hacer ahora y qué pasa al tocarlo. pasivo: no hay nada para tocar (se ve como un
-// aviso, no como un botón).
-// Cuando no hay nada que decidir, el juego invita a mirar: seguir a un avión con la cámara (o pasar por la oficina, si llegó algo).
+// En el celular los encargos no entran en la columna de la misión (taparían el mapa): van en una pastilla, «Encargos» con su
+// cantidad, que abre la lista con las mismas tarjetas (qué piden, si ya se puede cumplir y el botón de aceptar).
+function pastillaEncargos(objs) {
+  const enc = objs.filter((o) => o.tipo === 'encargo');
+  return enc.length && guia.hecha ? { n: enc.length, nuevos: enc.some((o) => o.boton) } : null;
+}
+const encargosAbiertos = () => U.ventanaAbierta() && $('#ventana').dataset.clase === 'encargos';
+function abrirEncargos() {
+  const enc = objetivos().filter((o) => o.tipo === 'encargo');
+  U.ventana({ titulo: t('encargos'), clase: 'encargos',
+    html: `<p class="parte-sub">${esc(t('c_encargo'))}</p>${enc.length ? `<div class="lista-enc">${U.tarjetasEncargo(enc)}</div>` : `<p>${esc(t('encNinguno'))}</p>`}`,
+    botones: [{ txt: t('volverMapa'), accion: 'cerrarVentana', clase: 'suave' }],
+    alCerrar: () => { ultimo = performance.now(); } });
+}
+
+// ───────────── «Siguiente paso» ─────────────
+// Dice siempre lo que conviene hacer ahora y qué pasa al tocarlo. El orden (prueba a ciegas del 16-11-2026: repetía «seguí a un
+// avión» aunque la misión pedía otra cosa, y alternaba sola entre dos consejos):
+//   0. lo urgente: la red de seguridad del modelo (vender el avión que hunde la caja);
+//   1. la pregunta de la base, si espera respuesta;
+//   2. lo que pide la misión activa, si se puede pagar;
+//   3. si no se puede y la red lo junta pronto: cuánto falta y por qué, con la cuenta a la vista (lo que cuesta y lo que hay que
+//      guardar para la nafta);
+//   4. lo demás que aconseja el modelo y se puede pagar, solo si la cuenta verdadera lo confirma;
+//   5. lo que falta para la misión cuando todavía está lejos;   6. juntar para otra cosa que conviene;
+//   9. si de verdad no hay nada que decidir ni que juntar: seguir a un avión con la cámara (o pasar por la oficina).
 // Nunca pide apurar el reloj (medido el 15-11-2026: «Acelerá el tiempo» era el consejo el 47% del tiempo).
-function invitarAMirar(falta = null, que = null) {
-  if (Puente.hayOficina() && !mundo.siguiendo && datosOficina()?.bandeja.some((b) => !b.leido && b.tipo === 'resultado')) return { ico: 'oficina', texto: esc(t('s_oficina')), mirar: 'oficina' };
+const COMPRAS = new Set(['ruta', 'avion', 'balizas', 'transbordo']);
+const reservaSuave = () => M.reserva(s, null, ECONOMIA.reservaSugerencia, 0);   // la que el modelo deja en la caja antes de aconsejar una compra
+// Lo que pide la misión activa aunque hoy no alcance la plata: las decisiones «de la historia» que da el modelo con la caja sin
+// fondo (el mismo recurso que usa el modelo en acelerarPara). Una vez por estado.
+let _pedido = { firma: null, lista: [] };
+function pedidoMision() {
+  const firma = `${s.t}|${s.verRed}|${s.misiones.length}|${s.cap}|${s.rutas.map((r) => (r.balizas ? 1 : 0)).join('')}|${JSON.stringify(s.niveles)}`;
+  if (_pedido.firma === firma) return _pedido.lista;
+  const caja = s.dinero; let ds = [];
+  try { s.dinero = 1e12; ds = M.decisiones(s); } catch { ds = []; } finally { s.dinero = caja; }
+  _pedido = { firma, lista: ds.filter((d) => d.mision && COMPRAS.has(d.tipo)) };
+  return _pedido.lista;
+}
+// ¿La misión activa pide esta compra? (d: una decisión del estimador). Devuelve la misión o null.
+function pideMision(d) {
+  const m = M.misionActual(s);
+  if (!m || !(m.premio > 0) || !s.mision) return null;
+  const hay = pedidoMision().some((x) => (d.tipo === 'ruta' ? x.tipo === 'ruta' && x.id === M.idRuta(d.a, d.b)
+    : d.tipo === 'avion' ? x.tipo === 'avion' && x.ruta === d.ruta
+    : d.tipo === 'faros' ? x.tipo === 'balizas' && x.id === d.ruta
+    : x.tipo === 'transbordo' && x.id === d.ap));
+  return hay ? m : null;
+}
+// El paso de la misión: { paga: true, d } si se puede pagar ya; { paga: false, d, costo, reserva, falta, dura } si hay que juntar
+// (dura: la reserva es una regla del modelo, la de los aviones; si no, es el margen que el modelo aconseja dejar).
+function calcularPasoMision() {
+  if (!M.misionActual(s)) return null;
+  const suave = reservaSuave();
+  let reales = [];
+  try { reales = M.decisiones(s); } catch { reales = []; }
+  const d = reales.find((x) => x.mision && (COMPRAS.has(x.tipo) || x.tipo === 'contrato') && x.efectoDia >= 0 && (x.costo <= 0 || s.dinero - x.costo >= suave));
+  if (d) return { paga: true, d };
+  const o = pedidoMision()[0];
+  if (!o) return null;
+  // (si alcanza y el modelo igual no lo propone es porque espera otra cosa, como el avión de apoyo que ya se compró hace poco: no se insiste)
+  const j = juntaDe(o);
+  return j.falta > 0 ? { paga: false, d: o, ...j } : null;
+}
+// La cuenta de lo que falta para una compra: lo que cuesta, lo que hay que guardar para volar y lo que falta hoy.
+// dura: la reserva es una regla del modelo (la de los aviones); si no, es el margen que el modelo aconseja dejar.
+function juntaDe(o) {
+  const tp = o.tipo === 'avion' ? M.AV[o.id] : null, r = tp ? rutaDe(o.ruta) : null;
+  const reserva = Math.ceil(tp && r ? M.reserva(s, { t: tp, r }) : reservaSuave());
+  return { costo: o.costo, reserva, falta: Math.ceil(o.costo + reserva - s.dinero), dura: !!tp };
+}
+// Cuando no hay nada que decidir, el juego invita a mirar: seguir a un avión con la cámara (o pasar por la oficina, si llegó algo).
+function invitarAMirar() {
+  if (oficinaLista() && !mundo.siguiendo && novedadesOficina().resultados > 0) return { clase: 9, clave: 'oficina', ico: 'oficina', texto: esc(t('s_oficina')), mirar: 'oficina' };
   const volando = s.aviones.filter((a) => a.fase === 'vuelo');
-  if (!volando.length) return { ico: s.aviones.length && M.esNoche(s) ? 'dormido' : 'check', texto: esc(falta != null ? t('s_juntando', { falta: plata(falta), que }) : t(s.aviones.length && M.esNoche(s) ? 's_duermen' : 's_esperar')), pasivo: true };
-  return { ico: 'ojo', texto: esc(falta != null ? t('s_mirarJunta', { falta: plata(falta), que }) : t(mundo.siguiendo != null ? 's_mirarOtro' : 's_mirar')), mirar: 'avion' };
+  const noche = s.aviones.length && M.esNoche(s);
+  if (!volando.length) return { clase: 9, clave: 'espera', ico: noche ? 'dormido' : 'check', texto: esc(t(noche ? 's_duermen' : 's_esperar')), pasivo: true };
+  return { clase: 9, clave: 'mirar', ico: 'ojo', texto: esc(t(mundo.siguiendo != null ? 's_mirarOtro' : 's_mirar')), mirar: 'avion' };
 }
 // Sigue con la cámara a un avión que está volando (cada toque, a otro): el que más camino tiene por delante.
 function mirarAvion() {
@@ -884,65 +1001,170 @@ function decisionDe(d) {
 }
 // Un consejo de compra que no pide la historia se dice solo si la cuenta verdadera da bien: deja plata y se paga en 8 días o menos.
 // (Medido el 16-11-2026: la cuenta rápida del modelo recomendaba rutas que perdían plata.) Mientras la cuenta no está, no se dice.
+// Devuelve true, false o null (la cuenta todavía se está haciendo).
 function consejoVale(d) {
   const dec = decisionDe(d);
   if (!dec || d.mision || d.seguridad) return true;
   const e = tandas.pedir(s, dec, { llave: `sug|${s.verRed}|${Math.floor(s.t / 720)}` });
-  return !!e && !e.imposible && e.dejaDia >= 300 && e.recuperoDias != null && e.recuperoDias <= 8;
+  if (!e) return null;
+  return !e.imposible && e.dejaDia >= 300 && e.recuperoDias != null && e.recuperoDias <= 8;
+}
+const ESPERA = Symbol('espera');
+const ciudadNueva = (d) => (M.enRed(s, d.a) || (!M.nodosRed(s).length && d.a === M.HUB) ? d.b : d.a);
+// Para qué se junta, con nombre y lugar: «un Tero para la ruta a Bahía Blanca» (antes decía «el Tero», sin decir para dónde).
+function paraQue(o) {
+  if (o.tipo === 'avion') { const r = rutaDe(o.ruta); return r ? t('que_avionRuta', { avion: M.AV[o.id]?.nombre ?? '', ruta: nombreRuta(r) }) : t('que_avion', { avion: M.AV[o.id]?.nombre ?? '' }); }
+  if (o.tipo === 'balizas') { const r = rutaDe(o.id); return r ? t('que_farosRuta', { ruta: nombreRuta(r) }) : t('que_faros'); }
+  if (o.tipo === 'transbordo') return t('que_base');
+  const [a, b] = o.a ? [o.a, o.b] : String(o.id).split('-');
+  return t(o.costo > M.costoRuta(a, b) ? 'que_rutaAvion' : 'que_ruta', { ciudad: M.AP[M.enRed(s, a) ? b : a]?.nombre ?? '' });
+}
+// «Te faltan $ X»: con la cuenta a la vista (lo que cuesta y lo que hay que guardar para volar). Al tocarlo se abre el lugar.
+function pasoJunta(o, { costo, reserva, falta, dura }, clase) {
+  return { clase, clave: `junta|${o.tipo}|${o.id}|${o.ruta ?? ''}`, ico: 'moneda', d: { tipo: 'junta', obj: o },
+    texto: esc(t('s_junta', { que: paraQue(o), falta: plata(falta) })),
+    detalle: reserva > 0 ? esc(t(dura ? 's_juntaCuenta' : 's_juntaCuentaSuave', { costo: plata(costo), reserva: plata(reserva) })) : '' };
+}
+// Una decisión del modelo dicha como paso: { clase, clave, ico, texto, costo?, d }. null si no hay nada que decir de ella.
+function pasoDe(d, clase) {
+  const r = d.ruta ? rutaDe(d.ruta) : d.tipo !== 'ruta' && typeof d.id === 'string' ? rutaDe(d.id) : null;
+  const ruta = r ? esc(nombreRuta(r)) : '';
+  if (COMPRAS.has(d.tipo)) { const v = consejoVale(d); if (v == null) return ESPERA; if (!v) return null; }
+  const base = { clase, d, clave: `${d.tipo}|${d.id ?? ''}|${d.ruta ?? ''}` };
+  switch (d.tipo) {
+    case 'ruta': return { ...base, ico: 'ruta', texto: esc(t('s_ruta', { b: M.AP[ciudadNueva(d)].nombre })), costo: M.costoRuta(d.a, d.b) };   // lo que se paga ahora: la ruta (el modelo a veces suma el avión)
+    case 'avion': return { ...base, ico: 'avion', texto: t('s_avion', { ruta }), costo: d.costo };
+    case 'balizas': return { ...base, ico: 'faro', texto: t('s_faros', { ruta }), costo: d.costo };
+    case 'transbordo': return { ...base, ico: 'base', texto: esc(t('s_base', { ap: M.AP[d.id].nombre })), costo: d.costo };
+    case 'cargaMin': return { ...base, ico: 'cartas', texto: t('s_salida', { ruta }) };
+    case 'contrato': {
+      // dice cuál es (en el celular la lista de encargos está a un toque, en su pastilla)
+      const c = s.contratos.tablero.find((x) => x.id === d.id);
+      if (!c) return null;
+      return { ...base, ico: 'encargo', texto: esc(t('s_encargo2', { n: numero(c.n), u: unidad(c.c, c.n), a: M.AP[c.o].nombre, b: M.AP[c.d].nombre })) };
+    }
+    case 'vender': { const av = s.aviones.find((a) => a.id === d.id), rr = av && rutaDe(av.ruta); return av ? { ...base, ico: 'moneda', texto: d.seguridad || !rr ? esc(t('s_vender')) : t('s_vender2', { ruta: esc(nombreRuta(rr)) }) } : null; }
+    case 'clasificar': return { ...base, ico: 'base', texto: esc(t('s_ordenar')) };
+    case 'ahorrar': case 'acelerar': {
+      // juntar para algo que no pide la misión: se nombra solo si la cuenta verdadera dice que conviene
+      if (d.falta == null || !d.para || !COMPRAS.has(d.para.tipo)) return null;
+      const v = consejoVale({ ...d.para, mision: false });
+      if (v == null) return ESPERA; if (!v) return null;
+      const j = juntaDe(d.para);
+      return j.falta > 0 ? pasoJunta(d.para, j, clase) : null;
+    }
+    default: return null;
+  }
 }
 function pasoSugerido() {
-  const nada = invitarAMirar();
-  if (!sug) return nada;
-  const d = sug, r = d.ruta ? rutaDe(d.ruta) : d.tipo !== 'ruta' && typeof d.id === 'string' ? rutaDe(d.id) : null;
-  const ruta = r ? esc(nombreRuta(r)) : '';
-  if (['avion', 'balizas', 'transbordo', 'ruta'].includes(d.tipo) && !consejoVale(d)) return nada;
+  if (sug?.seguridad) { const p = pasoDe(sug, 0); if (p) return p; }
+  if (s.clasif?.estado === 'oferta') return pasoDe({ tipo: 'clasificar' }, 1);
+  // la primera noche el juego propone los faros acá, con la burbuja al lado: no abre ningún panel por su cuenta
+  if (ayudaNoche && guiaNocheVale(ayudaNoche.ruta)) { const r = rutaDe(ayudaNoche.ruta); return pasoDe({ tipo: 'balizas', id: r.id, costo: M.costoBalizas(r, s), mision: true }, 2); }
+  let espera = false;                // hay una cuenta haciéndose: todavía no se sabe si ese consejo vale
+  if (pasoMision?.paga) { const p = pasoDe(pasoMision.d, 2); if (p === ESPERA) espera = true; else if (p) return p; }
+  // lo que falta para la misión: si la red lo junta pronto (en un día y medio, la vara del modelo) va antes que cualquier otro
+  // consejo; si falta mucho, primero lo que convenga comprar mientras tanto
+  const junta = pasoMision && !pasoMision.paga ? pasoMision : null;
+  const pronto = junta && junta.falta <= 1.5 * Math.max(0, M.gananciaDia(s));
+  if (junta && pronto) return pasoJunta(junta.d, junta, 3);
+  let otraJunta = null;              // juntar para algo que no pide la misión: va después de juntar para la misión
+  if (sug && !sug.seguridad) { const p = pasoDe(sug, 4); if (p === ESPERA) espera = true; else if (p?.d?.tipo === 'junta') otraJunta = { ...p, clase: 6 }; else if (p) return p; }
+  if (junta) return pasoJunta(junta.d, junta, 5);
+  if (otraJunta) return otraJunta;
+  const p = invitarAMirar();
+  return espera ? { ...p, espera: true } : p;
+}
+// Una propuesta no cambia sola cada pocos segundos. Se queda mientras siga en pie; la reemplaza enseguida solo algo más importante
+// (una clase menor), un toque del jugador (accion() la suelta) o que deje de valer; si no, aguanta 45 segundos. Los «te faltan»
+// se sostienen igual (con la cuenta al día). Los rellenos («seguí a un avión») no: apenas hay algo para decidir, se van.
+const AGUANTE = 45000;
+let pasoFijo = null;
+function sigueEnPie(p) {
+  const d = p?.d;
+  if (!d || p.clase >= 9) return false;
   switch (d.tipo) {
-    case 'ruta': { const afuera = M.enRed(s, d.a) || (!M.nodosRed(s).length && d.a === M.HUB) ? d.b : d.a; return { ico: 'ruta', texto: esc(t('s_ruta', { b: M.AP[afuera].nombre })), costo: d.costo }; }
-    case 'avion': return { ico: 'avion', texto: t('s_avion', { ruta }), costo: d.costo };
-    case 'balizas': return { ico: 'faro', texto: t('s_faros', { ruta }), costo: d.costo };
-    case 'transbordo': return { ico: 'base', texto: esc(t('s_base', { ap: M.AP[d.id].nombre })), costo: d.costo };
-    case 'cargaMin': return { ico: 'cartas', texto: t('s_salida', { ruta }) };
-    case 'contrato': {
-      // en el celular los encargos no tienen su tarjeta a la vista: el paso dice cuál es (al tocarlo, se acepta)
-      const c = s.contratos.tablero.find((x) => x.id === d.id);
-      if (!c || innerWidth >= 640) return { ico: 'encargo', texto: esc(t('s_encargo')) };
-      return { ico: 'encargo', texto: esc(t('s_encargo2', { n: numero(c.n), u: unidad(c.c, c.n), a: M.AP[c.o].nombre, b: M.AP[c.d].nombre })) };
+    case 'ruta': return !rutaDe(M.idRuta(d.a, d.b)) && M.puedeAbrirRuta(s, d.a, d.b).ok;
+    case 'avion': return !!rutaDe(d.ruta) && M.puedeComprar(s, d.id, d.ruta).ok;
+    case 'balizas': { const r = rutaDe(d.id); return !!r && !r.balizas && s.dinero >= M.costoBalizas(r, s); }
+    case 'transbordo': { const c = M.costoTransbordo(s, d.id); return c != null && s.dinero >= c; }
+    case 'contrato': return s.contratos.tablero.some((c) => c.id === d.id) && s.contratos.activos.length < M.CONTRATO.maxActivos;
+    case 'cargaMin': { const r = rutaDe(d.id); return !!r && (r.minCarga ?? 0.6) !== d.v; }
+    case 'vender': return s.aviones.some((a) => a.id === d.id);
+    case 'clasificar': return s.clasif?.estado === 'oferta';
+    case 'junta': {           // todavía no existe lo que se quería comprar y sigue faltando plata
+      const o = d.obj;
+      const pendiente = o.tipo === 'ruta' ? !rutaDe(o.id ?? M.idRuta(o.a, o.b)) : o.tipo === 'avion' ? !!rutaDe(o.ruta) : o.tipo === 'balizas' ? !!rutaDe(o.id) && !rutaDe(o.id).balizas : M.costoTransbordo(s, o.id) === o.costo;
+      return pendiente && juntaDe(o).falta > 0;
     }
-    case 'vender': { const av = s.aviones.find((a) => a.id === d.id), rr = av && rutaDe(av.ruta); return { ico: 'moneda', texto: d.seguridad || !rr ? esc(t('s_vender')) : t('s_vender2', { ruta: esc(nombreRuta(rr)) }) }; }
-    case 'clasificar': return { ico: 'base', texto: esc(t('s_ordenar')) };
-    case 'ahorrar': case 'acelerar': {
-      // juntar para algo: se nombra solo si lo pide la historia o si la cuenta verdadera dice que conviene
-      if (d.falta == null || (d.tipo === 'acelerar' && !consejoVale({ ...d.para, mision: false }))) return nada;
-      const que = d.que === 'avion' ? t('que_avion', { avion: M.AV[d.id]?.nombre ?? '' }) : d.que === 'balizas' ? t('que_faros') : d.que === 'transbordo' ? t('que_base')
-        : t('que_ruta', { ciudad: (() => { const [a, b] = String(d.id).split('-'); return M.AP[M.enRed(s, a) ? b : a]?.nombre ?? ''; })() });
-      return invitarAMirar(d.falta, que);
-    }
-    default: return nada;
+    default: return false;
   }
+}
+let esperaDesde = 0;
+function estabilizar(p, ahora) {
+  const f = pasoFijo;
+  if (f && p.clave !== f.p.clave && ahora - f.t < AGUANTE && sigueEnPie(f.p)) {
+    // cede solo ante algo más importante (y ya resuelto), o un consejo de compra frente a «juntá para algo lejano» (clase 5)
+    const cede = (p.clase < f.p.clase && !p.espera) || (f.p.clase === 5 && p.clase === 4);
+    if (!cede) return f.p.d?.tipo === 'junta' ? (f.p = pasoJunta(f.p.d.obj, juntaDe(f.p.d.obj), f.p.clase)) : f.p;
+  }
+  // Se juntó lo que faltaba para un consejo (clase 6): lo que sigue es comprarlo, no pasar a juntar para otra cosa. (Lo de la
+  // misión ya llega solo como paso de clase 2.)
+  if (f && f.p.clase === 6 && p.clave !== f.p.clave && p.clase >= 4 && ahora - f.t < AGUANTE * 2) {
+    const o = f.p.d.obj, compra = juntaDe(o).falta <= 0 ? pasoDe({ ...o, mision: false }, 4) : null;
+    if (compra && compra !== ESPERA && sigueEnPie(compra)) { pasoFijo = { p: compra, t: ahora }; return compra; }
+  }
+  // Se está haciendo la cuenta de un consejo y no hay un relleno ya a la vista: un instante sin paso, en vez de mostrar «seguí a
+  // un avión» y cambiarlo al segundo (como mucho 2,5 s; después se muestra lo que haya).
+  if (p.espera && !(f && f.p.clase >= 9)) {
+    esperaDesde ||= ahora;
+    if (ahora - esperaDesde < 2500) { pasoFijo = null; return null; }
+  } else esperaDesde = 0;
+  if (!f || p.clave !== f.p.clave) pasoFijo = { p, t: ahora }; else f.p = p;
+  return p;
+}
+// La oficina está disponible después del primer vuelo y del primer minuto guiado (nunca antes).
+const oficinaLista = () => Puente.hayOficina() && !!s && s.stats.vuelos > 0 && guia.hecha;
+// Lo que hay sin leer en la bandeja de la oficina (para el globito del botón y para «Llegó algo a tu oficina»). Una vez por estado.
+let _novedades = { firma: null, n: 0, resultados: 0 };
+function novedadesOficina() {
+  const firma = `${Math.floor(s.t / 30)}|${libro.leidos.length}|${libro.leidos.at(-1) ?? ''}|${libro.notas.length}|${libro.dias.length}|${s.contratos.tablero.map((c) => c.id).join(',')}|${s.contratos.activos.length}`;
+  if (_novedades.firma === firma) return _novedades;
+  const b = datosOficina()?.bandeja ?? [];
+  return (_novedades = { firma, n: b.filter((x) => !x.leido).length, resultados: b.filter((x) => !x.leido && x.tipo === 'resultado').length });
 }
 function refrescar(ahora) {
   if (escena !== 'juego') return;
   const noche = M.esNoche(s);
   if (noche !== eraNoche) { eraNoche = noche; if (s.t > 30) A.sonar(noche ? 'noche' : 'dia'); }
   A.fijarNoche(mundo.cielo.noche);
-  U.barra({ dinero: dineroVisible(), gananciaHoy: M.gananciaDia(s), fecha: M.fecha(s), noche, vel, velElegida, frenado: freno(), sinRojo: !(s.stats.ingresos > 0) });
-  U.mision(guia.hecha || guia.paso === 'sigue' || guia.paso === 'cobro' ? objetivos() : objetivos().slice(0, 1));
+  U.barra({ dinero: dineroVisible(), gananciaHoy: Libro.hoyDe(libro, s).quedo, fecha: M.fecha(s), noche, vel, velElegida, frenado: freno(), sinRojo: !(s.stats.ingresos > 0) });
+  const objs = guia.hecha || guia.paso === 'sigue' || guia.paso === 'cobro' ? objetivos() : objetivos().slice(0, 1);
+  // la oficina: su botón (con el globito de lo que hay sin leer) y, la primera vez que queda disponible, su cartel
+  const of = oficinaLista(), nov = of ? novedadesOficina().n : 0, nueva = of && !empresa.estrenada;
+  U.mision(objs, { encargos: pastillaEncargos(objs), oficina: of ? { n: nov, nueva } : null });
+  U.botonOficina(of, nov, nueva);
+  if (of && !vistos.oficina) { vistos.oficina = 1; if (!empresa.estrenada) cola.push({ tipo: 'momento', clave: 'oficina', firme: true, turno: 4.8, t: ahora, alMostrar: () => marcarBoton('[data-accion="oficina"]', 9000), m: { ico: 'oficina', titulo: t('mo_oficina_t'), texto: esc(t('mo_oficina')), dura: 9000 } }); guardarPronto = true; }
   // siguiente paso
-  if (ahora - ultimaSug > (s.aviones.length > 100 ? 2500 : 900)) { sug = guiando() && guia.paso !== 'sigue' ? null : M.sugerencia(s); ultimaSug = ahora; }
+  if (ahora - ultimaSug > (s.aviones.length > 100 ? 2500 : 900)) {
+    const callado = guiando() && guia.paso !== 'sigue';
+    sug = callado ? null : M.sugerencia(s); pasoMision = callado ? null : calcularPasoMision(); ultimaSug = ahora;
+  }
   // una pregunta de la base que espera respuesta siempre tiene su tarjeta (también al volver a una partida guardada)
   if (guia.hecha && s.clasif?.estado === 'oferta') ofrecerOrden();
   // no se muestra con un panel abierto ni con la pregunta de la base abierta: en ese momento el paso es contestarla
   const repetido = enPantalla?.tipo === 'decision';
   const mostrarPaso = (guia.hecha || guia.paso === 'sigue') && !U.panelAbierto() && !repetido;
-  pasoAhora = mostrarPaso ? pasoSugerido() : null;
-  U.paso(pasoAhora ? { ...pasoAhora, pulso: guia.paso === 'sigue' } : null);
+  pasoAhora = mostrarPaso ? estabilizar(pasoSugerido(), ahora) : null;
+  U.paso(pasoAhora ? { ...pasoAhora, pulso: guia.paso === 'sigue' || (!!ayudaNoche && pasoAhora.d?.tipo === 'balizas') } : null);
   // panel
   U.panel(armarPanel(), sel?.tipo === 'hangar' && M.avionesDisponibles(s).length > 1);
+  if (verEnPanel && sel) { U.verEnPanel(verEnPanel); verEnPanel = null; }        // lo que se vino a ver (por qué falta plata) queda a la vista
   mundo.elegir(sel && sel.tipo !== 'hangar' ? sel : sel?.tipo === 'hangar' ? { tipo: 'ruta', id: sel.ruta } : null);
   U.marcar(marcaBoton, guia.paso === 'tocar'); // en el primer paso el dedo señala una ciudad del mundo: no se esconde desde acá
   if (marcaBoton && guia.hecha && ahora > (marcaBoton_hasta ?? 0)) marcaBoton = null;
 }
-let marcaBoton_hasta = 0, pasoAhora = null;
+let marcaBoton_hasta = 0, pasoAhora = null, verEnPanel = null;
 
 // ───────────── paneles ─────────────
 const cab = (ico, titulo, sub = '', atras = null) => `<div class="p-cab">${atras ? `<button class="ib" data-accion="${atras}" aria-label="${esc(t('volver'))}">${icono('atras')}</button>` : icono(ico)}<h2>${sub ? `<span class="sub">${sub}</span>` : ''}${titulo}</h2><button class="ib" data-accion="cerrarPanel" aria-label="${esc(t('cerrar'))}">${icono('cerrar')}</button></div>`;
@@ -974,12 +1196,37 @@ function porqueDe(e) {
   if (e.incierto) partes.push(esc(t('tj_incierto')));
   return partes.length ? `<p class="porque${e.pierde ? ' mal' : ''}">${partes.join(' ')}</p>` : '';
 }
-function tarjeta(d, costo = null) {
-  const e = cuenta(d), precio = costo ?? e?.costo ?? costoDecision(s, d)?.costo, c = cifrasDe(e);
-  return `<div class="tarjeta"><div><small>${esc(t('tj_cuesta'))}</small><b>${precio != null ? plata(precio) : '—'}</b></div>
-    <div class="${c.clase}"><small>${esc(t('tj_deja'))}</small><b class="${c.largo ? 'largo' : ''}">${esc(c.deja)}</b></div>
-    <div class="${c.clase === 'espera' ? 'espera' : ''}"><small>${esc(t('tj_paga'))}</small><b class="${c.paga.length > 9 ? 'largo' : ''}">${esc(c.paga)}</b></div></div>${porqueDe(e)}`;
+// Cuando la misión activa pide esta compra, la tarjeta lo dice con el premio a la vista. Si sola es mal negocio (tarda más de
+// 4 días en pagarse, o no se paga), no se esconde: dice cuánto tarda sola y en cuánto se paga contando el premio.
+const LENTA = 4;
+function lineaMision(d, e, costo) {
+  const m = pideMision(d);
+  if (!m) return '';
+  const premio = plata(m.premio), partes = [];
+  if (e && !e.imposible) {
+    const lenta = e.recuperoDias == null || e.recuperoDias > LENTA;
+    if (e.recuperoDias == null) partes.push(esc(t('tj_solaNo')));
+    else if (lenta) partes.push(esc(t('tj_solaTarda', { dias: textoDias(e) })));
+    if (lenta && e.dejaDia > 0 && costo != null) {
+      const resto = costo - m.premio;
+      partes.push(esc(resto <= 0 ? t('tj_premioPaga', { premio }) : t('tj_conPremio', { premio, dias: textoDias({ recuperoDias: resto / e.dejaDia, incierto: e.incierto }) })));
+    } else partes.push(esc(t('tj_mision', { premio })));
+  } else partes.push(esc(t('tj_mision', { premio })));
+  return `<p class="porque mision">${icono('mision')}<span>${partes.join(' ')}</span></p>`;
 }
+// partes: el desglose de «Cuesta» a la vista ([[rótulo, monto], …]): la ruta y su avión, sin letra chica.
+function tarjeta(d, costo = null, partes = null) {
+  const e = cuenta(d), precio = costo ?? e?.costo ?? costoDecision(s, d)?.costo, c = cifrasDe(e);
+  const desglose = partes ? `<em>${partes.map(([k, v], i) => `<span>${i ? '+ ' : ''}${esc(k)} ${plata(v)}</span>`).join('')}</em>` : '';
+  return `<div class="tarjeta${partes ? ' con-partes' : ''}"><div><small>${esc(t('tj_cuesta'))}</small><b>${precio != null ? plata(precio) : '—'}</b>${desglose}</div>
+    <div class="${c.clase}"><small>${esc(t('tj_deja'))}</small><b class="${c.largo ? 'largo' : ''}">${esc(c.deja)}</b></div>
+    <div class="${c.clase === 'espera' ? 'espera' : ''}"><small>${esc(t('tj_paga'))}</small><b class="${c.paga.length > 9 ? 'largo' : ''}">${esc(c.paga)}</b></div></div>${porqueDe(e)}${lineaMision(d, e, precio)}`;
+}
+// Un botón bloqueado dice su cuenta: cuánto cuesta, cuánto hay que guardar para volar (si hay reserva) y cuánto falta.
+const faltaTxt = (costo, reserva = 0) => {
+  const falta = Math.ceil(costo + reserva - s.dinero);
+  return reserva > 0 ? t('reservaCuenta', { costo: plata(costo), reserva: plata(Math.ceil(reserva)), falta: plata(falta) }) : t('faltaPlata', { monto: plata(falta) });
+};
 const notaFreno = () => `<p class="freno-nota">${icono('pausa')}${esc(t('frenadoPorque'))}</p>`;
 const botonPrecio = (accion, datos, texto, precio, puede, ico = null) => `<button class="boton ancho${puede ? '' : ' no'}" data-accion="${accion}" ${datos}>${ico ? icono(ico) : ''}<span>${texto}</span>${precio != null ? `<span class="precio">${icono('moneda')}${plata(precio)}</span>` : ''}</button>`;
 
@@ -1003,11 +1250,12 @@ function panelCiudad(id) {
       // la ruta sola no deja nada: la cuenta va con el avión más barato que llega, y se dice
       const d = { tipo: 'ruta', a: c.desde, b: id }, precio = costoDecision(s, d), tp = precio?.avion ? M.AV[precio.avion] : null;
       if (tp) {
-        h += tarjeta(d, precio.costo);
-        h += `<p class="porque">${esc(t('tj_rutaSola', { avion: tp.nombre }))} ${esc(t('tj_partes', { ruta: plata(c.costo), precio: plata(tp.precio) }))}.</p>`;
+        h += tarjeta(d, precio.costo, [[t('tj_pRuta'), c.costo], [t('tj_pAvion'), tp.precio]]);
+        h += `<p class="porque">${esc(t('tj_rutaSola', { avion: tp.nombre }))}</p>`;
       }
       h += `<div class="acciones">${botonPrecio('abrirRuta', `data-a="${c.desde}" data-b="${id}"`, esc(t('abrirRuta')), c.costo, p.ok, 'ruta')}</div>`;
-      if (!p.ok) h += `<p class="nota">${esc(p.error === 'plata' ? t('faltaPlata', { monto: plata(c.costo - s.dinero) }) : p.error === 'alcance' ? t('muyLejos', { km: numero(c.km) }) : t('sinConexion'))}</p>`;
+      if (!p.ok) h += `<p class="nota mal">${esc(p.error === 'plata' ? faltaTxt(c.costo) : p.error === 'alcance' ? t('muyLejos', { km: numero(c.km) }) : t('sinConexion'))}</p>`;
+      else if (tp) h += `<p class="despues">${esc(t('tj_despues', { avion: tp.nombre, precio: plata(tp.precio) }))}</p>`;
     } else if (c.escala) h += `<p class="nota">${esc(t('escala', { ciudad: M.AP[c.escala].nombre }))}</p><div class="acciones"><button class="boton ancho suave" data-accion="verCiudad" data-id="${c.escala}">${icono('flecha')}${nom(c.escala)}</button></div>`;
     else h += `<p class="nota">${esc(t('sinConexion'))}</p>`;
     return h;
@@ -1019,7 +1267,7 @@ function panelCiudad(id) {
   if (conecta) {
     const nivel = s.niveles[id] ?? 0, costo = M.costoTransbordo(s, id), enCola = Math.round(M.enTransbordo(s, id)), u = esc(t(s.cap === 1 ? 'cartas' : 'u_todo'));
     h += `<p class="nota">${esc(t('baseExplica'))} ${t('baseRitmo', { n: numero(TRANSBORDO[nivel].u), u })}${enCola > 0 ? ` ${esc(t('baseCola', { n: numero(enCola) }))}.` : ''}</p>`;
-    h += costo != null ? `${tarjeta({ tipo: 'correo', ap: id }, costo)}<div class="acciones">${botonPrecio('agrandar', `data-id="${id}"`, esc(t('agrandar')), costo, s.dinero >= costo, 'base')}</div><p class="nota">${t('agrandarExplica', { n: numero(TRANSBORDO[nivel + 1].u), u })}</p>`
+    h += costo != null ? `${tarjeta({ tipo: 'correo', ap: id }, costo)}<div class="acciones">${botonPrecio('agrandar', `data-id="${id}"`, esc(t('agrandar')), costo, s.dinero >= costo, 'base')}</div>${s.dinero < costo ? `<p class="nota mal">${esc(faltaTxt(costo))}</p>` : ''}<p class="nota">${t('agrandarExplica', { n: numero(TRANSBORDO[nivel + 1].u), u })}</p>`
       : `<p class="nota">${esc(t('baseMax'))}</p>`;
   }
   if (rutas.length) {
@@ -1053,7 +1301,7 @@ function panelRuta(id) {
   h += `<div class="acciones"><button class="boton ancho${res.aviones.length ? ' suave' : ''}" data-accion="verHangar" data-id="${id}">${icono('mas')}${esc(t('sumarAvion'))}</button></div>`;
   if (s.cap === 1 && !r.balizas) {
     const c = M.costoBalizas(r, s);
-    h += `<div class="h3">${esc(t('c_faros_t'))}</div><p class="nota">${esc(t('farosExplica'))} ${esc(t('sinFaros'))}.</p>${tarjeta({ tipo: 'faros', ruta: id }, c)}<div class="acciones">${botonPrecio('faros', `data-id="${id}"`, esc(t('ponerFaros')), c, s.dinero >= c, 'faro')}</div>`;
+    h += `<div class="h3">${esc(t('c_faros_t'))}</div><p class="nota">${esc(t('farosExplica'))} ${esc(t('sinFaros'))}.</p>${tarjeta({ tipo: 'faros', ruta: id }, c)}<div class="acciones">${botonPrecio('faros', `data-id="${id}"`, esc(t('ponerFaros')), c, s.dinero >= c, 'faro')}</div>${s.dinero < c ? `<p class="nota mal">${esc(faltaTxt(c))}</p>` : ''}`;
   } else if (s.cap === 1) h += `<div class="dato bien">${icono('faro')}<span>${esc(t('conFaros'))}</span></div>`;
   if (res.aviones.length) {
     // cada opción dice qué pasa si se la elige (antes solo se leía la explicación de la que ya estaba elegida)
@@ -1066,14 +1314,15 @@ function panelRuta(id) {
 function tarjetaAvion(tp, rutaId, mejor) {
   const r = rutaDe(rutaId), p = M.puedeComprar(s, tp.id, rutaId), llega = tp.alcance >= r.km;
   const lleva = Object.entries(tp.lleva).map(([c, n]) => `${icono(icoCarga(c))} ${numero(n)} ${esc(unidad(c, n))}`).join(' + ');
-  const mal = p.ok ? '' : p.error === 'alcance' ? t('noLlega', { km: numero(r.km) }) : p.error === 'plata' ? t('faltaPlata', { monto: plata(tp.precio - s.dinero) }) : p.error === 'reserva' ? t('reservaTxt') : t('bloqueado');
+  // (el modelo pide que después de comprar quede en la caja para la nafta de los próximos vuelos: se dice cuánto)
+  const mal = p.ok ? '' : p.error === 'alcance' ? t('noLlega', { km: numero(r.km) }) : p.error === 'plata' || p.error === 'reserva' ? faltaTxt(tp.precio, M.reserva(s, { t: tp, r })) : t('bloqueado');
   const e = llega ? cuenta({ tipo: 'avion', id: tp.id, ruta: rutaId }) : null, c = llega ? cifrasDe(e) : { deja: '—', paga: '—', clase: 'espera' };
   return `<div class="modelo${p.ok ? '' : ' bloq'}${mejor ? ' mejor' : ''}"><img src="${retratos[tp.id]}" alt=""><h3>${esc(tp.nombre)}${mejor ? `<span class="antes">${esc(t('tj_antes'))}</span>` : ''}</h3><p class="desc">${esc(t(`a_${tp.id}`))}</p>
     <div class="nums"><div><span>${esc(t('tj_cuesta'))}</span><b>${plata(tp.precio)}</b></div>
       <div class="${c.clase}"><span>${esc(t('tj_deja'))}</span><b class="${c.largo ? 'largo' : ''}">${esc(c.deja)}</b></div>
       <div class="${c.clase === 'espera' ? 'espera' : ''}"><span>${esc(t('tj_paga'))}</span><b class="${c.paga.length > 9 ? 'largo' : ''}">${esc(c.paga)}</b></div></div>
     <p class="ficha">${lleva} · ${esc(t('kmh', { n: numero(tp.vel) }))} · ${esc(t('llegaA', { n: numero(tp.alcance) }))}</p>
-    ${llega ? porqueDe(e) : ''}${mal ? `<p class="mal">${esc(mal)}</p>` : ''}
+    ${llega ? porqueDe(e) : ''}${mal ? `<p class="mal">${esc(mal)}</p>` : ''}${llega ? lineaMision({ tipo: 'avion', id: tp.id, ruta: rutaId }, e, tp.precio) : ''}
     ${botonPrecio('comprar', `data-id="${tp.id}" data-ruta="${rutaId}"`, esc(t('comprar')), tp.precio, p.ok)}</div>`;
 }
 function panelHangar(rutaId) {
@@ -1158,10 +1407,10 @@ function fijarVel(v, avisar = false) {
 const cuentasPend = new Map();
 function comprarCon(d, comprar, info) {
   const e = tandas.pedir(s, d, { urgente: true }), k = `${firmaEstado(s)}#${claveDecision(d)}`;
-  const caja = s.dinero;
+  const marca = Libro.marcaGastos(s);
   const r = comprar();
   if (!r?.ok) return r;
-  const p = Libro.anotarCompra(libro, s, d, e, { costo: caja - s.dinero, ...info(r) });
+  const p = Libro.anotarCompra(libro, s, d, e, { costo: Libro.costoDesde(s, marca), ...info(r) });
   if (!e && p) cuentasPend.set(k, p);
   return r;
 }
@@ -1185,7 +1434,7 @@ function accion(nombre, d, el) {
         if (guiando() && ['tocar', 'ruta', 'avion', 'vuela'].includes(guia.paso)) pasoGuia(guia.paso);
         else if (enPantalla?.tipo === 'guia') U.burbuja(t(enPantalla.paso === 'cobro' ? 'g_cobro' : 'g_sigue'), enPantalla.paso === 'cobro' ? 'moneda' : 'mision');
         if (enPantalla?.tipo === 'decision') mostrarOrden();
-        if (ayudaNoche) U.burbuja(t('g_noche'), 'faro');
+        if (ayudaNoche) U.burbuja(t(sel ? 'g_noche2' : 'g_noche'), 'faro');
       }
       A.sonar('clic'); break;
     case 'saltarCine': mundo.cortarCine(); break;
@@ -1200,6 +1449,9 @@ function accion(nombre, d, el) {
     case 'empresa': A.sonar('abrir'); abrirEmpresa(); break;
     case 'empColor': colorTmp = d.v; for (const b of document.querySelectorAll('.colores button')) b.classList.toggle('activa', b === el); A.sonar('clic'); break;
     case 'empGuardar': fijarEmpresa({ nombre: $('#emp-nombre')?.value ?? '', color: colorTmp }); U.ventana(null); A.sonar('compra'); break;
+    case 'verConsejo': verConsejo(); break;
+    case 'cerrarCartel': if (enPantalla?.tipo === 'mision' && performance.now() - enPantalla.desde > TOQUE_MIN) { enPantalla.hasta = 0; A.sonar('clic'); } break;
+    case 'encargos': A.sonar('abrir'); abrirEncargos(); break;
     case 'oficina': if (U.ventanaAbierta()) U.ventana(null); if (Puente.abrirOficina()) A.sonar('abrir'); break;
     case 'cerrarVentana': if ($('#velo').dataset.cerrable === '0' && el?.id === 'velo') break; A.sonar('cerrar'); U.ventana(null); break;
     case 'cerrarPanel': A.sonar('cerrar'); sel = null; if (guia.paso === 'ruta' || guia.paso === 'avion') pasoGuia(s.rutas.length ? 'avion' : 'tocar'); if (guia.paso === 'avion' && s.rutas.length) sel = { tipo: 'hangar', ruta: s.rutas[0].id }; break;
@@ -1211,10 +1463,10 @@ function accion(nombre, d, el) {
     case 'verAvion': elegir({ tipo: 'avion', id: +d.id }, { camara: false }); break;
     case 'volverRuta': { const r = sel?.ruta ?? s.aviones.find((a) => a.id === sel?.id)?.ruta; if (r) elegir({ tipo: 'ruta', id: r }, { camara: false }); else sel = null; break; }
     case 'abrirRuta': {
-      const caja = s.dinero, r = M.abrirRuta(s, d.a, d.b);
+      const marca = Libro.marcaGastos(s), r = M.abrirRuta(s, d.a, d.b);
       if (!r.ok) { negar(el); break; }
-      Libro.anotarCompra(libro, s, { tipo: 'ruta', a: d.a, b: d.b }, null, { costo: caja - s.dinero, ruta: r.ruta.id });
-      atender(M.tomarEventos(s));
+      Libro.anotarCompra(libro, s, { tipo: 'ruta', a: d.a, b: d.b }, null, { costo: Libro.costoDesde(s, marca), ruta: r.ruta.id });
+      trasAccion();
       sel = { tipo: 'hangar', ruta: r.ruta.id };
       if (guia.paso === 'ruta') pasoGuia('avion'); else marcarBoton('[data-accion="comprar"]:not(.no)', 6000);
       guardarPronto = true; ultimaSug = 0;
@@ -1223,36 +1475,35 @@ function accion(nombre, d, el) {
     case 'comprar': {
       const r = comprarCon({ tipo: 'avion', id: d.id, ruta: d.ruta }, () => M.comprarAvion(s, d.id, d.ruta), (x) => ({ ruta: d.ruta, avion: x.avion.id, tipoAvion: d.id }));
       if (!r.ok) { negar(el); break; }
-      atender(M.tomarEventos(s));
+      trasAccion();
       // comprado: el panel se cierra y el reloj vuelve a correr, así se ve al avión salir
       sel = null; marcaBoton = null;
       if (guia.paso === 'avion') { pasoGuia('vuela'); setTimeout(() => { mundo.seguir(r.avion.id); mundo.controles.dollyTo(innerWidth < 640 ? 5.2 : 3.6, true); mundo.controles.rotatePolarTo(1.02, true); }, 500); }
       else { const ru = rutaDe(d.ruta); if (ru) mundo.asegurarVisible([mundo.ciudades.get(ru.a).pos, mundo.ciudades.get(ru.b).pos], { izquierda: ladoMision(), abajo: innerWidth < 640 ? 0.14 : 0 }); }
-      U.botonOficina(Puente.hayOficina() && s.stats.vuelos > 0);
       guardarPronto = true; ultimaSug = 0;
       break;
     }
     case 'faros': {
       const r = comprarCon({ tipo: 'faros', ruta: d.id }, () => M.ponerBalizas(s, d.id), () => ({ ruta: d.id }));
       if (!r.ok) { negar(el); break; }
-      atender(M.tomarEventos(s)); sel = null; marcaBoton = null; guardarPronto = true; ultimaSug = 0;
+      trasAccion(); sel = null; marcaBoton = null; guardarPronto = true; ultimaSug = 0;
       break;
     }
     case 'agrandar': {
       const r = comprarCon({ tipo: 'correo', ap: d.id }, () => M.mejorarTransbordo(s, d.id), () => ({ ap: d.id }));
       if (!r.ok) { negar(el); break; }
-      A.sonar('compra'); atender(M.tomarEventos(s)); sel = null; marcaBoton = null;
+      A.sonar('compra'); trasAccion(); sel = null; marcaBoton = null;
       const c = mundo.ciudades.get(d.id); if (c) mundo.chispas(c.pos.clone().setY(c.pos.y + 0.15), 30);
       guardarPronto = true; ultimaSug = 0; break;
     }
     case 'salida': M.fijarCargaMinima(s, d.id, +d.v); Libro.anotarCambio(libro, s, 'salida', d.id); A.sonar('clic'); ultimaSug = 0; break;
     case 'cerrarRuta': U.ventana({ titulo: t('cerrarRuta'), html: `<p>${esc(t('cerrarRutaPregunta'))}</p>`, botones: [{ txt: t('cerrarRuta'), accion: 'cerrarRutaSi', clase: 'peligro', datos: `data-id="${d.id}"` }, { txt: t('no'), accion: 'cerrarVentana', clase: 'suave' }] }); break;
-    case 'cerrarRutaSi': { const caja = s.dinero; M.cerrarRuta(s, d.id); Libro.anotarVenta(libro, s, s.dinero - caja, d.id); Libro.anotarCambio(libro, s, 'cierre', d.id); atender(M.tomarEventos(s)); sel = null; U.ventana(null); guardarPronto = true; break; }
-    case 'vender': { const av = s.aviones.find((a) => a.id === +d.id), r = M.venderAvion(s, +d.id); if (r.ok) { Libro.anotarVenta(libro, s, r.monto, av?.ruta ?? null); A.sonar('cobro'); atender(M.tomarEventos(s)); sel = null; guardarPronto = true; } break; }
+    case 'cerrarRutaSi': { const monto = s.aviones.filter((a) => a.ruta === d.id).reduce((a, av) => a + Math.round(M.AV[av.tipo].precio * ECONOMIA.venta), 0); M.cerrarRuta(s, d.id); Libro.anotarVenta(libro, s, monto, d.id); Libro.anotarCambio(libro, s, 'cierre', d.id); trasAccion(); sel = null; U.ventana(null); guardarPronto = true; break; }
+    case 'vender': { const av = s.aviones.find((a) => a.id === +d.id), r = M.venderAvion(s, +d.id); if (r.ok) { Libro.anotarVenta(libro, s, r.monto, av?.ruta ?? null); A.sonar('cobro'); trasAccion(); sel = null; guardarPronto = true; } break; }
     // seguir a un avión: el panel se cierra (con el panel abierto el reloj está frenado y el avión no se movería)
     case 'seguirAvion': sel = null; mundo.pedida(); mundo.seguir(+d.id); mundo.controles.dollyTo(Math.min(mundo.distFinal(), 4), true); A.sonar('paso'); break;
-    case 'aceptarEncargo': { const r = M.aceptarContrato(s, +d.id); if (r?.ok) { A.sonar('abrir'); atender(M.tomarEventos(s)); } else negar(el); break; }
-    case 'ordenar': M.elegirClasificacion(s, d.id); atender(M.tomarEventos(s)); A.sonar('clic'); break; // la tarjeta la cierra la fila, al ver que ya hay respuesta
+    case 'aceptarEncargo': { const r = M.aceptarContrato(s, +d.id); if (r?.ok) { A.sonar('abrir'); trasAccion(); if (encargosAbiertos()) abrirEncargos(); } else negar(el); break; }
+    case 'ordenar': M.elegirClasificacion(s, d.id); trasAccion(); A.sonar('clic'); break; // la tarjeta la cierra la fila, al ver que ya hay respuesta
     case 'sonido': A.alternarSonido(); abrirMenu(); A.sonar('clic'); break;
     case 'musica': A.alternarMusica(); abrirMenu(); break;
     case 'calidad': cambiarCalidad(); abrirMenu(); break;
@@ -1263,31 +1514,44 @@ function accion(nombre, d, el) {
     default: break;
   }
   // la respuesta a un toque se ve en el acto, no en el próximo refresco; y «Siguiente paso» se vuelve a calcular con el estado nuevo
-  if (escena === 'juego') { ultimaSug = 0; avanzarCola(); refrescar(performance.now()); }
+  if (escena === 'juego') { ultimaSug = 0; pasoFijo = null; avanzarCola(); refrescar(performance.now()); }
 }
-// «Siguiente paso»: hace lo que dice el botón. Si es una compra, lleva al lugar y marca el botón que hay que tocar; si no hay nada
-// que decidir, sigue a un avión con la cámara (o abre la oficina).
+// «Siguiente paso»: hace lo que dice el botón (el que se ve, no uno vuelto a calcular). Si es una compra, lleva al lugar y marca el
+// botón que hay que tocar; si falta plata, abre el lugar para ver la cuenta; si no hay nada que decidir, sigue a un avión con la
+// cámara (o abre la oficina).
 function tocarPaso() {
   A.sonar('paso');
   if (guia.paso === 'sigue') terminarGuia();
-  if (!sug) sug = M.sugerencia(s);
-  const p = pasoSugerido();
+  if (!pasoAhora) { if (!sug) { sug = M.sugerencia(s); pasoMision = calcularPasoMision(); } pasoAhora = pasoSugerido(); }
+  const p = pasoAhora;
   ultimaSug = 0;
   if (p.mirar === 'avion') { mirarAvion(); return; }
   if (p.mirar === 'oficina') { Puente.abrirOficina(); return; }
   if (p.pasivo) return;
-  const d = sug;
+  const d = p.d;
   if (!d) { mundo.pedida(); verRed(); return; }
   const pedida = { camara: 'pedida' };
+  const abrirRuta = (x) => { const afuera = ciudadNueva(x); elegir({ tipo: 'ciudad', id: afuera, desde: afuera === x.b ? x.a : x.b }, pedida); };
   switch (d.tipo) {
-    case 'ruta': { const afuera = M.enRed(s, d.a) || (!M.nodosRed(s).length && d.a === M.HUB) ? d.b : d.a; elegir({ tipo: 'ciudad', id: afuera, desde: afuera === d.b ? d.a : d.b }, pedida); marcarBoton('[data-accion="abrirRuta"]'); break; }
+    case 'ruta': abrirRuta(d); marcarBoton('[data-accion="abrirRuta"]'); break;
     case 'avion': elegir({ tipo: 'hangar', ruta: d.ruta, id: d.ruta }, pedida); marcarBoton(`[data-accion="comprar"][data-id="${d.id}"]`); break;
-    case 'balizas': elegir({ tipo: 'ruta', id: d.id }, pedida); marcarBoton('[data-accion="faros"]'); break;
+    case 'balizas':
+      elegir({ tipo: 'ruta', id: d.id }, pedida); marcarBoton('[data-accion="faros"]', ayudaNoche ? 40000 : 7000);
+      if (ayudaNoche) { ayudaNoche.hasta = performance.now() + 40000; U.burbuja(t('g_noche2'), 'faro'); }
+      break;
     case 'transbordo': elegir({ tipo: 'ciudad', id: d.id }, pedida); marcarBoton('[data-accion="agrandar"]'); break;
     case 'cargaMin': elegir({ tipo: 'ruta', id: d.id }, pedida); marcarBoton(`[data-accion="salida"][data-v="${d.v}"]`); break;
-    case 'contrato': marcarBoton(`[data-accion="aceptarEncargo"][data-id="${d.id}"]`); if (innerWidth < 640) { const r = M.aceptarContrato(s, d.id); if (r?.ok) atender(M.tomarEventos(s)); } break;
+    case 'contrato': if (innerWidth < 640) abrirEncargos(); marcarBoton(`[data-accion="aceptarEncargo"][data-id="${d.id}"]`); break;   // en el celular la lista se abre desde su pastilla
     case 'vender': { const av = s.aviones.find((a) => a.id === d.id); if (av) { elegir({ tipo: 'avion', id: av.id }, pedida); marcarBoton('[data-accion="vender"]'); } break; }
     case 'clasificar': ofrecerOrden(true); break;
+    case 'junta': {           // falta plata: se abre el lugar, donde está la misma cuenta al lado del botón
+      const o = d.obj; verEnPanel = '.mal';
+      if (o.tipo === 'ruta') abrirRuta(o.a ? o : { a: String(o.id).split('-')[0], b: String(o.id).split('-')[1] });
+      else if (o.tipo === 'avion' && rutaDe(o.ruta)) elegir({ tipo: 'hangar', ruta: o.ruta, id: o.ruta }, pedida);
+      else if (o.tipo === 'balizas' && rutaDe(o.id)) elegir({ tipo: 'ruta', id: o.id }, pedida);
+      else if (o.tipo === 'transbordo') elegir({ tipo: 'ciudad', id: o.id }, pedida);
+      break;
+    }
     default: mundo.pedida(); verRed();
   }
 }
@@ -1297,7 +1561,7 @@ function abrirMenu() {
   const cal = mundo.calidad.fijo ? t(`q_${mundo.calidad.nombre}`) : t('q_auto');
   U.ventana({ titulo: t('menu'), html: `<div class="lista-menu">
     ${fila('empresa', 'base', t('tuEmpresa'), empresaActual().nombre)}
-    ${Puente.hayOficina() && s.stats.vuelos > 0 ? fila('oficina', 'oficina', t('oficina')) : ''}
+    ${oficinaLista() ? fila('oficina', 'oficina', t('oficina')) : ''}
     ${fila('glosario', 'libro', t('glosario'))}
     ${fila('sonido', A.sonidoActivo() ? 'sonido' : 'mudo', t('sonido'), A.sonidoActivo() ? '✓' : '—')}
     ${fila('musica', 'musica', t('musica'), A.musicaActiva() ? '✓' : '—')}
@@ -1355,7 +1619,8 @@ function tecla(e) {
   if (e.key === ' ') { fijarVel(vel === 0 ? velElegida : 0); e.preventDefault(); }
   else if (e.key === '1') fijarVel(0.5); else if (e.key === '2') fijarVel(1); else if (e.key === '3') fijarVel(3);
   else if (e.key === '+' || e.key === '=') mundo.pasoZoom(1); else if (e.key === '-' || e.key === '_') mundo.pasoZoom(-1);
-  else if (e.key === 'Escape') { if (U.ventanaAbierta()) accion('cerrarVentana', {}, null); else if (sel) accion('cerrarPanel', {}, null); }
+  else if (e.key === 'Enter' && enPantalla?.tipo === 'mision') accion('cerrarCartel', {}, null);       // «Seguir» en la misión cumplida
+  else if (e.key === 'Escape') { if (U.ventanaAbierta()) accion('cerrarVentana', {}, null); else if (enPantalla?.tipo === 'mision') accion('cerrarCartel', {}, null); else if (sel) accion('cerrarPanel', {}, null); }
 }
 
 // ───────────── para las pruebas y las capturas ─────────────
@@ -1371,8 +1636,11 @@ function depuracion() {
     accion, elegir, tocarPaso, verRed, pasoGuia, terminarGuia, fijarVel, empezar, datosOficina, accionOficina, fijarEmpresa, guardar,
     saltarGuia() { terminarGuia(); },
     ver(k) { vistos[k] = 1; },
-    limpiar() { M.tomarEventos(s); cola.length = 0; enPantalla = null; partePend = null; if (ayudaNoche) sel = null; cerrarGuiaNoche(); premiosPendientes = 0; U.momento(null); U.limpiarAvisos(); U.burbuja(null); },
+    limpiar() { Libro.anotarEventos(libro, s, M.tomarEventos(s)); cola.length = 0; enPantalla = null; partePend = null; if (ayudaNoche) sel = null; cerrarGuiaNoche(); premiosPendientes = 0; U.cartel(null); U.momento(null); U.limpiarAvisos(); U.burbuja(null); },
     get fila() { return { enPantalla: enPantalla?.tipo ?? null, cola: cola.map((f) => f.tipo) }; },
+    // el consejo del último parte, con su cuenta al peso (para medir consejo contra tarjeta)
+    consejoParte() { const c = consejoParte; return c ? { clave: c.clave, texto: textoConsejo(c), decision: c.decision ?? null, dejaExacto: c.dejaExacto ?? null, costo: c.costo ?? null } : null; },
+    get paso() { return pasoAhora ? { clave: pasoAhora.clave, clase: pasoAhora.clase, texto: pasoAhora.texto, detalle: pasoAhora.detalle ?? '' } : null; },
     // vuelve a mostrar el último resultado contra lo prometido y lo deja «ms» en pantalla (para las capturas)
     verResultado(ms = 60000) { const n = libro.notas.at(-1); if (!n) return false; mostrarResultado(n, ms); enPantalla = { tipo: 'momento', firme: true, desde: performance.now(), hasta: performance.now() + ms }; return true; },
   };

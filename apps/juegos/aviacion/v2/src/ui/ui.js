@@ -24,7 +24,7 @@ export function montar() {
         ${VELOCIDADES.map((v) => `<button data-accion="vel" data-v="${v.v}" class="con-nombre">${icono(v.ico)}<span></span></button>`).join('')}
         <button data-accion="velSig" class="solo-movil" id="b-vel">${icono('vel1')}</button>
       </div>
-      <button class="ib redonda" data-accion="oficina" id="b-oficina" hidden>${icono('oficina')}</button>
+      <button class="pastilla oficina" data-accion="oficina" id="b-oficina" hidden>${icono('oficina')}<span class="nombre"></span><i class="globo" hidden></i></button>
       <button class="ib redonda" data-accion="menu" id="b-menu">${icono('menu')}</button>
     </header>
     <div id="zoom" role="group">
@@ -38,7 +38,7 @@ export function montar() {
     <aside id="panel" hidden></aside>
     <div id="momento" hidden></div>
     <div id="burbuja" hidden></div>
-    <div id="cartel" hidden></div>
+    <div id="cartel" role="button" tabindex="0" data-accion="cerrarCartel" hidden></div>
     <div id="dedo" hidden>${icono('mano')}</div>
     <div id="cine" hidden><div class="franja a"></div><div class="franja b"></div><p class="leyenda"></p><button class="saltar" data-accion="saltarCine"></button></div>
     <div id="portada" hidden></div>
@@ -49,7 +49,8 @@ export function montar() {
 export function textosFijos() {
   const ar = (sel, k) => { const e = $(sel); if (e) { e.setAttribute('aria-label', t(k)); e.title = t(k); } };
   ar('#b-menu', 'menu'); ar('#b-red', 'centrar'); ar('#b-acercar', 'acercar'); ar('#b-alejar', 'alejar'); ar('#b-oficina', 'oficina'); ar('#marca', 'tuEmpresa');
-  ar('#b-pausa', 'pausa');
+  ar('#b-pausa', 'pausa'); ar('#hoy', 'hoyQueEs');
+  $('#b-oficina .nombre').textContent = t('oficinaCorto');
   for (const v of VELOCIDADES) { ar(`.vel [data-v="${v.v}"]`, v.clave); $(`.vel [data-v="${v.v}"] span`).textContent = t(v.clave); }
   $('#cine .saltar').textContent = t('saltar');
 }
@@ -116,7 +117,12 @@ export function empresa(nombre, color) {
   $('#marca-nombre').textContent = nombre;
   document.documentElement.style.setProperty('--empresa', color);
 }
-export function botonOficina(ver) { $('#b-oficina').hidden = !ver; }
+// El botón de la oficina: n = lo que hay sin leer en su bandeja (globito); nueva = todavía no se entró nunca (late hasta la primera vez).
+export function botonOficina(ver, n = 0, nueva = false) {
+  const b = $('#b-oficina'), g = b.querySelector('.globo');
+  b.hidden = !ver; b.classList.toggle('nueva', !!nueva);
+  g.hidden = !(n > 0); if (n > 0 && g.textContent !== String(n)) g.textContent = String(n);
+}
 function contarPlata(hasta) {
   const el = $('#plata');
   const desde = typeof plataMostrada === 'object' ? plataMostrada.v : plataMostrada;
@@ -130,13 +136,20 @@ export function reiniciarPlata() { plataMostrada = null; animPlata?.pause(); }
 export const posCaja = () => { const r = $('#i-moneda').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
 
 // ── misión y encargos ──
-export function mision(objetivos) {
-  // el encargo dice, antes de aceptarlo, si ya se puede cumplir (camino.ok) o qué falta
+// La tarjeta de un encargo: dice, antes de aceptarlo, si ya se puede cumplir (camino.ok) o qué falta.
+const tarjetaEncargo = (o) => `<div class="obj encargo${o.camino && !o.camino.ok ? ' falta' : ''}">${icono('encargo')}<span><span class="txt">${o.texto}</span><span class="chico">${o.detalle}</span></span>${o.boton ?? '<i></i>'}${o.camino ? `<span class="cam ${o.camino.ok ? 'ok' : 'no'}">${icono(o.camino.ok ? 'check' : 'ruta')}<span>${o.camino.texto}</span></span>` : ''}</div>`;
+export const tarjetasEncargo = (lista) => lista.map(tarjetaEncargo).join('');
+// atajos (solo se ven en el celular, debajo de la misión): { encargos: { n, nuevos } | null, oficina: { n, nueva } | null }.
+// Los encargos no entran en la columna (taparían el mapa): van en una pastilla que abre la lista. Y la oficina no entra en la
+// barra de arriba: va acá, con su nombre y su globito de novedades.
+export function mision(objetivos, atajos = null) {
+  const e = atajos?.encargos, o = atajos?.oficina;
   const html = objetivos.map((o) => o.tipo === 'encargo'
-    ? `<div class="obj encargo${o.camino && !o.camino.ok ? ' falta' : ''}">${icono('encargo')}<span><span class="txt">${o.texto}</span><span class="chico">${o.detalle}</span></span>${o.boton ?? '<i></i>'}${o.camino ? `<span class="cam ${o.camino.ok ? 'ok' : 'no'}">${icono(o.camino.ok ? 'check' : 'ruta')}<span>${o.camino.texto}</span></span>` : ''}</div>`
+    ? tarjetaEncargo(o)
     : `<button class="obj${o.cumplida ? ' hecha' : ''}" data-accion="verMision">${icono('mision')}<span class="rot">${esc(t('mision'))} ${o.orden}</span><span class="txt">${o.texto}</span>
         <span class="pie"><span class="barrita"><i style="width:${Math.round(o.progreso * 100)}%"></i></span>${o.cumplida ? `<span class="num si">${icono('check')}${esc(t('cumplida'))}</span>` : o.avance ? `<span class="num">${o.avance}</span>` : ''}${o.premio ? `<span class="prm"><small>${esc(t('premio'))}</small>${icono('moneda')}${plata(o.premio)}</span>` : ''}</span>
-        ${o.pista ? `<span class="pista">${o.pista}</span>` : ''}</button>`).join('');
+        ${o.pista ? `<span class="pista">${o.pista}</span>` : ''}</button>`).join('')
+    + (e || o ? `<div class="atajos">${e ? `<button class="atajo${e.nuevos ? ' nuevos' : ''}" data-accion="encargos">${icono('encargo')}<span>${esc(t('encargos'))}</span><b>${e.n}</b></button>` : '<i></i>'}${o ? `<button class="atajo of${o.nueva ? ' nueva' : ''}" data-accion="oficina">${icono('oficina')}<span>${esc(t('oficinaCorto'))}</span>${o.n > 0 ? `<b class="globo">${o.n}</b>` : ''}</button>` : ''}</div>` : '');
   pintar($('#mision'), html);
 }
 
@@ -147,7 +160,7 @@ export function paso(p) {
   if (!p) { el.hidden = true; return; }
   el.hidden = false;
   // pasivo: no hay nada que tocar ahora (la red trabaja sola); si no, es un botón con su flecha
-  pintar(el, `<span class="circ">${icono(p.ico ?? 'flecha')}</span><span class="cuerpo">${p.pasivo ? '' : `<span class="rot">${esc(t('siguiente'))}</span>`}<span class="txt">${p.texto}${p.costo ? ` <span class="precio">${plata(p.costo)}</span>` : ''}</span></span>${p.pasivo ? '' : `<span class="ir">${icono('flecha')}</span>`}`);
+  pintar(el, `<span class="circ">${icono(p.ico ?? 'flecha')}</span><span class="cuerpo">${p.pasivo ? '' : `<span class="rot">${esc(t('siguiente'))}</span>`}<span class="txt">${p.texto}${p.costo ? ` <span class="precio">${plata(p.costo)}</span>` : ''}</span>${p.detalle ? `<span class="det">${p.detalle}</span>` : ''}</span>${p.pasivo ? '' : `<span class="ir">${icono('flecha')}</span>`}`);
   el.classList.toggle('pulso', !!p.pulso); el.classList.toggle('pasivo', !!p.pasivo);
 }
 
@@ -159,6 +172,13 @@ export function panel(html, ancho = false) {
   if (pintar(el, html) && !habia) { el.classList.remove('entra'); void el.offsetWidth; el.classList.add('entra'); el.scrollTop = 0; }
 }
 export const panelAbierto = () => !$('#panel').hidden;
+// Corre el panel hasta dejar a la vista lo que se vino a ver (en el celular el panel es bajo).
+export function verEnPanel(selector) {
+  const caja = $('#panel'), el = caja.querySelector(selector);
+  if (!el) return;
+  const c = caja.getBoundingClientRect(), b = el.getBoundingClientRect();
+  if (b.bottom + 12 > c.bottom) caja.scrollTop += b.bottom + 12 - c.bottom;
+}
 
 // ── burbuja de la guía y dedo ──
 export function burbuja(html, ico = 'cartas') {
@@ -174,12 +194,21 @@ export function burbuja(html, ico = 'cartas') {
 export function marcar(selector, dedoAparte = false) {
   for (const e of document.querySelectorAll('.late')) if (!selector || !e.matches(selector)) e.classList.remove('late');
   const dedo = $('#dedo');
-  const el = selector ? $(selector) : null;
-  if (!el || el.offsetParent === null) { if (!dedoAparte) dedo.hidden = true; return null; }
+  const el = selector ? [...document.querySelectorAll(selector)].find((e) => e.offsetParent !== null) ?? null : null;
+  if (!el) { if (!dedoAparte) dedo.hidden = true; return null; }
   el.classList.add('late');
+  // si el botón quedó fuera de la parte visible de su panel (en el celular el panel es bajo), el panel se corre hasta mostrarlo,
+  // con lugar para la mano. Una sola vez por botón: después el jugador puede correr el panel a su gusto.
+  if (el._marcado !== selector) {
+    el._marcado = selector;
+    const caja = el.closest('#panel, #ventana');
+    if (caja) { const c = caja.getBoundingClientRect(), b = el.getBoundingClientRect(); if (b.bottom + 44 > c.bottom) caja.scrollTop += b.bottom + 44 - c.bottom; else if (b.top < c.top + 8) caja.scrollTop -= c.top + 8 - b.top; }
+  }
   const r = el.getBoundingClientRect();
-  // en «Siguiente paso» el dedo se apoya en la flecha, sin tapar el texto
-  dedo.hidden = false; dedo.style.transform = `translate(${r.left + r.width * (el.id === 'paso' ? 0.9 : 0.72)}px, ${r.top + r.height * 0.55}px)`;
+  // en «Siguiente paso» el dedo se apoya en la flecha, sin tapar el texto; en los demás botones, en el borde de abajo y bien a
+  // la izquierda: la punta toca el botón y la mano queda afuera (antes tapaba el precio)
+  dedo.hidden = false;
+  dedo.style.transform = el.id === 'paso' ? `translate(${r.left + r.width * 0.9}px, ${r.top + r.height * 0.55}px)` : `translate(${r.left + Math.min(26, r.width * 0.14)}px, ${r.bottom - 9}px)`;
   return el;
 }
 export function dedoEn(p) {
@@ -196,7 +225,7 @@ export function momento(m) {
   if (!m) { el.hidden = true; raiz().classList.remove('con-momento'); return; }
   el.innerHTML = `${m.img ? `<img src="${m.img}" alt="">` : icono(m.ico ?? 'mision')}<h3>${esc(m.titulo)}</h3><p>${m.texto}</p>${m.elige ? `<div class="elige">${m.elige}</div>` : ''}`;
   el.hidden = false; raiz().classList.add('con-momento');
-  el.classList.toggle('res', m.clase === 'res');
+  el.classList.toggle('res', m.clase === 'res'); el.classList.toggle('premio', m.clase === 'premio');
   el.classList.remove('entra'); void el.offsetWidth; el.classList.add('entra');
   if (!m.elige) relojMomento = setTimeout(() => momento(null), m.dura ?? 6500);
 }
@@ -214,22 +243,35 @@ export function aviso(texto, { ico = null, tono = '', dura = 4200 } = {}) {
 export function limpiarAvisos() { $('#avisos').replaceChildren(); }
 
 // ── cartel de misión cumplida ──
-let relojCartel = null;
-export function cartel(titulo, sub, premio, alCobrar, dura = 3400) {
+// Una tarjeta con fondo en el centro: tapa lo que tiene detrás (rótulos, cifras que flotan) en vez de mezclarse con eso. No se va
+// sola: la saca main.js (cuando se la toca o cuando pasó su tiempo) con cartel(null). opciones.seguir: el texto del botón.
+let relojCartel = null, cobroCartel = null;
+export function cartel(titulo, sub, premio, alCobrar, { seguir = '' } = {}) {
   const el = $('#cartel');
-  if (titulo == null) { clearTimeout(relojCartel); el.hidden = true; el.style.opacity = ''; return; }   // fuera ya: le toca al siguiente de la fila
-  el.innerHTML = `<div class="estrella">${icono('mision').replace('class="ico "', 'class="ico" style="width:100%;height:100%"')}</div><h2>${esc(titulo)}</h2><p>${esc(sub)}</p>${premio ? `<span class="prm">${icono('moneda')}+${plata(premio)}</span>` : ''}`;
-  el.hidden = false;
+  clearTimeout(relojCartel);
+  if (titulo == null) {
+    // fuera ya: le toca al siguiente de la fila. Si las monedas todavía no salieron, el premio se acredita igual.
+    const c = cobroCartel; cobroCartel = null; c?.();
+    if (!el.hidden) animate(el, { opacity: [1, 0], scale: [1, 0.96], duration: 220, ease: 'outQuad', onComplete: () => { if (!cobroCartel) { el.hidden = true; el.style.opacity = ''; el.style.transform = ''; } } });
+    return;
+  }
+  el.innerHTML = `<div class="estrella">${icono('mision').replace('class="ico "', 'class="ico" style="width:100%;height:100%"')}</div><h2>${esc(titulo)}</h2><p>${esc(sub)}</p>${premio ? `<span class="prm">${icono('moneda')}+${plata(premio)}</span>` : ''}${seguir ? `<span class="seguir">${esc(seguir)}${icono('flecha')}</span>` : ''}`;
+  el.hidden = false; el.style.opacity = ''; el.style.transform = '';
+  let cobrado = false;
+  cobroCartel = () => { if (cobrado) return; cobrado = true; alCobrar?.(); };
+  const cobrar = cobroCartel;
+  animate(el, { opacity: [0, 1], duration: 260, ease: 'outQuad' });
   animate(el.querySelector('.estrella'), { scale: [0, 1], rotate: [-140, 0], duration: 700, ease: 'outBack' });
   animate(el.querySelector('h2'), { opacity: [0, 1], y: [24, 0], duration: 450, delay: 150, ease: 'outCubic' });
   animate(el.querySelector('p'), { opacity: [0, 1], duration: 400, delay: 350 });
   const prm = el.querySelector('.prm');
   if (prm) animate(prm, { scale: [0, 1], duration: 500, delay: 500, ease: 'outBack' });
-  setTimeout(() => {
-    if (prm) { const r = prm.getBoundingClientRect(); monedas({ x: r.left + 20, y: r.top + r.height / 2 }, 10, alCobrar); } else alCobrar?.();
+  const sg = el.querySelector('.seguir');
+  if (sg) animate(sg, { opacity: [0, 1], duration: 400, delay: 1100 });
+  relojCartel = setTimeout(() => {
+    if (cobrado || cobroCartel !== cobrar) return;
+    if (prm) { const r = prm.getBoundingClientRect(); monedas({ x: r.left + 20, y: r.top + r.height / 2 }, 10, cobrar); } else cobrar();
   }, 1500);
-  clearTimeout(relojCartel);
-  relojCartel = setTimeout(() => { animate(el, { opacity: [1, 0], duration: 400, onComplete: () => { el.hidden = true; el.style.opacity = ''; } }); }, dura - 400);
 }
 
 // ── monedas que vuelan a la caja y cifras que flotan ──
@@ -274,7 +316,7 @@ export function ventana(v) {
   alCerrar = v.alCerrar ?? null;
   el.innerHTML = `${v.cerrable === false ? '' : `<button class="ib x" data-accion="cerrarVentana" aria-label="${esc(t('cerrar'))}">${icono('cerrar')}</button>`}<h2>${esc(v.titulo)}</h2>${v.html ?? ''}
     ${v.botones?.length ? `<div class="botones">${v.botones.map((b) => `<button class="boton ${b.clase ?? ''}" data-accion="${b.accion}" ${b.datos ?? ''}>${b.ico ? icono(b.ico) : ''}${esc(b.txt)}</button>`).join('')}</div>` : ''}`;
-  el.hidden = false; velo.hidden = false; velo.dataset.cerrable = v.cerrable === false ? '0' : '1';
+  el.hidden = false; velo.hidden = false; velo.dataset.cerrable = v.cerrable === false ? '0' : '1'; el.dataset.clase = v.clase ?? '';
   el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
 }
 export const ventanaAbierta = () => !$('#ventana').hidden;
@@ -316,18 +358,12 @@ export function ocultarJuego(si) { raiz().classList.toggle('oculta-ui', si); doc
 // prioridad. rotulos.js decide dónde va cada uno para que no se pisen entre sí ni con los paneles fijos; el que no entra, no se ve.
 const etiquetasVivas = new Map(), memoriaRotulos = new Map();
 let obstaculos = [], obstaculosT = 0, genMedida = 0;
-const FIJOS = '#barra > *, #mision > *, #panel, #paso, #momento, #burbuja, #avisos > *, #zoom';
+const FIJOS = '#barra > *, #mision > .obj, #mision .atajos > button, #panel, #paso, #momento, #burbuja, #avisos > *, #zoom, #cartel';
 function leerObstaculos() {
   const out = [];
   for (const el of document.querySelectorAll(FIJOS)) {
     const r = el.getBoundingClientRect();
     if (r.width > 0 && r.height > 0) out.push({ x0: r.left, y0: r.top, x1: r.right, y1: r.bottom });
-  }
-  // el cartel de festejo: cada pieza por su lugar final (entran creciendo desde cero; con su tamaño del momento no taparían nada)
-  const c = $('#cartel');
-  if (c && !c.hidden) {
-    const r = c.getBoundingClientRect();
-    for (const h of c.children) if (h.offsetWidth > 0) out.push({ x0: r.left + h.offsetLeft, y0: r.top + h.offsetTop, x1: r.left + h.offsetLeft + h.offsetWidth, y1: r.top + h.offsetTop + h.offsetHeight });
   }
   return out;
 }

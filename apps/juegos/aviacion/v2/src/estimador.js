@@ -27,6 +27,10 @@ export const CASI_NADA = 100;          // menos que esto por día (en valor abso
 // { tipo: 'correo', ap }            agrandar el correo de esa ciudad
 export const claveDecision = (d) => (d.tipo === 'ruta' ? `ruta|${M.idRuta(d.a, d.b)}` : d.tipo === 'avion' ? `avion|${d.id}|${d.ruta}` : d.tipo === 'faros' ? `faros|${d.ruta}` : `correo|${d.ap}`);
 
+// Un número dicho en redondo, con dos cifras que pesan: 14.365 → 14.000; 2.521 → 2.500; 754 → 750. Así se dice en un consejo lo
+// que la tarjeta muestra al peso (nunca se aparta más de un 5%).
+export function redondo(n) { const a = Math.abs(n); if (a < 100) return Math.round(n / 10) * 10; const p = 10 ** (Math.floor(Math.log10(a)) - 1); return Math.round(n / p) * p; }
+
 // El avión más barato en venta que llega a esa distancia (null si ninguno llega).
 export function avionMasBarato(s, km) {
   return M.avionesDisponibles(s).filter((t) => t.alcance >= km).sort((x, y) => x.precio - y.precio)[0] ?? null;
