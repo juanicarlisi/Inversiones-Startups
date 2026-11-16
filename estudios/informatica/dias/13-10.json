@@ -1,0 +1,723 @@
+{
+ "id": "13-10",
+ "titulo": "Redes virtuales",
+ "bajada": "Cómo se arma una red privada dentro de la nube, qué hace pública a una subred y qué decide si un paquete pasa o se descarta, con una VPC chica reproducida en tu VM.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué es una VPC y por qué una subred es pública o privada por su tabla de ruteo y no por su nombre.",
+  "Resolver a qué destino va un paquete aplicando la regla de la ruta más específica sobre una tabla de ruteo.",
+  "Distinguir un gateway de Internet de un gateway NAT y decir cuál permite conexiones entrantes.",
+  "Comparar grupo de seguridad (con estado, solo permisos, sobre el recurso) con lista de control de acceso (sin estado, con orden, sobre la subred) y predecir qué rompe cada error.",
+  "Reproducir una VPC mínima con espacios de nombres de red y nftables y leer qué hace cada regla.",
+  "Estimar el costo mensual de un NAT gateway con precios de lista fechados."
+ ],
+ "venis_de": "Del [@05-06] al [@05-10] aprendiste a partir una red con CIDR, a leer una tabla de ruteo y a traducir direcciones con NAT; en el [@02-24] viste los espacios de nombres que aíslan procesos. Hoy juntás todo: la nube te da una red privada hecha de esas mismas piezas, y vas a armar una a mano.",
+ "se_apoya_en": [
+  "05-06",
+  "05-08",
+  "05-10",
+  "05-24",
+  "13-03",
+  "02-24"
+ ],
+ "gancho": [
+  "Ana abre una cuenta en la nube y lanza una base de datos para su negocio de reparto. Por apuro, la deja con una dirección pública y con la entrada abierta «para probar desde casa». Tres días después, el registro de conexiones muestra cientos de intentos de entrada desde direcciones que nunca vio. No pasó nada grave porque la base tenía contraseña, pero el susto alcanza: ¿por qué algo que debería ser interno estaba a la vista de todo internet?",
+  "La respuesta es que, en la nube, la red no viene armada: la armás vos. Y casi todos los errores de seguridad básicos de un equipo nuevo empiezan acá. Hoy aprendés las piezas con las que se arma una red virtual y después las reproducís en tu máquina: dos subredes, una salida a internet y una base escondida, con reglas que podés romper a propósito."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué es una VPC"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **[[VPC]]** (nube privada virtual, *virtual private cloud*) es una red virtual aislada que definís dentro de la nube de un proveedor. La documentación de Amazon la describe como una red lógicamente aislada, parecida a la que operarías en tu propio centro de datos, con la infraestructura escalable de AWS [#cloud10-vpc-que-es]. Azure y Google Cloud ofrecen el mismo concepto con otros nombres y detalles; esos los vas a ver en los días de cada proveedor.",
+    "Pensalo con logística: un parque industrial compartido por miles de empresas, donde a vos te corresponde un sector cercado, con sus calles internas, sus portones y su numeración. Los camiones de otras empresas circulan por el mismo parque, pero no pueden entrar a tu sector salvo por un portón que vos habilitás. La analogía falla en un punto: en el parque el cerco es físico; en la nube el aislamiento lo hace software de red, y cómo lo hace por dentro no está en la documentación que leí, así que lo que vas a ver hoy es el **modelo**, no la implementación."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Al crear una VPC elegís un rango de direcciones en notación [[CIDR]], normalmente de las [[dirección privada|direcciones privadas]] que reserva el [RFC 1918](https://www.rfc-editor.org/rfc/rfc1918) [#rfc1918], por ejemplo 10.0.0.0/16, que son 65.536 direcciones. Una VPC vive en una [[región]] (no cruza regiones) y, según AWS, su cuenta trae una VPC por defecto en cada región para poder arrancar enseguida [#cloud10-vpc-que-es]. Todo lo demás se cuelga de ese rango: subredes, rutas, puertas de salida y reglas."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Subredes: cortar la VPC por zonas y por función"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **[[subred cloud]]** es un trozo del rango de la VPC (por ejemplo, 10.0.1.0/24, que son 256 direcciones, según viste en el [@05-06]) que vive **dentro de una sola zona de disponibilidad**: no puede cruzar zonas [#cloud10-subredes]. Por eso, para sobrevivir a la caída de una zona, se crea una subred equivalente en cada zona y se reparten las máquinas, lo que retoma la idea de [@13-03].",
+    "Las subredes se clasifican por **cómo se rutean**, no por el nombre que les pongas. La documentación de AWS lo dice así: una subred pública tiene una ruta directa a un gateway de Internet; una privada no la tiene y necesita un dispositivo NAT para salir a internet; una subred aislada no tiene rutas hacia afuera de la VPC [#cloud10-subredes]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«Pública» es una propiedad de la tabla de ruteo",
+   "x": "Podés llamar «publica-1» a una subred que no tiene ruta al gateway de Internet: sigue siendo privada. Y al revés, una subred llamada «interna» con esa ruta es pública. La consola no te va a avisar del nombre engañoso. Para saber qué es una subred, mirá su tabla de ruteo."
+  },
+  {
+   "t": "pensa",
+   "x": "Una subred tiene una máquina con IP pública pero su tabla de ruteo no tiene ninguna ruta hacia un gateway de Internet. ¿Puede alguien de internet conectarse a esa máquina?",
+   "resp": "No. Según la documentación de AWS, sin la ruta al gateway de Internet las máquinas de la subred no se pueden comunicar con internet aunque tengan IP pública [#cloud10-igw]. La IP pública sola no alcanza: hace falta camino de ida y de vuelta."
+  },
+  {
+   "t": "h",
+   "x": "Tablas de ruteo: el mapa que decide el próximo salto"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada subred está asociada a una **tabla de ruteo**, que ya conocés del [@05-08]. En una VPC, cada ruta tiene un destino (un bloque CIDR) y un objetivo (*target*): un gateway de Internet, un NAT, una conexión con otra VPC, una VPN [#cloud10-rutas]. Siempre existe una ruta llamada `local`, que cubre todo el rango de la VPC y hace que las máquinas de la misma VPC se vean entre sí sin que tengas que configurarlo.",
+    "Cuando dos rutas coinciden, gana la **más específica**: la del prefijo más largo [#cloud10-ruteo-prioridad]. Es la misma regla de las tablas de ruteo que vimos en la Parte 5. Mirá este ejemplo, tomado del patrón que muestra la documentación:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Destino",
+    "Objetivo",
+    "Qué significa"
+   ],
+   "filas": [
+    [
+     "10.0.0.0/16",
+     "local",
+     "Todo el rango de la VPC se queda adentro"
+    ],
+    [
+     "172.31.0.0/16",
+     "conexión de peering (otra VPC)",
+     "Ese rango más específico va a la VPC vecina"
+    ],
+    [
+     "0.0.0.0/0",
+     "gateway de Internet",
+     "Todo lo demás sale a internet"
+    ]
+   ],
+   "cap": "Tabla de ruteo de una subred pública con una conexión a otra VPC, según el ejemplo de la guía de AWS sobre prioridad de rutas [#cloud10-ruteo-prioridad]. La ruta 0.0.0.0/0 es la «ruta por defecto»: coincide con todo, así que pierde contra cualquier otra más específica."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Con esta tabla de ruteo de una subred: 10.0.0.0/16 → local; 10.0.5.0/24 → conexión con otra VPC; 0.0.0.0/0 → gateway de Internet. ¿A dónde va un paquete con destino 10.0.5.9? ¿Y uno a 10.0.7.9? ¿Y uno a 8.8.8.8?",
+   "pista": "Para cada destino buscá todas las rutas que lo contienen y quedate con la de la máscara más larga (el prefijo con más bits fijos).",
+   "solucion": "10.0.5.9 está dentro de 10.0.5.0/24 (24 bits) y también de 10.0.0.0/16 (16 bits) y de 0.0.0.0/0 (0 bits): gana /24, va a la otra VPC. 10.0.7.9 solo está en /16 y en /0: gana /16, es local. 8.8.8.8 solo coincide con 0.0.0.0/0: sale por el gateway de Internet."
+  },
+  {
+   "t": "h",
+   "x": "Gateway de Internet y gateway NAT: dos puertas distintas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El **gateway de Internet** (*internet gateway*) conecta la VPC con internet. AWS lo describe como un componente escalado horizontalmente, redundante y de alta disponibilidad, sin cargo propio, aunque sí hay cargos de transferencia de datos de las máquinas que lo usan [#cloud10-igw]. Permite que una máquina de una subred pública con IP pública se conecte hacia afuera **y también que desde afuera se conecten a ella**.",
+    "Un detalle que sorprende: tu máquina no sabe cuál es su IP pública. Solo conoce su IP privada. El gateway de Internet hace una traducción uno a uno (un NAT 1:1) en el borde: cuando el tráfico sale, cambia la dirección de origen por la IP pública, y cuando entra tráfico destinado a la IP pública, lo cambia por la privada [#cloud10-igw]. Es el NAT del [@05-10], aplicado por el proveedor para que no lo configures vos."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "El **[[gateway NAT]]** resuelve otro problema: las máquinas de una subred **privada** (una base de datos, un servidor de aplicaciones) necesitan salir a internet para descargar actualizaciones o llamar a una API, pero no deben ser alcanzables desde afuera. Un NAT gateway público se crea en una subred pública, lleva una IP elástica y recibe el tráfico de salida de las subredes privadas; las máquinas privadas pueden conectarse hacia afuera pero **no reciben conexiones iniciadas desde internet** [#cloud10-nat]. Las conexiones tienen que arrancar desde adentro de la VPC.",
+    "Cada NAT gateway vive en una zona de disponibilidad. Si todas las subredes privadas dependen de uno solo y su zona cae, pierden la salida; la recomendación documentada es crear uno por zona y rutear cada subred privada hacia el de su zona [#cloud10-nat-basics]. AWS también ofrece un NAT gateway regional, que se expande solo entre zonas según dónde haya carga y no exige una subred pública para alojarlo [#cloud10-nat-regional]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 380,
+   "nodos": [
+    {
+     "id": "net",
+     "x": 50,
+     "y": 6,
+     "t": "Internet",
+     "k": "red"
+    },
+    {
+     "id": "igw",
+     "x": 50,
+     "y": 30,
+     "t": "Gateway de Internet (NAT 1:1)",
+     "k": "red"
+    },
+    {
+     "id": "web",
+     "x": 22,
+     "y": 60,
+     "t": "Subred pública · web",
+     "k": "servidor"
+    },
+    {
+     "id": "nat",
+     "x": 78,
+     "y": 60,
+     "t": "Gateway NAT (en la pública)",
+     "k": "os"
+    },
+    {
+     "id": "db",
+     "x": 78,
+     "y": 90,
+     "t": "Subred privada · base",
+     "k": "datos"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "net",
+     "a": "igw",
+     "t": "IP pública",
+     "dir": true
+    },
+    {
+     "de": "igw",
+     "a": "web",
+     "t": "ruta 0.0.0.0/0",
+     "dir": true
+    },
+    {
+     "de": "db",
+     "a": "nat",
+     "t": "ruta 0.0.0.0/0",
+     "dir": true
+    },
+    {
+     "de": "nat",
+     "a": "igw",
+     "t": "sale con su IP elástica",
+     "dir": true
+    },
+    {
+     "de": "web",
+     "a": "db",
+     "t": "local: 5432",
+     "dir": true
+    }
+   ],
+   "cap": "Una VPC típica con dos subredes. La base no tiene ruta al gateway de Internet: sale por el NAT y no recibe conexiones iniciadas desde afuera."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Vigencia: precio del NAT gateway y novedades, 16-11-2026",
+   "x": [
+    "Precios de lista en la región sa-east-1 (São Paulo), en dólares, leídos el 16-11-2026 del archivo oficial de precios de AWS para EC2 (publicado el 14-11-2026): 0,093 por hora de NAT gateway y 0,093 por GB procesado [#cloud10-ec2-lista]. En el archivo de precios de VPC (publicado el 05-11-2026) cada dirección IPv4 pública en uso cuesta 0,005 por hora [#cloud10-vpc-lista]. La página de precios de VPC los explica con ejemplos [#cloud10-vpc-precios].",
+    "La documentación vigente de VPC describe NAT gateways zonales (los de siempre) y regionales [#cloud10-nat-regional]. Es un servicio que cambia: releé las páginas oficiales antes de decidir algo con plata. Ningún precio de este día es una recomendación de compra."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Dos filtros distintos: grupo de seguridad y ACL"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ya sabés qué es un [[firewall]] por el [@05-24]. En una VPC hay dos, con personalidades opuestas.",
+    "El **[[grupo de seguridad]]** (*security group*) actúa sobre el recurso: la tarjeta de red de una máquina o una base. Sus reglas solo pueden **permitir** (no hay reglas de negar), y por defecto, un grupo nuevo no tiene reglas de entrada, así que no entra nada hasta que lo permitís [#cloud10-sg-reglas]. Es **con estado** (*stateful*): si permitís que entre una conexión, la respuesta sale sin que lo escribas, y a la inversa [#cloud10-sg].",
+    "La **lista de control de acceso de red** (ACL) actúa sobre la subred entera, en el límite por donde el tráfico entra o sale. Cada regla tiene un número del 1 al 32766 y se evalúan en orden, de la más baja a la más alta, hasta que una coincide; las reglas pueden permitir o negar. Es **sin estado** (*stateless*): permitir la ida no permite automáticamente la vuelta [#cloud10-nacl]. La ACL por defecto de una VPC permite todo el tráfico y cada ACL termina con una regla de asterisco que niega lo que no coincida con nada [#cloud10-nacl-default]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Grupo de seguridad",
+    "k": "servidor",
+    "items": [
+     "Se aplica al recurso (máquina, base)",
+     "Solo reglas de permiso",
+     "Con estado: la respuesta vuelve sola",
+     "Se evalúan todas las reglas juntas",
+     "Primera defensa de uso diario"
+    ]
+   },
+   "der": {
+    "t": "ACL de red",
+    "k": "alerta",
+    "items": [
+     "Se aplica a la subred",
+     "Reglas de permitir y de negar",
+     "Sin estado: ida y vuelta por separado",
+     "Se evalúan por número, la primera que coincide",
+     "Capa extra, a menudo en su valor por defecto"
+    ]
+   },
+   "cap": "Los dos filtros se complementan. Las diferencias salen de la documentación oficial [#cloud10-sg-reglas][#cloud10-nacl]; la última fila de cada columna es criterio mío."
+  },
+  {
+   "t": "mito",
+   "titulo": "«Si tengo ACL no necesito grupos de seguridad»",
+   "x": "Los dos operan en lugares distintos. La ACL filtra en el borde de la subred y no distingue qué máquina responde; el grupo de seguridad filtra por recurso y por referencia a otros grupos. Muchos equipos dejan la ACL en su valor por defecto (permite todo) y gobiernan con grupos de seguridad, porque son más fáciles de razonar. Eso es una práctica extendida, no una regla del proveedor."
+  },
+  {
+   "t": "h",
+   "x": "Armar una VPC chica en tu máquina"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo lo anterior se puede reproducir con piezas de Linux que ya conocés: espacios de nombres de red (el aislamiento del [@02-24]), cables virtuales (`veth`), tablas de ruteo (`ip route`) y reglas de NAT y de filtrado con nftables [#pki-nft-ref]. Lo hice en la VM de este estudio (Linux 6.18, nftables 1.0.9). **No es AWS**: es un modelo para ver el mecanismo.",
+    "El plano: cuatro «mundos» de red. Uno hace de **router de la VPC** (con la puerta a internet y el NAT), otro es la **subred pública** (10.131.1.0/24, con un servidor web), otro la **subred privada** (10.131.2.0/24, con una base) y el cuarto es una **Internet de juguete** (192.0.2.0/24, un rango reservado para documentación) con un sitio cualquiera. Todo es privado en el rango 10.x; la IP «elástica» del web será 192.0.2.50."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "P=v1310\nfor n in rt pub priv net; do ip netns add $P-$n; done        # cuatro \"mundos\" de red separados\nlink(){ ip link add $P-$1-$2 type veth peer name $P-$2-$1     # un cable virtual con dos puntas\n  ip link set $P-$1-$2 netns $P-$1; ip link set $P-$2-$1 netns $P-$2\n  ip -n $P-$1 addr add $3 dev $P-$1-$2; ip -n $P-$2 addr add $4 dev $P-$2-$1\n  ip -n $P-$1 link set $P-$1-$2 up; ip -n $P-$2 link set $P-$2-$1 up; }\nlink rt pub  10.131.1.1/24 10.131.1.10/24    # subred pública\nlink rt priv 10.131.2.1/24 10.131.2.10/24    # subred privada\nlink rt net  192.0.2.1/24  192.0.2.10/24     # la \"Internet\" de juguete\nip -n $P-rt addr add 192.0.2.50/24 dev $P-rt-net    # la \"IP elástica\" del servidor web\nip netns exec $P-rt sysctl -qw net.ipv4.ip_forward=1   # el router reenvía paquetes\nip -n $P-pub  route add default via 10.131.1.1   # tabla de la subred pública\nip -n $P-priv route add default via 10.131.2.1   # tabla de la subred privada",
+   "cap": "Armado de la red en mi VM. `ip netns` crea los espacios de nombres, `veth` los cables y `ip route` las tablas de ruteo [#ruteo-man-netns][#ruteo-man-ip-route]. Los nombres con prefijo v1310 son míos y se borran al final."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "table ip nat {\n  chain pre {\n    type nat hook prerouting priority -100;\n    iifname \"v1310-rt-net\" ip daddr 192.0.2.50 dnat to 10.131.1.10       # entrada 1:1 (gateway de Internet)\n  }\n  chain post {\n    type nat hook postrouting priority 100;\n    oifname \"v1310-rt-net\" ip saddr 10.131.1.10 snat to 192.0.2.50       # salida 1:1 del web\n    oifname \"v1310-rt-net\" ip saddr 10.131.2.0/24 masquerade             # salida compartida (gateway NAT)\n  }\n}\ntable ip filter {\n  chain forward {\n    type filter hook forward priority 0; policy drop;\n    ct state established,related accept\n    iifname \"v1310-rt-net\" ct status dnat accept     # de afuera solo entra lo que tiene traducción\n    iifname \"v1310-rt-pub\" accept\n    iifname \"v1310-rt-priv\" accept\n  }\n}",
+   "cap": "Reglas del router con nftables. La primera tabla es el gateway de Internet (NAT 1:1 para el web) y el gateway NAT (masquerade para la privada); la segunda, la política de reenvío: de afuera solo entra lo que tiene traducción [#nat-nftables-wiki][#pki-nft-ct]."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "table inet sg {\n  chain entrada {\n    type filter hook input priority 0; policy drop;\n    iifname \"lo\" accept\n    ct state established,related accept              # con estado: la vuelta entra sola\n    ip saddr 10.131.1.0/24 tcp dport 5432 accept     # solo la subred pública, solo el puerto 5432\n  }\n}",
+   "cap": "El «grupo de seguridad» de la base: política de descartar, la respuesta de lo ya iniciado entra sola y solo la subred pública llega al puerto 5432."
+  },
+  {
+   "t": "p",
+   "x": "Después levanté cuatro servidores diminutos (uno en la «Internet», uno en el web y dos en la base, en los puertos 5432 y 22) y un cliente que prueba una conexión TCP con corte a 2 segundos. Cada servidor responde con su nombre y con la IP desde la que lo ven."
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import socket,sys\nnombre,ip,puerto=sys.argv[1],sys.argv[2],int(sys.argv[3])\ns=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind((ip,puerto)); s.listen(8)\nwhile True:\n    c,a=s.accept(); c.sendall(f\"hola desde {nombre}; te veo como {a[0]}\\n\".encode()); c.close()",
+   "cap": "Servidor de juguete: contesta «hola desde NOMBRE; te veo como IP» y cierra."
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import socket,sys\nip,puerto=sys.argv[1],int(sys.argv[2])\ns=socket.socket(); s.settimeout(2)\ntry:\n    s.connect((ip,puerto)); print(\"  OK:\",s.recv(200).decode().strip())\nexcept Exception as e:\n    print(\"  FALLA:\",type(e).__name__, e)",
+   "cap": "Cliente de juguete: intenta conectar con corte de 2 s e imprime OK o el tipo de falla."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ip -n v1310-pub route; ip -n v1310-priv route",
+     "s": "default via 10.131.1.1 dev v1310-pub-rt \n10.131.1.0/24 dev v1310-pub-rt proto kernel scope link src 10.131.1.10 \ndefault via 10.131.2.1 dev v1310-priv-rt \n10.131.2.0/24 dev v1310-priv-rt proto kernel scope link src 10.131.2.10"
+    },
+    {
+     "c": "# 2. desde internet al web, por su IP elástica\nip netns exec v1310-net python3 cli.py 192.0.2.50 80",
+     "s": "  OK: hola desde web; te veo como 192.0.2.10"
+    },
+    {
+     "c": "# 3. del web a la base, puerto 5432\nip netns exec v1310-pub python3 cli.py 10.131.2.10 5432",
+     "s": "  OK: hola desde db; te veo como 10.131.1.10"
+    },
+    {
+     "c": "# 4. del web a la base, puerto 22 (el grupo no lo abre)\nip netns exec v1310-pub python3 cli.py 10.131.2.10 22",
+     "s": "  FALLA: TimeoutError timed out"
+    },
+    {
+     "c": "# 5. de internet directo a la base\nip netns exec v1310-net python3 cli.py 10.131.2.10 5432",
+     "s": "  FALLA: OSError [Errno 101] Network is unreachable"
+    },
+    {
+     "c": "# 6. de la base a internet, por el NAT\nip netns exec v1310-priv python3 cli.py 192.0.2.10 80",
+     "s": "  OK: hola desde internet; te veo como 192.0.2.1"
+    },
+    {
+     "c": "# 7. del web a internet, con su IP elástica\nip netns exec v1310-pub python3 cli.py 192.0.2.10 80",
+     "s": "  OK: hola desde internet; te veo como 192.0.2.50"
+    }
+   ],
+   "cap": "Corrida real en mi VM. Cada línea cuenta algo: en el 2 el web ve al visitante; en el 3 la base ve al web con su IP privada; en el 4 el grupo descarta sin avisar (por eso es un timeout y no un rechazo); en el 5 internet ni siquiera tiene ruta hacia 10.131.x; en el 6 la base sale, pero el sitio ve la IP del NAT (192.0.2.1) y no la de la base; en el 7 el web sale con su IP elástica (192.0.2.50)."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Cómo se lee una falla de red",
+   "x": "Hay dos formas de fallar y significan cosas opuestas. **Connection refused** (rechazo inmediato) quiere decir que el paquete llegó a la máquina y no había nadie escuchando en ese puerto. **Timeout** (silencio) quiere decir que algo en el camino descartó el paquete sin contestar: una regla de firewall, una ruta que falta, una máquina apagada. En la prueba 4 el silencio es el grupo de seguridad haciendo su trabajo. Cuando en la nube algo «no responde», el silencio apunta primero a rutas y filtros, no a la aplicación."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat /proc/net/nf_conntrack   # en el router, líneas recortadas",
+     "s": "ipv4 2 tcp 6 117 TIME_WAIT src=10.131.1.10 dst=10.131.2.10 sport=33308 dport=5432 src=10.131.2.10 dst=10.131.1.10 sport=5432 dport=33308 [ASSURED]\nipv4 2 tcp 6 119 TIME_WAIT src=10.131.1.10 dst=192.0.2.10 sport=53626 dport=80 src=192.0.2.10 dst=192.0.2.50 sport=80 dport=53626 [ASSURED]\nipv4 2 tcp 6 117 SYN_SENT src=10.131.1.10 dst=10.131.2.10 sport=41840 dport=22 [UNREPLIED] src=10.131.2.10 dst=10.131.1.10 sport=22 dport=41840"
+    }
+   ],
+   "cap": "La tabla de seguimiento de conexiones del kernel, que es lo que hace posible «con estado». Cada línea trae la ida (primer grupo de direcciones) y cómo se espera la vuelta (segundo grupo). La línea del puerto 22 quedó en SYN_SENT y [UNREPLIED]: se envió el primer paquete, nunca hubo respuesta. En la segunda línea se ve el NAT 1:1: el web salió como 10.131.1.10 y la respuesta se espera dirigida a 192.0.2.50."
+  },
+  {
+   "t": "h",
+   "x": "Con estado y sin estado, en vivo"
+  },
+  {
+   "t": "p",
+   "x": "Falta comprobar la diferencia más importante entre los dos filtros. En la demo, el grupo de seguridad de la base es con estado (usa el seguimiento de conexiones). Voy a reemplazar la política de reenvío del router por una **ACL sin estado**, que mira cada paquete por separado y no recuerda nada: primero permito solo la ida (de la pública a la privada, puerto 5432)."
+  },
+  {
+   "t": "pensa",
+   "x": "Con una regla que permite solo web → base en el puerto 5432 y ninguna regla para el camino inverso, ¿se completa la conexión TCP del web a la base?",
+   "resp": "No. La conexión necesita paquetes en los dos sentidos: el SYN va, pero la respuesta (SYN-ACK) sale de la base con puerto de origen 5432 y vuelve hacia un puerto efímero del web. Sin regla para ese camino, el router la descarta y el web se queda esperando hasta el corte por tiempo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# A. solo la ida\nip netns exec v1310-pub python3 cli.py 10.131.2.10 5432",
+     "s": "  FALLA: TimeoutError timed out"
+    },
+    {
+     "c": "# B. agrego la vuelta: origen 5432, destino puertos 1024-65535\nip netns exec v1310-pub python3 cli.py 10.131.2.10 5432",
+     "s": "  OK: hola desde db; te veo como 10.131.1.10"
+    },
+    {
+     "c": "ip netns exec v1310-rt nft list chain ip filter forward",
+     "s": "table ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy drop;\n\t\tip saddr 10.131.1.0/24 ip daddr 10.131.2.0/24 tcp dport 5432 accept\n\t\tip saddr 10.131.2.0/24 ip daddr 10.131.1.0/24 tcp sport 5432 tcp dport 1024-65535 accept\n\t}\n}"
+    }
+   ],
+   "cap": "Corrida real en mi VM. En A falla; en B funciona después de sumar la regla de retorno. En una ACL de verdad pasa lo mismo: hay que abrir los puertos efímeros hacia donde vuelve la respuesta. El rango que usa cada sistema varía; en mi VM, `/proc/sys/net/ipv4/ip_local_port_range` dice 32768 a 60999, y abrí un rango más ancho por prudencia."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pieza de la demo",
+    "Su equivalente en una VPC",
+    "Dónde se queda corta la demo"
+   ],
+   "filas": [
+    [
+     "Cuatro espacios de nombres",
+     "Subredes y máquinas",
+     "No hay zonas de disponibilidad ni fallas físicas"
+    ],
+    [
+     "Router con `ip_forward`",
+     "El router de la VPC",
+     "En AWS no lo ves ni lo administrás: es del proveedor"
+    ],
+    [
+     "`dnat`/`snat` para 192.0.2.50",
+     "Gateway de Internet con IP elástica",
+     "El gateway real es redundante y escalado"
+    ],
+    [
+     "`masquerade` de 10.131.2.0/24",
+     "Gateway NAT",
+     "El NAT real vive en una zona y se cobra por hora y por GB"
+    ],
+    [
+     "Cadena de entrada de la base",
+     "Grupo de seguridad",
+     "Un grupo real se asocia por recurso y admite referencias a otros grupos"
+    ],
+    [
+     "Cadena de reenvío sin estado",
+     "ACL de red",
+     "Una ACL real tiene números de regla y una regla final de negar"
+    ]
+   ],
+   "cap": "Mapa entre lo que armé y lo que ofrece una nube. Si una columna te suena a «es lo mismo», revisá la tercera."
+  },
+  {
+   "t": "h",
+   "x": "El costo escondido de la red"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La red no es gratis y muchos costos aparecen sin avisar. El gateway de Internet no tiene cargo propio [#cloud10-igw], pero el **gateway NAT** cobra por hora y por cada GB que procesa; y si la subred privada baja mucho de internet (imágenes, paquetes, copias), la factura crece por ahí. Es el costo de egress que viste en el [@13-09], con otro nombre y otro lugar de aparición.",
+    "La documentación de AWS menciona una defensa de diseño: se pueden crear rutas más específicas que 0.0.0.0/0 para que, por ejemplo, el tráfico hacia Amazon S3 vaya por un endpoint de VPC de tipo gateway en lugar de pasar por el NAT, evitando los cargos de procesamiento del NAT [#cloud10-ruteo-opciones]. Esa es una decisión de ruteo que cambia una factura."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Costo mensual de NAT gateway zonal en sa-east-1, precios de lista al 16-11-2026 (USD).\nconst HORA = 0.093, POR_GB = 0.093, IPV4_HORA = 0.005, HORAS_MES = 730; // 730 h: un mes promedio, supuesto mío\nfunction nat(zonas, gbProcesados) {\n  const horas = zonas * HORA * HORAS_MES;\n  const datos = gbProcesados * POR_GB;\n  const ip = zonas * IPV4_HORA * HORAS_MES; // cada NAT gateway público lleva una IP elástica\n  return { horas, datos, ip, total: horas + datos + ip };\n}\nfor (const [zonas, gb] of [[1, 0], [1, 500], [3, 1500]]) {\n  const c = nat(zonas, gb);\n  console.log(`${zonas} NAT, ${String(gb).padStart(4)} GB: horas ${c.horas.toFixed(2)} + datos ${c.datos.toFixed(2)} + IPv4 ${c.ip.toFixed(2)} = ${c.total.toFixed(2)}`);\n}",
+   "cap": "Costo mensual del NAT gateway zonal en sa-east-1, precios de lista al 16-11-2026 [#cloud10-ec2-lista][#cloud10-vpc-lista]. Supuestos míos: 730 horas por mes y que la IPv4 pública del NAT se factura como una IPv4 en uso (lo verifiqué en el archivo de precios, no en una factura real). No incluye transferencia de salida ni impuestos."
+  },
+  {
+   "t": "p",
+   "x": "Con ese cálculo, un NAT gateway sin tráfico cuesta unos 71 dólares por mes, y con tres zonas y 1.500 GB procesados se acerca a 354. Para un equipo chico es dinero real, y justifica preguntarse si esa subred privada necesita salir tanto, o si le conviene un camino privado hacia el servicio que más usa."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no tiene una red virtual propia",
+   "x": [
+    "Verificado en el repositorio (commit 25e08fa; el código cambia, la forma permanece). Hoy Senda no administra ninguna VPC: el teléfono habla con Supabase, un backend alquilado que aloja la base de datos, la autenticación y las funciones, por HTTPS a una dirección que llega por una variable de entorno pública (`EXPO_PUBLIC_SUPABASE_URL`). No encontré en `docs/`, `supabase/` ni `.github/` ninguna configuración de red privada, restricción de IP o VPC; una búsqueda de esas palabras solo devuelve la mención a un «pooler de conexiones» en la documentación de escala. Es coherente con lo que viste en la [@07-25]: la protección de los datos no está en el cable sino en las reglas de seguridad por fila dentro de la base.",
+    "El trayecto inverso también sale a internet: la tarea programada que envía las notificaciones hace un `net.http_post` desde la base hacia `exp.host`, el servicio de notificaciones de Expo. Dicho con el vocabulario de hoy, Senda usa salida a internet desde el servidor y el proveedor se encarga del NAT. Si algún día Senda pasara a un servidor propio en una nube, todo lo de hoy pasaría a ser decisión suya: subredes, grupos de seguridad y qué cosa puede hablar con qué otra."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "src/util/cuenta.ts",
+    "docs/ESCALA.md",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás para razonar"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "Una VPC es una red privada tuya dentro de la nube. Las subredes la parten por zona y por función.",
+    "Una subred es pública por su tabla de ruteo (tiene una ruta al gateway de Internet), no por su nombre.",
+    "El gateway de Internet permite conexiones en los dos sentidos y hace el NAT 1:1; el gateway NAT solo deja salir, y se factura por hora y por GB.",
+    "El grupo de seguridad (con estado, solo permisos, por recurso) y la ACL (sin estado, con orden, por subred) filtran en lugares distintos.",
+    "Cuando algo no responde: el rechazo inmediato apunta a la aplicación; el silencio, a rutas y filtros.",
+    "Con una VM y nftables podés reproducir el modelo y romperlo a propósito: la mejor forma de entender qué hace cada pieza."
+   ]
+  }
+ ],
+ "recap": [
+  "Una VPC es una red virtual aislada dentro de la nube; se parte en subredes de una sola zona.",
+  "Pública o privada depende de la tabla de ruteo: con ruta al gateway de Internet es pública, sin ella no.",
+  "En una tabla de ruteo gana la ruta más específica; la ruta `local` cubre la VPC y 0.0.0.0/0 va al final.",
+  "El gateway de Internet traduce 1:1 y acepta conexiones entrantes; el gateway NAT deja salir a las subredes privadas pero no recibe conexiones iniciadas desde afuera.",
+  "El grupo de seguridad es con estado y solo permite; la ACL es sin estado, ordenada y permite o niega.",
+  "La demo con espacios de nombres mostró cada caso, incluida la falla de una ACL a la que le falta la vuelta, y el NAT gateway se factura por hora y por GB procesado."
+ ],
+ "repaso": [
+  {
+   "p": "Tenés dos subredes. La A tiene una ruta 0.0.0.0/0 hacia un gateway de Internet; la B solo tiene la ruta local. Una máquina de cada una tiene una IP pública asignada. ¿Qué pasa?",
+   "o": [
+    "La A puede hablar con internet y la B no, aunque tenga IP pública",
+    "Las dos pueden hablar con internet porque tienen IP pública",
+    "Ninguna, porque el gateway de Internet no existe sin NAT",
+    "La B puede entrar a internet pero no recibir conexiones"
+   ],
+   "c": 0,
+   "e": "Lo que hace pública a una subred es la ruta al gateway de Internet. Sin ella, la IP pública no alcanza para llegar. La B tendría que salir por un NAT, y ni siquiera eso la haría alcanzable desde afuera. El gateway de Internet existe por sí mismo y no necesita NAT."
+  },
+  {
+   "p": "Una tabla de ruteo tiene 10.0.0.0/16 → local, 10.0.8.0/24 → conexión con otra VPC y 0.0.0.0/0 → gateway de Internet. ¿A dónde va un paquete con destino 10.0.8.44?",
+   "o": [
+    "Al gateway de Internet, porque 0.0.0.0/0 abarca todo",
+    "A la ruta local, porque es la primera de la lista",
+    "A la otra VPC, porque su prefijo es el más largo",
+    "Se descarta, porque coincide con más de una ruta"
+   ],
+   "c": 2,
+   "e": "Entre las rutas que contienen al destino gana la del prefijo más largo: /24 contra /16 y /0. El orden de la tabla no importa y las coincidencias múltiples no se descartan, se resuelven por especificidad."
+  },
+  {
+   "p": "Las máquinas de una subred privada necesitan bajar actualizaciones de internet, pero nadie de afuera debe poder iniciar una conexión hacia ellas. ¿Qué componente se usa?",
+   "o": [
+    "Un gateway de Internet con IP pública en cada máquina",
+    "Una ACL que permite todo el tráfico entrante",
+    "Una conexión de peering con la VPC por defecto",
+    "Un gateway NAT en una subred pública, con ruta desde la privada"
+   ],
+   "c": 3,
+   "e": "El gateway NAT público deja que las máquinas privadas inicien conexiones hacia internet y no recibe conexiones iniciadas desde afuera. Con IP pública en cada máquina serían alcanzables, que es lo contrario. Una ACL abierta no resuelve la salida y el peering conecta VPC entre sí, no con internet."
+  },
+  {
+   "p": "Una ACL de subred permite el tráfico entrante al puerto 5432 pero no tiene regla de salida para las respuestas. Los clientes no logran conectarse. ¿Cuál es la causa más probable?",
+   "o": [
+    "La ACL es con estado y recuerda mal la conexión",
+    "El grupo de seguridad ya permitía la respuesta y se cruzan",
+    "La ACL es sin estado: la respuesta necesita su propia regla",
+    "La ACL solo admite reglas de permiso, no de negar"
+   ],
+   "c": 2,
+   "e": "Una ACL no guarda memoria de conexiones, así que la vuelta es otro tráfico y necesita su propia regla. La primera opción dice lo contrario de la realidad (es sin estado). La cuarta es falsa: las ACL permiten y niegan; son los grupos de seguridad los que solo permiten."
+  },
+  {
+   "p": "Intentás conectarte a un puerto de una base en una subred privada y la prueba termina siempre con un silencio hasta el tiempo de espera, no con un rechazo inmediato. ¿Qué indica más probablemente?",
+   "o": [
+    "Que el programa de la base está caído y nadie escucha",
+    "Que un filtro o una ruta descarta el paquete antes de llegar",
+    "Que la base respondió con un error de contraseña",
+    "Que el servidor de DNS devolvió una dirección vieja"
+   ],
+   "c": 1,
+   "e": "Un rechazo inmediato (connection refused) significa que el paquete llegó y no había nadie escuchando. El silencio indica que algo en el camino lo descartó: regla de seguridad, ACL o ruta que falta. Un error de contraseña implica que la conexión ya se estableció, y un DNS viejo daría otro tipo de falla."
+  },
+  {
+   "p": "Un equipo calcula que su NAT gateway cuesta poco porque «el gateway de Internet es gratis». Su subred privada baja 2 TB al mes de internet. ¿Qué pasó por alto?",
+   "o": [
+    "Que el gateway NAT cobra por hora y por GB procesado",
+    "Que la ACL cobra por cada regla",
+    "Que el grupo de seguridad cobra por conexión",
+    "Que la tabla de ruteo cobra por cada ruta"
+   ],
+   "c": 0,
+   "e": "El gateway de Internet no tiene cargo propio, pero el gateway NAT sí: por hora y por GB procesado (0,093 y 0,093 en sa-east-1 según la lista del 16-11-2026). Con 2 TB el cargo por datos domina. Las ACL, los grupos de seguridad y las rutas no se facturan por esos conceptos."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística cómo hace una empresa para tener un depósito interno al que nadie de afuera puede entrar, pero cuyo personal sí puede salir a comprar. Usá tu analogía del parque industrial, nombrá cada pieza (portón, playón compartido, guardia) y decí en qué punto la analogía no representa lo que pasa en la red.",
+ "para_profundizar": [
+  {
+   "fuente": "cloud10-subredes",
+   "nota": "La página oficial de subredes de AWS: la sección de tipos de subred (pública, privada, aislada) con el diagrama de las zonas."
+  },
+  {
+   "fuente": "cloud10-ruteo-prioridad",
+   "nota": "La guía de AWS sobre prioridad de rutas, con las tablas de ejemplo que usé. Probá resolver a mano cada ejemplo antes de leer la explicación."
+  },
+  {
+   "fuente": "cloud10-nacl",
+   "nota": "La guía de ACL de red de AWS: la explicación de reglas numeradas y de por qué son sin estado."
+  },
+  {
+   "fuente": "pki-nft-ref",
+   "nota": "El resumen de nftables en diez minutos, para entender cada línea de las reglas de la demo y probar variantes."
+  }
+ ],
+ "videos": [
+  {
+   "q": "AWS VPC explained public private subnets route table internet gateway NAT gateway",
+   "por_que": "Para ver las mismas piezas en la consola de AWS y compararlas con la demo; revisá la fecha, porque la consola cambia."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "VPC",
+   "d": "Nube privada virtual: red aislada y definida por vos dentro de la nube de un proveedor, con su rango de direcciones, subredes, rutas y filtros."
+  },
+  {
+   "t": "subred cloud",
+   "d": "Trozo del rango de la VPC que vive dentro de una sola zona de disponibilidad. Se llama pública o privada según su tabla de ruteo."
+  },
+  {
+   "t": "grupo de seguridad",
+   "d": "Filtro virtual asociado a un recurso (máquina, base) con reglas de permiso solamente; es con estado: la respuesta a un tráfico permitido sale sola."
+  },
+  {
+   "t": "gateway NAT",
+   "d": "Puerta de salida para subredes privadas: traduce las direcciones para que salgan a internet, pero no recibe conexiones iniciadas desde afuera. Se factura por hora y por GB procesado."
+  },
+  {
+   "t": "gateway de Internet",
+   "d": "Componente que conecta una VPC con internet. Hace la traducción uno a uno entre IP privada e IP pública y permite conexiones en los dos sentidos."
+  },
+  {
+   "t": "lista de control de acceso de red",
+   "d": "ACL: filtro a nivel de subred con reglas numeradas que se evalúan en orden, pueden permitir o negar y son sin estado."
+  },
+  {
+   "t": "IP elástica",
+   "d": "Dirección IPv4 pública fija que se reserva y se asigna a un recurso, por ejemplo un gateway NAT, y se factura mientras está en uso."
+  }
+ ],
+ "siguiente": "Identidad y acceso (IAM): ahora que sabés quién puede llegar a una máquina por la red, falta decidir quién puede hacer qué sobre los recursos de la nube y cómo se escribe esa política.",
+ "fuentes_nuevas": [
+  {
+   "id": "cloud10-vpc-que-es",
+   "t": "What is Amazon VPC?",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html"
+  },
+  {
+   "id": "cloud10-subredes",
+   "t": "Subnets for your VPC",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/configure-subnets.html"
+  },
+  {
+   "id": "cloud10-rutas",
+   "t": "Configure route tables (Amazon VPC)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Route_Tables.html"
+  },
+  {
+   "id": "cloud10-ruteo-prioridad",
+   "t": "How route priority works (Amazon VPC)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/route-tables-priority.html"
+  },
+  {
+   "id": "cloud10-ruteo-opciones",
+   "t": "Example routing options (Amazon VPC)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/route-table-options.html"
+  },
+  {
+   "id": "cloud10-igw",
+   "t": "Enable internet access for a VPC using an internet gateway",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html"
+  },
+  {
+   "id": "cloud10-nat",
+   "t": "NAT gateways (Amazon VPC)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html"
+  },
+  {
+   "id": "cloud10-nat-basics",
+   "t": "NAT gateway basics (Amazon VPC)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-basics.html"
+  },
+  {
+   "id": "cloud10-nat-regional",
+   "t": "Regional NAT gateways for automatic multi-AZ expansion",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateways-regional.html"
+  },
+  {
+   "id": "cloud10-sg",
+   "t": "Control traffic to your AWS resources using security groups",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html"
+  },
+  {
+   "id": "cloud10-sg-reglas",
+   "t": "Security group rules",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html"
+  },
+  {
+   "id": "cloud10-nacl",
+   "t": "Control subnet traffic with network access control lists",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/vpc-network-acls.html"
+  },
+  {
+   "id": "cloud10-nacl-default",
+   "t": "Default network ACL for a VPC",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/vpc/latest/userguide/default-network-acl.html"
+  },
+  {
+   "id": "cloud10-vpc-precios",
+   "t": "Amazon VPC pricing",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://aws.amazon.com/vpc/pricing/"
+  },
+  {
+   "id": "cloud10-vpc-lista",
+   "t": "AWS Price List: Amazon VPC, región sa-east-1 (archivo oficial JSON)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonVPC/current/sa-east-1/index.json"
+  },
+  {
+   "id": "cloud10-ec2-lista",
+   "t": "AWS Price List: Amazon EC2, región sa-east-1 (archivo oficial JSON, incluye NAT gateway)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/sa-east-1/index.json"
+  }
+ ]
+}
