@@ -1684,3 +1684,58 @@ si no, se sostiene el 01-03-2027 (DEC-2026-11-07-6). **Reglas de corte:** EE. UU
 consentimiento aparte por los datos que pueden mostrar la fe. **Falta en el código (2 a 3 sesiones, ESTIMACIÓN):** el país de la tienda,
 los textos legales en inglés y portugués, la versión UE con el DSA y el modo protegido completo de Brasil. Esta propuesta reemplaza, si
 se aprueba, la recomendación de lanzar sin EE. UU., Brasil ni la UE (DEC-2026-11-07-5). Capítulo 80 §2.9.
+
+## DEC-2026-11-15-1 — Senda: los avisos al teléfono (ícono, color, textos, prioridad y hora de silencio)
+**Pedido del fundador (15-11-2026):** «Sale MUY FEO el logo en la notificación. Y a veces el texto parece muy IA. Investigá a fondo».
+**Investigación:** `conocimiento/2026-11-15-senda-avisos.md` (guías de Android, Apple y Expo). **Decisiones (técnicas, de Claude):**
+(a) el ícono del aviso es la S del «Camino en la noche» redibujada para 24 puntos, con la cruz separada (`scripts/marca/aviso.py`);
+(b) un solo color para todos los avisos, el violeta de la marca (#6E56F7): contraste 4,8 sobre claro y 3,5 sobre oscuro, contra 2,0 del
+ámbar sobre claro (HECHO, medido); **a confirmar por el fundador: violeta o ámbar** (se cambia en una línea); (c) cada aviso tiene una
+clave y sus datos, y el texto se arma al mandarlo en el idioma del teléfono (37 textos × 3 idiomas): el título dice quién o qué y el
+cuerpo qué pasó, nunca «Senda» ni «Espadeo» de título; (d) salen con prioridad alta y en el momento en que se crean (antes: prioridad
+normal y una vez por minuto, la causa de que los duelos tardaran; HECHO, documentación de Expo leída el 15-11-2026); (e) lo que va para
+muchos a la vez espera a las 8 si es de noche para esa persona; lo que una persona le manda a otra llega siempre; (f) un duelo ocupa un
+solo aviso. **Regla de corte:** si en el teléfono del fundador un duelo tarda más de 10 segundos con los dos teléfonos con internet, se
+revisa el camino de FCM directo. Capítulo 81 §2.2.
+
+## DEC-2026-11-15-2 — Senda: los torneos terminan cuando jugaron todos, quedan en el historial y dan palmarés
+**Pedidos del fundador (15-11-2026):** «una vez que jugaron todos, a pesar de que resten días para que cierre, ya debería aparecer como
+finalizado… y quedar en el historial de la persona»; «el que gana el torneo debería poder acceder a… tipo palmarés, y que las personas
+lo puedan ver», con la categoría (interno o de Senda); «cuándo vence: debería permitir poner un día específico»; sumarse con código, QR y
+que al crear diga el código; buscar amigos; subir un PDF, con una corona. **Decisión:** se hace todo (migración `torneos_56`). Un torneo
+con enlace termina solo cuando ya no se puede sumar nadie; el palmarés cuenta los torneos de 3 personas o más y las eliminatorias, respeta
+la vitrina oculta (DEC-2026-11-06-6) y muestra el nombre del grupo solo a quien es del grupo (dice dónde se congrega alguien: dato que
+puede mostrar la fe). La duración máxima pasa de 14 a 31 días. Sirve tal cual para el «Abecé» cuando entre. Capítulo 81 §2.5.
+
+## DEC-2026-11-15-3 — Senda: «la Pantalla», una página que muestra la sala en vivo para todos (hecha) y su dirección (PROPUESTA, a decidir)
+**Pedido del fundador (15-11-2026):** «¿no deberíamos incorporar una página para que puedan ingresar y, mientras responden, se vea en una
+pantalla para todos? Tipo Kahoot… UN TOTALMENTE EXHAUSTIVO Y COMPLETO BENCHMARK… sin plagio»; considerar el dominio del ministerio.
+**Benchmark:** 49 herramientas, `conocimiento/2026-11-15-senda-benchmark-pantalla-en-vivo.md`. **Decisión (hecha):** una página que solo
+muestra (`web/pantalla/` en la app, publicada con el sitio): espera con código y QR, pregunta con cuenta regresiva, resultado con «Escrito
+está» y final con podio. La respuesta correcta no sale de la base hasta que el anfitrión muestra el resultado. Identidad propia: opciones
+con letra, sin las formas de colores, los nombres ni la música de otros productos (blindaje legal). **A decidir por el fundador:** la
+dirección: (a) `senda.ministerionuevageneracion.com` (gratis; el dominio es suyo; pide un registro en el DNS) o (b) un dominio corto propio
+(unos USD 10 por año, ESTIMACIÓN). **Recomendación:** (a) ahora y (b) cuando haya que imprimirlo o decirlo en voz alta. También a decidir:
+el tope de la sala gratis (hoy 10; recomendación 40, lo que mide un grupo de jóvenes). **Lo que sigue (enero):** responder desde el
+navegador sin instalar, equipos, pregunta para romper el hielo, repaso de las tres más difíciles. Capítulo 81 §2.6.
+
+## DEC-2026-11-15-4 — Senda: la Trivia de la iglesia, separada de los torneos y con dos entradas
+**Pedido del fundador (15-11-2026):** «tiene que tener un diferencial con el torneo… arriba, las dos opciones nomás: crear trivia de la
+iglesia y participar de la trivia de mi iglesia»; el líder sube el PDF, corrobora las preguntas y decide el formato (torneo o
+eliminatoria); la persona entra y juega: el campeonato, practicar contra Lany o desafiar a alguien, siempre con las preguntas de ese PDF.
+«Lo que se crea igual tiene que estar perfecto para que el líder no tenga que andar chequeando a cada rato». **Decisión:** se hace así.
+Salen los modos de pasar el teléfono. Para que salga bien de entrada, después de armar las preguntas hay una segunda lectura automática
+contra el sermón que corrige o saca la que no pasa (cuesta una llamada más por PDF; el tope de 8 por mes de Max no cambia). Las mismas
+preguntas sirven para el campeonato, la práctica, los desafíos, la sala en vivo y la Pantalla. **Pendiente:** un PDF personal sin grupo
+todavía pide crear un grupo. Capítulo 81 §2.7.
+
+## DEC-2026-11-16-1 — Senda: la velocidad se mide en el teléfono de la persona, no en el emulador
+**Pedido del fundador (15-11-2026):** «Anda LENTÍSIMA la app en general… Invertí todo lo que haya que invertir». **Hecho:** las causas
+leídas en el código se arreglaron (la senda y el mapa se dibujaban como una sola imagen de decenas de MB; los paisajes eran dibujos de
+pantalla completa; las 1.625 lecciones se cargaban al abrir). **HECHO medido (16-11-2026):** tres corridas de la misma versión en el
+emulador de GitHub dieron 60, 150 y 450 ms por cuadro según la máquina (43779199399, 43779201805, 43779204444): ese emulador no sirve
+para comparar variantes. **Decisión (técnica, de Claude):** (a) no se apagan animaciones ni se toca a Lany a ciegas; (b) el APK 56 trae
+«Medir la velocidad» en Ajustes (informe por pantalla, con el modelo del teléfono, que se copia para mandarlo); (c) el fundador mide con
+«Animaciones: todas» y con «reducidas» en su teléfono. **Regla de corte:** si con «reducidas» las trabas bajan a menos de la mitad, en la
+prueba 57 Lany y los brillos se pausan cuando la pantalla no se toca y en las pestañas que no se ven; si no, se trabaja la pantalla que
+el informe marque como la peor. Capítulo 81 §2.1.1.
