@@ -17,6 +17,7 @@ import * as A from './audio/audio.js';
 import { Tandas, avionMasBarato, costoDecision, firmaEstado, claveDecision } from './estimador.js';
 import * as Libro from './libro.js';
 import * as Puente from './puente-oficina.js';
+import './oficina/conectar.js';
 import urlAlturas from '../activos/alturas.webp';
 import urlSuelo from '../activos/suelo.webp';
 import urlCosta from '../activos/costa.webp';
@@ -1352,7 +1353,7 @@ function tecla(e) {
   if (e.key === ' ') { fijarVel(vel === 0 ? velElegida : 0); e.preventDefault(); }
   else if (e.key === '1') fijarVel(0.5); else if (e.key === '2') fijarVel(1); else if (e.key === '3') fijarVel(3);
   else if (e.key === '+' || e.key === '=') mundo.pasoZoom(1); else if (e.key === '-' || e.key === '_') mundo.pasoZoom(-1);
-  else if (e.key === 'Escape') { if (U.ventanaAbierta()) accion('cerrarVentana', {}, null); else if (sel) accion('cerrarPanel', {}, null); }
+  else if (e.key === 'Escape') { if (oficinaAbierta) return; if (U.ventanaAbierta()) accion('cerrarVentana', {}, null); else if (sel) accion('cerrarPanel', {}, null); }
 }
 
 // ───────────── para las pruebas y las capturas ─────────────

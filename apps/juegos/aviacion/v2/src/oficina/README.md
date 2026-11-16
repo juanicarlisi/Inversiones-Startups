@@ -116,31 +116,30 @@ con los estilos adentro. **Ningún archivo nuevo para descargar** (los muebles y
 dos imágenes del relieve que el juego ya baja).
 
 **Cuadros por segundo contra el mapa.** `node herramientas/medir-oficina.cjs` (un cuadro del mapa y uno de la oficina por turno,
-esperando a la GPU). Este entorno **no tiene placa de video** (SwiftShader) y mientras se medía había otro proceso pesado corriendo:
-las cifras son un piso y lo que vale es la relación. Mediana de 7 cuadros, 22 aviones en el estante:
+esperando a la GPU). Este entorno **no tiene placa de video** (SwiftShader) y la máquina se comparte con otros procesos: las cifras son
+un piso y lo que vale es la relación. Mediana de 7 cuadros, con el ejemplo real del juego (9 rutas, 22 aviones en el estante):
 
-| Pantalla | Nivel | Mapa | Oficina de día | Oficina de noche | Oficina ÷ mapa |
+| Pantalla | Nivel | Mapa | Oficina de día | Oficina de noche | Oficina ÷ mapa (en cuadros por segundo) |
 |---|---|---|---|---|---|
-| 1280×720 | bajo | 412 ms | 850 ms | 1.208 ms¹ | 0,48 · 0,34¹ |
-| 1280×720 | medio | 962 ms | 1.404 ms | 1.436 ms | 0,68 · 0,67 |
-| 1280×720 | alto | 1.646 ms | 2.382 ms | 2.803 ms | 0,69 · 0,59 |
-| 390×844 | bajo | 257 ms | 515 ms | 459 ms | 0,50 · 0,56 |
-| 390×844 | medio | 225 ms | 319 ms | 319 ms | 0,71 · 0,71 |
-| 390×844 | alto | 1.359 ms | 1.175 ms | 1.352 ms | 1,16 · 1,01 |
+| 1280×720 | bajo | 197 ms (5,1 cps) | 469 ms (2,1) | 464 ms (2,2) | 0,42 · 0,42 |
+| 1280×720 | medio | 453 ms (2,2) | 672 ms (1,5) | 732 ms (1,4) | 0,67 · 0,62 |
+| 1280×720 | alto | 961 ms (1,0) | 1.240 ms (0,8) | 1.383 ms (0,7) | 0,78 · 0,69 |
+| 390×844 | bajo | 105 ms (9,6) | 229 ms (4,4) | 223 ms (4,5) | 0,46 · 0,47 |
+| 390×844 | medio | 241 ms (4,2) | 321 ms (3,1) | 311 ms (3,2) | 0,75 · 0,77 |
+| 390×844 | alto | 699 ms (1,4) | 595 ms (1,7) | 663 ms (1,5) | 1,17 · 1,05 |
 
-¹ Medido antes de sacarle el foco propio a la lámpara en el nivel bajo (ahora de noche cuesta lo mismo que de día).
-
-**Lectura franca:** en una GPU por software la oficina dibuja a **la mitad de la velocidad del mapa en el nivel bajo** y a unos dos
-tercios en medio y alto. Es una escena de interior con luces y sombras de verdad contra un terreno con un solo material a medida.
+**Lectura franca:** en una GPU por software la oficina dibuja a **menos de la mitad de la velocidad del mapa en el nivel bajo**,
+a dos tercios o tres cuartos en el medio y parecido en el alto. Es una escena de interior con luces y sombras de verdad contra un terreno con un solo material a medida.
 Lo que más rindió al optimizar fue el **orden de dibujo** (three ordena lo opaco por material: el piso y las paredes se pintaban
 enteros y después se les pintaba encima; con los muebles primero y lo de afuera al final el cuadro bajó un 40 %), después los
 materiales simples en lo mate y sacar luces. Lo que queda para el nivel bajo, si en equipos reales hiciera falta: un material a
 medida para el cuarto (el sol de la ventana calculado, sin mapa de sombras). La resolución ya baja sola por debajo de 27 cuadros
 y `conectar.js` arranca con la misma escala de resolución que tenga el mapa. **Falta medir en una GPU real.**
 
-**Fugas.** Abrir y cerrar 10 veces (usando una hoja en cada vuelta): cero errores de JavaScript, el contenedor queda vacío, y con
-la oficina cerrada no queda vivo ningún renderizador, escena ni malla (contados por prototipo con el depurador). La memoria de
-JavaScript con la oficina cerrada se mueve 0,2 MB por vuelta en la medición anterior al arreglo de abajo y queda estable después.
+**Fugas.** Abrir y cerrar 10 veces (usando una hoja en cada vuelta): cero errores de JavaScript, el contenedor queda vacío, las
+mismas 283 geometrías y 19 texturas en cada apertura, y con la oficina cerrada no queda vivo ningún renderizador, escena ni malla
+(contados por prototipo con el depurador). La memoria de JavaScript con la oficina cerrada pasa de 15,6 a 16,8 MB en las 10
+vueltas: comparando dos fotos de la memoria, lo que crece es código compilado por el motor de JavaScript, no objetos de la oficina.
 *Hallazgo:* three 0.186 guarda una textura compartida entre renderizadores (la tabla DFG) y cada renderizador que se destruye
 queda vivo colgado de ella; la oficina la suelta al salir (`escena.js`, `liberar`). **Al mapa le pasa lo mismo con
 `mundo.retratos()`**, que crea y destruye un renderizador cada vez que cambia el color de la empresa.
