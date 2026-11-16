@@ -1,0 +1,531 @@
+{
+ "id": "10-18",
+ "titulo": "Notificaciones push I: cómo viajan",
+ "bajada": "Cómo llega un aviso a un teléfono con la app cerrada: quién hace de correo, qué es el token que hace de dirección, qué viaja adentro del paquete y qué cosas nadie te promete.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar por qué un servidor no le habla directo a un teléfono y qué papel cumplen FCM, APNs y Expo Push.",
+  "Distinguir el token de dispositivo de APNs, el de FCM y el de Expo, y decir cuándo puede cambiar cada uno.",
+  "Armar a mano la carga útil de un aviso y calcular si entra en el tope de 4096 bytes.",
+  "Describir qué garantizan y qué no garantizan un ticket, un recibo y la aceptación de FCM.",
+  "Leer el registro de token y el envío de avisos de Senda y señalar qué le falta al mensaje: vida, colapso y recibos."
+ ],
+ "venis_de": "En [@08-11] viste por qué un servidor no puede empujar eventos a una app cerrada y que el push móvil existe para eso, y en [@08-17] seguiste un aviso de Senda desde la base. Hoy lo mirás desde el teléfono: cómo se consigue la dirección, qué hay dentro del paquete y qué pasa en el camino. Ayer, en [@10-17], viste el permiso que lo habilita.",
+ "se_apoya_en": [
+  "08-11",
+  "08-17",
+  "10-12",
+  "10-17",
+  "02-28",
+  "02-29"
+ ],
+ "gancho": [
+  "Ana termina su turno en un duelo de Senda. En el teléfono de Beto la pantalla está apagada, la app lleva horas cerrada y el aparato está en un bolsillo. Unos segundos después vibra: «Te toca jugar». Senda no tenía ningún programa corriendo en ese teléfono ni una conexión abierta esperando.",
+  "¿Quién lo despertó? ¿Y cómo supo el sistema cuál, entre miles de millones de teléfonos, era el de Beto? Hoy seguís ese camino desde el lado del teléfono: qué es la dirección, quién hace de correo, qué viaja adentro del paquete y qué cosas el correo nunca promete. Para ver la forma del pedido corrí un servidor de juguete en esta VM y leí el código de `expo-notifications` y el de Senda. No mandé ni un aviso real: no tengo teléfono ni cuentas de Firebase o de Expo."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El problema: llegar a una app que no está corriendo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@08-11] viste que un WebSocket o un flujo SSE necesitan una conexión abierta, y que una app cerrada no la tiene. La solución es que el servidor no le escriba al teléfono: le entrega el aviso a un servicio de la plataforma, y ese servicio sabe cómo llegar al aparato. En Android ese servicio es [[FCM]], Firebase Cloud Messaging, de Google. En el iPhone es [[APNs]], el Apple Push Notification service. Un tercero más, Expo Push, se pone adelante de los dos para que el servidor de la app hable con un solo proveedor.",
+    "La documentación de FCM describe las piezas así [#rt0811-fcm-architecture]: algo que arma el pedido (una consola o tu servidor), el backend de FCM que lo acepta, una capa de transporte propia de cada plataforma que lo lleva al aparato (la de Android con Google Play Services, APNs en Apple, web push en los navegadores) y el SDK que corre dentro de la app y muestra el aviso o lo procesa."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el correo con su propia red",
+   "x": [
+    "Tu depósito despacha un paquete, pero no tenés camiones que lleguen a cada casa. Se lo entregás a un correo, con una etiqueta de destino. El correo tiene su red de reparto y vos no la ves. Si el destinatario no está, el correo lo guarda un tiempo; si la casa se mudó, tal vez te avisa y tal vez no.",
+    "Donde la analogía deja de valer: el correo postal te da un comprobante de entrega firmado. FCM te dice «lo acepté» y nada más; si el paquete llegó a la mano de la persona, no lo sabés."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Si el push es un correo de la plataforma, ¿por qué el servidor de Senda no guarda simplemente el usuario de Beto y le dice al correo «mandale esto a Beto»?",
+   "resp": "Porque el correo no conoce a Beto: conoce una instalación concreta de la app en un aparato concreto. Beto puede tener dos teléfonos, o reinstalar la app y quedar con otra dirección. Por eso el servidor guarda direcciones (tokens) y las ata a un usuario por su cuenta; Senda guarda hasta cinco por persona."
+  },
+  {
+   "t": "h",
+   "x": "La dirección: tres nombres para casi lo mismo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[token de dispositivo]] es esa dirección: un texto largo que identifica a una instalación de la app en un aparato y que el servicio de push sabe resolver. Apple lo describe como una dirección única para el aparato y para la app: no se puede usar el mismo token para dos apps, ni siquiera dentro del mismo teléfono [#push1018-apns-registro]. El flujo es el mismo en las dos plataformas: la app le pide su token al sistema, lo recibe y lo envía a tu servidor, que lo guarda atado a un usuario.",
+    "Apple recomienda dos cosas que sorprenden. Pedir el token en cada arranque de la app y no guardarlo en el teléfono, porque APNs emite uno nuevo cuando la persona restaura un backup, instala la app en un aparato nuevo o reinstala el sistema [#push1018-apns-registro]. Y prever varios tokens por usuario, porque una persona puede tener varios aparatos. En FCM hay algo parecido: el registro identifica a la instalación y puede quedar viejo. Un registro de Android que lleva 270 días sin conectarse se considera vencido y FCM lo rechaza; en iOS no rige esa regla porque depende de APNs [#push1018-fcm-registros]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Con Expo aparece un tercer nombre. La biblioteca `expo-notifications` primero le pide al sistema el token de dispositivo y después lo cambia por un token de Expo. En el código de la versión 57.0.25, que bajé y leí, la función `getExpoPushTokenAsync` manda a `https://exp.host/--/api/v2/push/getExpoPushToken` un JSON con el tipo de token, el identificador del aparato, la marca de entorno de desarrollo, el identificador de la app, el token de dispositivo y el `projectId` del proyecto de Expo. La respuesta es un texto de la forma `ExponentPushToken[…]`. Tu servidor solo guarda ese. Expo es el que conserva el vínculo con FCM o APNs y las credenciales para hablarles, y esa es la comodidad que ofrece a cambio de ser un intermediario más."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Token",
+    "Quién lo emite",
+    "Qué identifica",
+    "Cuándo puede cambiar"
+   ],
+   "filas": [
+    [
+     "De dispositivo en iOS",
+     "APNs",
+     "La app en un aparato",
+     "Al restaurar un backup, usar otro aparato o reinstalar el sistema, según Apple"
+    ],
+    [
+     "De registro en Android",
+     "FCM",
+     "Una instalación de la app",
+     "Puede vencer tras 270 días sin uso; FCM está pasando a identificar con Firebase Installation IDs"
+    ],
+    [
+     "De Expo",
+     "Expo, a cambio del token de dispositivo",
+     "La misma instalación, vista desde Expo",
+     "No lo verifiqué; Senda lo vuelve a pedir en cada arranque"
+    ]
+   ],
+   "cap": "Según [#push1018-apns-registro], [#push1018-fcm-registros] y la lectura del código de `expo-notifications` 57.0.25. Consultado el 16-11-2026."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El token es una llave, no un secreto menor",
+   "x": "Según la documentación de Expo, por defecto basta tener el token de Expo y un texto para mandarle un aviso a esa instalación; exigir además un token de acceso es una opción que se prende en el panel [#rt0811-expo-push]. Un token que se filtra permite que otro se haga pasar por tu servidor. Por eso las filas de tokens se cuidan como las de contraseñas, aunque no lo parezcan. [@08-17] trató el caso de Senda."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "App en el teléfono",
+     "k": "cliente"
+    },
+    {
+     "n": "FCM o APNs",
+     "k": "os"
+    },
+    {
+     "n": "Expo Push",
+     "k": "red"
+    },
+    {
+     "n": "Servidor de Senda",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "pide su token de dispositivo",
+     "d": "Después del permiso de notificaciones ([@10-17]), la app le pide al sistema su dirección."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "token de dispositivo",
+     "resp": true,
+     "d": "Un texto largo, propio de esa app en ese aparato."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "token + projectId",
+     "d": "Expo lo cambia por un token de Expo y guarda el vínculo."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "ExponentPushToken[…]",
+     "resp": true,
+     "d": "La dirección que va a conocer tu servidor."
+    },
+    {
+     "de": 0,
+     "a": 3,
+     "t": "guardar_token",
+     "d": "El servidor la guarda atada al usuario."
+    },
+    {
+     "de": 3,
+     "a": 2,
+     "t": "POST push/send con el token",
+     "d": "Cuando hay algo que contar, el servidor le habla solo a Expo."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "pedido a FCM o a APNs",
+     "d": "Expo usa las credenciales del proyecto para hablar con la plataforma."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "entrega al teléfono",
+     "d": "La plataforma lo lleva al aparato, aunque la app esté cerrada."
+    }
+   ],
+   "cap": "Dos viajes: el del registro, una vez por arranque, y el del aviso, cada vez que hay algo que contar. Esquema propio según [#rt0811-expo-push], [#push1018-apns-registro] y el código de `expo-notifications`."
+  },
+  {
+   "t": "p",
+   "x": "Senda sigue este recorrido con una función que ya conocés de ayer: `registrarPush`. Pide el permiso con la lógica de [@10-17], cambia el token con Expo y lo guarda en la base. Copio la función sin los comentarios."
+  },
+  {
+   "t": "codigo",
+   "lang": "ts",
+   "x": "export async function registrarPush(idioma: string, pedir = false): Promise<boolean> {\n  if (Platform.OS === \"web\" || JUNTOS_DEMO) return false;\n  try {\n    const Constants = (await import(\"expo-constants\")).default;\n    const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;\n    if (!projectId) return false;\n    const N = await import(\"expo-notifications\");\n    if (!(pedir ? await pedirPermiso() : (await N.getPermissionsAsync()).granted)) return false;\n    const { data: token } = await N.getExpoPushTokenAsync({ projectId });\n    await asegurarCuenta();\n    await rpc(\"guardar_token\", { p_token: token, p_plataforma: Platform.OS === \"ios\" ? \"ios\" : \"android\", p_idioma: idioma });\n    return true;\n  } catch {\n    return false;\n  }\n}",
+   "cap": "`src/util/juntos.ts` de Senda, commit `25e08fa`, sin los comentarios. `rpc` es el cliente que llama a funciones de la base; `asegurarCuenta` crea o renueva la cuenta anónima."
+  },
+  {
+   "t": "senda",
+   "titulo": "El registro del token en Senda",
+   "x": [
+    "La función sale sin hacer nada en la web, y también sin el `projectId` de Expo, que está en `app.json` (`extra.eas.projectId`). Con `pedir` en `true` abre el cuadro de permiso; con `false` solo mira si ya está concedido. `App.tsx` la llama en cada arranque de alguien que ya vio la bienvenida, sin pedir, y las pantallas Amigos, Duelos y Jugar la llaman pidiendo, cuando la persona entiende para qué sirve.",
+    "El destino es la función `guardar_token` de la base: guarda el token con su plataforma y su idioma, lo marca con la hora, y si la persona ya tiene más de cinco, borra los más viejos. Como `registrarPush` corre en cada arranque, la hora de cada token se renueva, que es lo que pide Apple. Todo esto es lectura del código; no corrí nada.",
+    "Un detalle que ya figuraba en [@08-17]: la función llama a `asegurarCuenta()`, así que alguien que aceptó avisos en la bienvenida y nunca usó lo social podría recibir una cuenta anónima al segundo arranque. Es una inferencia sin probar en un teléfono."
+   ],
+   "archivos": [
+    "src/util/juntos.ts",
+    "app.json",
+    "supabase/migrations/20261111000000_novedades.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El paquete: qué viaja adentro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[carga útil]] es el contenido del aviso: lo visible (título y texto) y los datos que la app necesita para reaccionar. Las tres piezas del camino la escriben distinto, pero se parecen más de lo que parece.",
+    "FCM distingue dos tipos de mensaje [#push1018-fcm-tipos]. Un mensaje de notificación trae claves predefinidas (título, texto) y lo muestra el SDK de FCM cuando la app está en segundo plano. Un mensaje de datos trae solo pares clave-valor que vos inventás, y los procesa el código de la app. El primero puede llevar además datos. Los dos admiten hasta 4096 bytes. En Android, la documentación sobre recepción resume qué pasa según el estado de la app [#push1018-fcm-recibir]: con la app abierta, todo llega a `onMessageReceived`, la función del servicio de mensajería que recibe los mensajes; con la app en segundo plano, una notificación va a la bandeja del sistema y un mensaje de datos va a esa función.",
+    "En iOS el pedido es un POST por HTTP/2 a APNs, con un JSON que tiene un diccionario `aps` (con el aviso, el sonido, el número del globo) y, al lado, las claves propias de tu app. Apple fija el tope en 4096 bytes (5120 para llamadas de voz sobre internet) [#push1018-apns-payload]. Y avisa que no hay que meter datos sensibles en la carga útil. El encabezado del pedido incluye el tipo de push, el vencimiento y la prioridad [#push1018-apns-envio]."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "json",
+   "x": "{\n  \"aps\": {\n    \"alert\": { \"title\": \"Te toca jugar\", \"body\": \"Tu rival ya respondió\" },\n    \"sound\": \"default\"\n  },\n  \"partida\": \"p1\"\n}",
+   "cap": "El aviso de un duelo con la forma que describe Apple en [#push1018-apns-payload]. Lo armé yo: no es lo que Expo le manda a Apple, solo muestra cómo se ve el formato."
+  },
+  {
+   "t": "p",
+   "x": "Con Expo escribís un solo formato y Expo lo traduce. Los campos son `to` (un token o una lista), `title`, `body`, `data`, y las opciones `ttl`, `priority`, `channelId` y `collapseId`, entre otras [#rt0811-expo-push]. El pedido admite hasta 100 mensajes y la carga total no puede pasar de 4 KiB, o el recibo vuelve con un error de mensaje demasiado grande. Para ver la forma del pedido armé un servidor de juguete en el puerto 22718 que imita la respuesta; es mío, no es Expo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node mock.js    # el servidor de juguete y un cliente que le manda un aviso con la forma de los de Senda",
+     "s": "servidor: POST /--/api/v2/push/send content-type=application/json authorization=(ninguno)\nservidor: 2 destinos, title=\"Te toca jugar\", data={\"partida\":\"p1\"}, bytes del cuerpo=217\ncliente: respuesta 200 {\"data\":[{\"status\":\"ok\",\"id\":\"ticket-1\"},{\"status\":\"ok\",\"id\":\"ticket-2\"}]}"
+    }
+   ],
+   "cap": "Servidor local de juguete, Node 22, 16-11-2026. La respuesta tiene la forma que Expo documenta (un ticket por destino); el servidor no es Expo y no hubo ningún envío real."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en dos cosas del resultado. El pedido no lleva encabezado de autorización, igual que el que arma la base de Senda: así funciona la API de Expo salvo que se active la seguridad reforzada. Y la respuesta no dice «llegó»: dice «aceptado», con un identificador de ticket por destino. Volvemos a eso en un rato."
+  },
+  {
+   "t": "p",
+   "x": "El tope de 4096 está en bytes, y eso cambia las cuentas en español. Una «ñ» o una vocal con tilde pesa 2 bytes en UTF-8, y un emoji, 4. Probé cuánto pesa un aviso real y cuántos identificadores entran en `data`."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// El límite de 4096 se cuenta en bytes de la carga útil, no en letras.\nconst bytes = (obj) => new TextEncoder().encode(JSON.stringify(obj)).length;\nconst uuid = \"3f2b8c1e-5d4a-4b7e-9c10-2a6f8e1d7b45\";\n\nconst duelo = { title: \"Te toca jugar\", body: \"Tu rival ya respondió\", data: { partida: uuid }, sound: \"default\", channelId: \"senda_v4\" };\nconsole.log(\"aviso de duelo:\", bytes(duelo), \"bytes\");\n\nconst acentos = { ...duelo, body: \"Mañana, tu reunión de oración empieza a las 20 h\" };\nconsole.log(\"texto con ñ y tilde:\", bytes(acentos), \"bytes,\", JSON.stringify(acentos).length, \"caracteres\");\n\nconsole.log(\"una «ñ» pesa\", new TextEncoder().encode(\"ñ\").length, \"bytes; un emoji de manos orando pesa\", new TextEncoder().encode(\"🙏\").length);\n\n// ¿Cuántos identificadores de partida entran en el campo data antes de pasar el límite?\nlet n = 0;\nwhile (bytes({ ...duelo, data: { partidas: Array(n + 1).fill(uuid) } }) <= 4096) n++;\nconsole.log(\"identificadores de partida que caben en data:\", n);\nconsole.log(\"con\", n + 1, \"ya pesa\", bytes({ ...duelo, data: { partidas: Array(n + 1).fill(uuid) } }), \"bytes: supera el límite\");",
+   "ejecutable": true,
+   "cap": "Cuenta el tamaño de mi JSON de juguete con `TextEncoder`. La carga que realmente llega a Apple o a Google lleva además sus propias claves; es una aproximación. Probado con Node 22 el 16-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "Un aviso de duelo pesa unos 156 bytes: el 4 % del tope. El problema no está en los avisos simples sino en la tentación de cargarlos de información. Con identificadores de 36 caracteres entran 101 y no más. La idea sana es otra: el aviso es un timbre y lleva solo lo mínimo para que la app sepa qué preguntar. Senda lo hace así."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu servidor manda un push con la lista completa de las 150 partidas pendientes de una persona dentro de `data`. ¿Qué dos problemas tiene?",
+   "resp": "Primero, el tamaño: 150 identificadores de 36 caracteres ya superan el tope de 4096 bytes. Segundo, la frescura: el aviso puede llegar horas después, con una lista que ya no es verdad. Es mejor mandar un identificador y que la app pregunte el estado real al servidor cuando el aviso llega o se toca."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un timbre, no el estado",
+   "x": [
+    "En la recepción, Senda hace tres cosas, todas en `src/util/avisos.ts`: `setNotificationHandler` pide mostrar el banner y reproducir el sonido aunque la app esté abierta; `escucharLlegadas` vuelve a pedir `mis_novedades` a la base cada vez que llega un aviso; y `escucharToques` mira en `data` si viene `partida` o `pantalla` y lleva a esa pantalla. El aviso no trae el estado del duelo: la verdad queda en la base y la app la pide.",
+    "Los avisos de duelo, en la base, llevan en `data` el identificador de la partida (el de `cerrar_vencidas` suma una marca `recordatorio`), lo que los deja muy por debajo del tope."
+   ],
+   "archivos": [
+    "src/util/avisos.ts",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Lo que el correo no promete"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un push es un servicio de mejor esfuerzo, y cada pieza del camino dice algo distinto sobre qué asegura. Conviene leerlo con la lupa de quien tiene que construir encima.",
+    "En FCM, el identificador que se devuelve al aceptar un mensaje solo indica que FCM lo aceptó [#rt0811-fcm-lifespan]. Si el aparato está apagado o sin conexión, FCM guarda el mensaje; sin indicación, hasta cuatro semanas. Con vida cero se descarta si no puede entregarse al instante. Si hay una clave de colapso, se guarda un solo mensaje pendiente por clave y por token. Apple hace algo parecido sin que se lo pidas: según su documentación APNs es un servicio de mejor esfuerzo, puede reordenar avisos para un mismo token, guarda un aviso no entregado hasta 30 días como máximo, y guarda solo uno por aplicación: cuando llegan varios para el mismo aparato, elige uno [#push1018-apns-envio].",
+    "Expo suma su propia capa. Cada pedido devuelve tickets de push y, más tarde, se consultan los recibos de push. El ticket dice que Expo recibió tu pedido; el recibo, que Expo logró pasárselo a FCM o a APNs. Ni siquiera un recibo «ok» garantiza que el teléfono lo haya recibido: si está apagado, el servicio intentará entregarlo, pero el aparato no necesariamente lo recibe. Los recibos se borran a las 24 horas, y Expo recomienda mirarlos unos 15 minutos después de enviar, porque ahí aparece `DeviceNotRegistered`, la señal de que hay que dejar de mandarle a ese token [#rt0811-expo-push]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Si pasa esto…",
+    "FCM",
+    "APNs",
+    "Expo Push"
+   ],
+   "filas": [
+    [
+     "El teléfono está apagado una semana",
+     "Guarda el mensaje, hasta 4 semanas por defecto",
+     "Guarda uno solo por app, hasta 30 días como máximo",
+     "Reenvía con el límite de cada proveedor; sin `ttl`, el de cada uno (4 semanas)"
+    ],
+    [
+     "Querés que el aviso caduque",
+     "Vida del mensaje (TTL); con 0 no se guarda",
+     "Encabezado `apns-expiration`",
+     "Campo `ttl` en segundos"
+    ],
+    [
+     "Querés que uno reemplace al anterior",
+     "Clave de colapso",
+     "`apns-collapse-id`",
+     "Campo `collapseId`"
+    ],
+    [
+     "La app se desinstaló",
+     "El envío devuelve un error de no registrado",
+     "No lo verifiqué en la documentación que leí",
+     "El recibo trae `DeviceNotRegistered`"
+    ]
+   ],
+   "cap": "Resumen de [#rt0811-fcm-lifespan], [#push1018-apns-envio] y [#rt0811-expo-push]. El campo `collapseId` de Expo se corresponde con la clave de colapso de FCM y el `apns-collapse-id` de Apple, según su documentación."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si el servidor recibió un OK, el usuario recibió el aviso»",
+   "x": "Cada «OK» responde una pregunta distinta. Que Expo acepte el pedido, que FCM lo acepte y que el aparato lo muestre son tres hechos separados, con horas de diferencia posibles. Para algo importante, el aviso solo llama la atención; la información verdadera vive en el servidor y la app la pide al abrirse."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Expo no promete disponibilidad",
+   "x": "La documentación de Expo dice que su servicio de push no tiene un acuerdo de nivel de servicio (SLA) y que FCM y APNs también pueden tener caídas [#rt0811-expo-push]. Es normal para un servicio gratuito; lo que importa es que tu servidor pueda reintentar y que la app no dependa de que cada aviso llegue."
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que Senda no manda",
+   "x": [
+    "La función `enviar_avisos` arma cada pedido con `to`, `title`, `body`, `data`, `sound` y `channelId`. No pone `ttl`, `collapseId` ni `priority`, y según [@08-17] tampoco lee recibos. Mi lectura, que es inferencia y no probé en un teléfono: sin `ttl`, un aviso como «Te quedan 6 horas para jugar tu turno» (lo escribe la función `cerrar_vencidas`) podría entregarse cuando el teléfono se prenda, aun si el duelo ya terminó. Con unas 6 horas de vida útil, una regla práctica es un `ttl` parecido. Y sin `collapseId`, un teléfono apagado puede acumular varios avisos del mismo duelo.",
+    "Un caso real, verificable en el código: el campo `channelId` manda el aviso por el canal `senda_v4`, y Expo avisa que si ese canal no existe en el teléfono, el aviso no se muestra [#rt0811-expo-push]. Un comentario de `src/util/avisos.ts` cuenta que eso pasaba en la prueba 39: la base mandaba por `senda_v4`, un canal que la app todavía no creaba, y Android descartaba los avisos de duelos. Se arregló creando el canal al abrir la app. Los canales son el tema de [@10-19]."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "src/util/avisos.ts"
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Hipótesis inventada: Senda quiere avisar «Mañana a las 10 empieza la copa de Navidad» a un grupo de 8.000 personas, a las 18 h de hoy. Decí qué campos de un mensaje de Expo usarías (`ttl`, `collapseId`, `channelId`, `data`) y cuántos pedidos de 100 hacen falta.",
+   "pista": "Pensá hasta cuándo sirve el aviso, qué pasa si se repite y qué tiene que saber la app al tocarlo. Después dividí.",
+   "solucion": "`ttl`: hasta el comienzo de la copa, unas 16 horas (57.600 segundos), porque después no tiene sentido. `collapseId`: uno fijo para esa copa, así un segundo aviso reemplaza al primero. `channelId`: un canal que la app ya cree al abrirse. `data`: solo un identificador de la copa. Pedidos: 8.000 divididos en grupos de 100 son 80 pedidos. Son pocos frente al límite de 600 notificaciones por segundo por proyecto, que se corresponde con 6 pedidos de 100 cada segundo [#rt0811-expo-push]."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Esto cambia con el tiempo (16-11-2026)",
+   "x": [
+    "Las páginas de Firebase que leí tienen fecha de actualización del 12-11-2026. Dicen dos cosas que cambian el modelo: FCM está pasando de tokens de registro a identificadores de instalación de Firebase (conviven los dos), y para Android describe un formato nuevo de mensaje (`AndroidConfigV2`) con reglas distintas de entrega en primer y segundo plano [#push1018-fcm-registros], [#push1018-fcm-tipos]. La tabla de recepción que mostré vale para el formato clásico.",
+    "Las cifras de Expo (100 mensajes por pedido, 600 por segundo, 4096 bytes) y las de Apple las leí en sus páginas oficiales el 16-11-2026. Senda usa `expo-notifications` 57.0.21 según su `package.json`; yo leí la 57.0.25. No probé nada contra Expo, FCM, APNs ni un teléfono."
+   ]
+  }
+ ],
+ "recap": [
+  "Un servidor no le habla a un teléfono: le entrega el aviso a un servicio de la plataforma (FCM en Android, APNs en iPhone), que sabe llegar al aparato. Expo Push se pone adelante para hablar con un solo proveedor.",
+  "El token es la dirección de una instalación, no de una persona. Puede cambiar (Apple recomienda pedirlo en cada arranque), una persona tiene varios y quien lo tiene puede mandar avisos si no hay un token de acceso.",
+  "La carga útil tiene un tope de 4096 bytes. Se cuenta en bytes, no en letras: una «ñ» pesa 2. El aviso sano es un timbre con un identificador, y la app pregunta el estado real al servidor.",
+  "Cada «OK» dice poco: aceptado por Expo, aceptado por FCM y mostrado en el teléfono son hechos distintos. Ticket y recibo son las dos etapas de Expo.",
+  "Hay que decidir la vida del mensaje, si uno reemplaza al anterior y qué canal usa. Senda no pone `ttl` ni `collapseId`, y un canal que no existe en el teléfono hace que Android descarte el aviso."
+ ],
+ "repaso": [
+  {
+   "p": "¿Por qué el servidor de una app guarda tokens y no solamente el usuario de cada persona para mandar un push?",
+   "o": [
+    "Porque el servicio de push identifica una instalación en un aparato, no personas",
+    "Porque los usuarios cambian de nombre y los tokens no cambian nunca",
+    "Porque Android e iOS prohíben guardar identificadores de usuario",
+    "Porque cada token alcanza para varios aparatos de la misma persona"
+   ],
+   "c": 0,
+   "e": "El correo de la plataforma solo conoce instalaciones. Una persona puede tener varios aparatos y reinstalar la app, y cada caso da un token distinto. Los tokens sí cambian, no hay prohibición sobre los usuarios y un token no sirve para más de un aparato."
+  },
+  {
+   "p": "¿Qué hace una app que sigue la recomendación de Apple sobre el token de dispositivo?",
+   "o": [
+    "Lo pide en cada arranque y lo reenvía a su servidor",
+    "Lo pide una sola vez y lo guarda para siempre en el teléfono",
+    "Lo comparte con las demás apps del mismo desarrollador",
+    "Lo deriva del identificador de usuario con una cuenta"
+   ],
+   "c": 0,
+   "e": "Apple pide no guardar el token en el teléfono y pedirlo cada vez, porque cambia al restaurar un backup, cambiar de aparato o reinstalar el sistema. Además, cada app necesita su propio token: no se comparte entre apps."
+  },
+  {
+   "p": "Tu servidor manda un aviso a Expo y recibe un ticket con estado «ok». ¿Qué te garantiza?",
+   "o": [
+    "Que el aviso apareció en la pantalla del teléfono de la persona",
+    "Que Expo ya lo entregó a FCM o a APNs sin ningún error",
+    "Que Expo recibió tu pedido; falta el recibo para saber más",
+    "Que el aparato está encendido y con la app instalada"
+   ],
+   "c": 2,
+   "e": "El ticket dice que Expo recibió el pedido. Si lo pudo pasar a FCM o APNs lo dice el recibo, que se consulta más tarde, y ni siquiera un recibo «ok» asegura que el teléfono lo haya mostrado. Tampoco dice nada sobre el estado del aparato."
+  },
+  {
+   "p": "Un aviso con `channelId` «duelos» llega a un Android donde la app nunca creó ese canal. ¿Qué pasa según la documentación de Expo?",
+   "o": [
+    "Android lo muestra igual por un canal que crea el sistema",
+    "El aviso no se muestra a la persona en ese teléfono",
+    "Expo crea el canal en el teléfono antes de entregarlo",
+    "El aviso se muestra, pero sin sonido ni vibración"
+   ],
+   "c": 1,
+   "e": "Si se especifica un `channelId` que no existe en el aparato, el aviso no se muestra. Expo solo crea el canal si no indicás ninguno y usa el canal por defecto. Es el caso que Senda tuvo con `senda_v4` en la prueba 39."
+  },
+  {
+   "p": "Un aviso tiene 2.100 letras, todas «ñ» o vocales con tilde (2 bytes cada una en UTF-8), más unos 100 bytes de otras claves. ¿Entra en el tope de 4096 bytes?",
+   "o": [
+    "Sí, porque 2.100 caracteres son menos que 4096",
+    "Sí, porque el tope solo cuenta el título del aviso",
+    "Sí, porque APNs permite 5 KB para cualquier aviso",
+    "No, porque pesa unos 4.300 bytes y pasa el tope"
+   ],
+   "c": 3,
+   "e": "2.100 letras de 2 bytes son 4.200 bytes, más 100 de otras claves: unos 4.300, que pasa el tope de 4096. El límite se cuenta en bytes de toda la carga, no en caracteres. Los 5 KB son solo para llamadas de voz sobre internet."
+  },
+  {
+   "p": "Mandás «Te quedan 6 horas para jugar» sin indicar vida del mensaje, y el teléfono está apagado dos días. ¿Qué es lo más probable?",
+   "o": [
+    "Se descarta enseguida, porque un aviso sin vida no se guarda",
+    "Llega cuando el aparato se prende, aunque ya haya vencido",
+    "Expo lo reenvía cada hora hasta que el teléfono responda",
+    "El servicio avisa al servidor y le pide que lo vuelva a mandar"
+   ],
+   "c": 1,
+   "e": "Sin `ttl`, cada proveedor usa el suyo, que ronda las 4 semanas, y guarda el aviso hasta que el aparato vuelva. Por eso un aviso con fecha de vencimiento propia necesita un `ttl` propio. No se descarta por no tener vida ni Expo reintenta cada hora."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa por qué una app puede avisarte aunque esté cerrada, y por qué el aviso a veces no llega. Usá una analogía tuya, distinta del correo, y decí dónde deja de servir.",
+ "para_profundizar": [
+  {
+   "fuente": "rt0811-expo-push",
+   "nota": "La referencia de la API de Expo Push: formato del mensaje, tickets, recibos, errores y límites. Buscá la tabla de campos (`ttl`, `collapseId`, `channelId`) y la sección «Additional security»."
+  },
+  {
+   "fuente": "push1018-apns-registro",
+   "nota": "Cómo Apple explica el token de dispositivo: cuándo cambia y por qué no hay que guardarlo en el teléfono. Es corta y aclara el modelo de la dirección."
+  },
+  {
+   "fuente": "push1018-fcm-tipos",
+   "nota": "Mensajes de notificación y de datos en FCM, con el tope de 4096 bytes. Mirá la tabla de cuándo se usa cada uno."
+  },
+  {
+   "fuente": "push1018-apns-envio",
+   "nota": "El pedido a APNs: HTTP/2, encabezados, límites y la parte sobre almacenamiento de avisos no entregados, que explica por qué llega solo uno."
+  }
+ ],
+ "videos": [
+  {
+   "q": "push notifications explained FCM APNs token how it works",
+   "por_que": "Para ver dibujado el recorrido del token y del mensaje con otro ejemplo, antes de pasar al día de los canales y las notificaciones locales."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "FCM",
+   "d": "Firebase Cloud Messaging: el servicio de Google que acepta los pedidos de aviso de tu servidor y los hace llegar a los aparatos Android, y también a iOS y a la web a través de sus propias plataformas. Aceptar un mensaje no es entregarlo."
+  },
+  {
+   "t": "APNs",
+   "d": "Apple Push Notification service: el servicio de Apple por el que pasa todo aviso a un iPhone o iPad. Tu servidor le hace un POST por HTTP/2 con el token del aparato y un JSON, y APNs decide cuándo y cómo entregarlo."
+  },
+  {
+   "t": "token de dispositivo",
+   "d": "Texto que identifica a una instalación de una app en un aparato y que el servicio de push (APNs o FCM) sabe resolver. Es la dirección del aviso. Puede cambiar, una persona tiene varios y no sirve para otra app."
+  },
+  {
+   "t": "carga útil",
+   "d": "El contenido de un push: lo visible (título y texto) y los datos propios que la app necesita para reaccionar. Tiene un tope de 4096 bytes en las tres piezas, contado en bytes de UTF-8 y no en letras."
+  },
+  {
+   "t": "token de Expo",
+   "d": "Texto con la forma `ExponentPushToken[…]` que Expo entrega a cambio del token de dispositivo y el `projectId`. Es la dirección que conoce tu servidor cuando usás Expo Push; Expo guarda el vínculo con FCM o APNs."
+  },
+  {
+   "t": "vida del mensaje (TTL)",
+   "d": "Tiempo durante el cual el servicio de push guarda un aviso que no pudo entregar, en segundos. Sin indicarlo, FCM y Expo guardan hasta cuatro semanas; con cero, se descarta si no se entrega enseguida."
+  }
+ ],
+ "siguiente": "notificaciones push II: las que arma el propio teléfono sin servidor, los canales de Android y por qué un aviso bien enviado puede no llegar nunca.",
+ "fuentes_nuevas": [
+  {
+   "id": "push1018-fcm-tipos",
+   "t": "Notifications and data messages (Firebase Cloud Messaging)",
+   "a": "Google (Firebase)",
+   "tipo": "doc",
+   "url": "https://firebase.google.com/docs/cloud-messaging/customize-messages/set-message-type"
+  },
+  {
+   "id": "push1018-fcm-recibir",
+   "t": "Receive messages in an Android app (Firebase Cloud Messaging)",
+   "a": "Google (Firebase)",
+   "tipo": "doc",
+   "url": "https://firebase.google.com/docs/cloud-messaging/android/receive-messages"
+  },
+  {
+   "id": "push1018-fcm-registros",
+   "t": "Best practices for FCM registration management",
+   "a": "Google (Firebase)",
+   "tipo": "doc",
+   "url": "https://firebase.google.com/docs/cloud-messaging/manage-tokens"
+  },
+  {
+   "id": "push1018-apns-registro",
+   "t": "Registering your app with APNs",
+   "a": "Apple Developer Documentation",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns"
+  },
+  {
+   "id": "push1018-apns-envio",
+   "t": "Sending notification requests to APNs",
+   "a": "Apple Developer Documentation",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns"
+  },
+  {
+   "id": "push1018-apns-payload",
+   "t": "Generating a remote notification",
+   "a": "Apple Developer Documentation",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/documentation/usernotifications/generating-a-remote-notification"
+  }
+ ]
+}

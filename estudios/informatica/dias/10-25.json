@@ -1,0 +1,676 @@
+{
+ "id": "10-25",
+ "titulo": "Qué es un APK, un AAB y un IPA",
+ "bajada": "Los tres archivos que se llaman «la app», abiertos por dentro: cuál se instala, cuál es materia prima y por qué Senda pesa lo que pesa.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Listar qué hay dentro de un APK (manifiesto binario, DEX, recursos, bibliotecas por ABI, firma) y para qué sirve cada parte.",
+  "Explicar por qué un AAB no se instala y qué hace Google Play con él para fabricar los APK de cada teléfono.",
+  "Calcular cuánto pesan las bibliotecas nativas con una, dos o cuatro arquitecturas a partir de tamaños reales.",
+  "Describir un IPA como paquete de iOS y distinguirlo de lo que realmente descarga cada iPhone.",
+  "Leer la tabla de peso de Senda y decir qué parte conviene tocar primero y cuál no se puede medir sin Play."
+ ],
+ "venis_de": "Ya viste cómo Android instala una app, le da su carpeta privada y la firma ([@02-31]), y qué es la firma y quién la guarda ([@10-24]). Hoy abrís el paquete que se firma y miramos qué hay adentro, en tres formatos.",
+ "se_apoya_en": [
+  "02-31",
+  "10-24",
+  "10-05",
+  "10-12"
+ ],
+ "gancho": [
+  "Tenés tres archivos en una carpeta: `senda.apk`, `senda.aab` y `senda.ipa`. Los tres son «la app», pero solo dos se pueden instalar en un teléfono, y cada uno en un sistema distinto. El tercero, el `.aab`, no se instala en ninguno: es la materia prima con la que Google fabrica, para cada teléfono, un instalable a medida.",
+  "Para entenderlo sin quedarme en la teoría, armé en este entorno una app mínima mía: la compilé a mano con las herramientas oficiales de Android (build-tools 36.0.0), la firmé, la empaqueté como AAB y le pedí a bundletool 1.18.3 que la partiera como lo haría Play. No hay iPhone ni Mac acá, así que todo lo de iOS sale de documentación de Apple y está marcado como no corrido. Tampoco armé el APK de Senda: lo que sé de su peso viene de su propio documento de medición."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El APK: un ZIP con reglas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[APK]] es el paquete que Android instala. Por dentro es un archivo ZIP, el mismo formato que ya conocés de comprimir una carpeta: si le cambiás la extensión a `.zip`, tu compu lo abre. Lo que lo hace un APK y no un ZIP cualquiera es que tiene entradas con nombres y lugares fijos, y que lleva una firma que el sistema verifica al instalar ([@10-24]). Es lo que la documentación de Android describe como el contenedor del código, los recursos y el manifiesto de una app [#android-fundamentos-apk].",
+    "Mi app de práctica tiene un paquete (`ar.demo.mini`), una pantalla con un texto, dos imágenes de distinta densidad, dos idiomas y una biblioteca nativa de juguete. Este es su contenido real, listado con `unzip`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "unzip -lv mini.apk",
+     "s": "  Length   Method    Size  Cmpr  Name\n    1764  Defl:N     645  63%  AndroidManifest.xml\n     117  Stored     117   0%  res/drawable-mdpi-v4/logo.png\n     290  Stored     290   0%  res/drawable-xxhdpi-v4/logo.png\n    1076  Stored    1076   0%  resources.arsc\n    1936  Defl:N    1055  46%  classes.dex\n   15104  Defl:N    1614  89%  lib/arm64-v8a/libhola.so\n   15104  Defl:N    1614  89%  lib/x86_64/libhola.so\n     805  Defl:N     499  38%  META-INF/DEMO.SF\n    1101  Defl:N    1031   6%  META-INF/DEMO.RSA\n     678  Defl:N     385  43%  META-INF/MANIFEST.MF"
+    }
+   ],
+   "cap": "APK de práctica mío (no es Senda), armado con aapt2, javac, d8, zipalign y apksigner de las build-tools 36.0.0 en esta VM, el 16-11-2026. Las bibliotecas salen comprimidas porque las empaqueté a mano; la herramienta de compilación real las guarda sin comprimir."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "mini.apk",
+    "s": "un ZIP firmado",
+    "k": "os",
+    "h": [
+     {
+      "t": "AndroidManifest.xml",
+      "s": "qué componentes y permisos declara (en binario)",
+      "k": "cliente"
+     },
+     {
+      "t": "classes.dex",
+      "s": "el código, compilado para ART",
+      "k": "servidor"
+     },
+     {
+      "t": "resources.arsc + res/",
+      "s": "textos por idioma, imágenes por densidad",
+      "k": "datos"
+     },
+     {
+      "t": "lib/<ABI>/*.so",
+      "s": "código nativo, una carpeta por arquitectura",
+      "k": "red"
+     },
+     {
+      "t": "firma",
+      "s": "bloque de firma v2/v3 dentro del ZIP (más META-INF si sirve v1)",
+      "k": "alerta"
+     }
+    ]
+   },
+   "cap": "Las cinco partes que vas a encontrar en casi cualquier APK."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres detalles de esa lista valen la pena.",
+    "**El manifiesto no se puede leer con un editor de texto.** El `AndroidManifest.xml` que escribí tiene unas veinte líneas legibles, y el que quedó en el APK empieza con los bytes `03 00 08 00` (los leí con `od`), no con `<?xml`. El compilador de recursos, `aapt2`, lo convirtió a un formato binario que el sistema lee más rápido. Para mirarlo hay que pedirle a una herramienta que lo vuelva a mostrar: `aapt2 dump xmltree` o `apkanalyzer manifest print`.",
+    "**`resources.arsc` va sin comprimir.** Es la tabla que une cada nombre de recurso (`R.string.hola`) con sus valores por idioma y por densidad. La documentación de Android 11 dice que los `resources.arsc` comprimidos dejaron de estar soportados para apps que apuntan a esa versión o una posterior [#android-play-target-sdk], y por eso aparece como `Stored`. Se guarda sin comprimir para poder mapearlo directo en memoria.",
+    "**La firma no está donde la esperarías.** Aparecen archivos en `META-INF`, pero eso es la firma vieja (v1). El resto de la firma, la que importa hoy, vive en un bloque que se agrega dentro del ZIP justo antes de su directorio central, y por eso el ZIP sigue siendo un ZIP válido [#aosp-firma-apks-v2]. Verifiqué la mía con `apksigner verify`: v2 y v3 en `true`, v1 en `false`. Es esperable: declaré `minSdkVersion` 26 y Android solo necesita v1 para versiones más viejas."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El APK de práctica pesa 17.068 bytes y la suma de lo que hay adentro, sin comprimir, es 37.975. ¿De dónde sale la diferencia y qué dos entradas de la lista son las que más ahorran?",
+   "resp": "Sale de la compresión Deflate del ZIP: casi todo se guarda más chico. Lo que más ahorra son las dos bibliotecas `.so`, que bajan de 15.104 a 1.614 bytes cada una (un 89 %), porque son idénticas y tienen mucho relleno. En un APK real las bibliotecas nativas no se comprimen: la herramienta de compilación las guarda tal cual para que Android las lea directo del APK sin copiarlas, y por eso en la tabla de Senda ocupan lo mismo en el APK que instaladas."
+  },
+  {
+   "t": "h",
+   "x": "DEX: el código que entiende ART"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El código de una app Android se escribe en Java o Kotlin, y el teléfono no ejecuta ninguno de los dos tal cual. El [[compilador]] de Java genera archivos `.class`, que son [[bytecode]] de la [[JVM]] ([@03-50]). Una herramienta de Google, `d8`, los traduce y junta en un formato propio de Android: el [[DEX]] (Dalvik Executable) [#android-d8-tool]. Ese es el `classes.dex` del APK, y es lo que ART ejecuta o compila en el teléfono ([@10-02])."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Main.java",
+       "s": "lo que escribís",
+       "k": "cliente"
+      },
+      {
+       "t": "Main.class",
+       "s": "bytecode de JVM (javac)",
+       "k": "servidor",
+       "e": "javac"
+      },
+      {
+       "t": "classes.dex",
+       "s": "bytecode de Android (d8)",
+       "k": "datos",
+       "e": "d8"
+      },
+      {
+       "t": "ART",
+       "s": "ejecuta o compila en el teléfono",
+       "k": "os",
+       "e": "instalación"
+      }
+     ]
+    }
+   ],
+   "cap": "La ruta del código en Android. En React Native el código de la interfaz es otro: JavaScript, que no pasa por acá; lo ves en [@10-26]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mi `classes.dex` pesa 1.936 bytes y `dexdump` muestra su cabecera: versión `038`, 35 cadenas, 17 tipos, 12 métodos y 4 clases (la mía, la `R` de recursos y sus dos hijas). El número de versión no es casual: la especificación del formato dice que la 038 se agregó en Android 8.0, y `d8` la usa porque declaré `minSdk` 26 [#aosp-dex-format-2611].",
+    "Un DEX tiene un límite que sorprende: un solo archivo puede referenciar como máximo 65.536 métodos. Cuando una app más las bibliotecas que usa lo superan, la compilación falla, y la salida es el multidex: partir el código en `classes.dex`, `classes2.dex`, etcétera [#android-multidex-2611]. No es raro llegar: en otra práctica armé una app de un solo botón con AppCompat y Material y su DEX referencia 58.874 métodos, a un paso del tope, sin que yo haya escrito casi nada (vas a ver ese mismo experimento con R8 en [@10-26]). Senda tiene 15,3 MB de DEX en el APK, o 41,3 MB una vez descomprimidos, según su documento de peso (23-10-2026); cuántos archivos `classes*.dex` son, no lo medí."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "lib/: una carpeta por arquitectura"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El código nativo (C y C++, que ya viste en [@03-54]) no es portable como el DEX: se compila para un procesador concreto. Android llama a cada combinación procesador más convención de llamadas un **ABI**, y el APK lleva una subcarpeta de `lib/` por cada uno que soporta: `arm64-v8a`, `armeabi-v7a`, `x86` y `x86_64` [#android-ndk-abis]. Un teléfono de hoy casi siempre es `arm64-v8a`; `x86_64` aparece sobre todo en emuladores de PC.",
+    "Acá se ve por qué importa la cantidad. React Native publica su motor nativo como biblioteca precompilada, y bajé la de la versión que usa Senda (0.86.3, 168 MB comprimida) para medir. Esto pesa su `libreactnative.so` en cada ABI, ya sin símbolos de depuración:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "ABI",
+    "libreactnative.so (bytes)",
+    "En MB"
+   ],
+   "filas": [
+    [
+     "arm64-v8a",
+     "6.985.168",
+     "6,99"
+    ],
+    [
+     "armeabi-v7a",
+     "4.859.120",
+     "4,86"
+    ],
+    [
+     "x86",
+     "7.362.736",
+     "7,36"
+    ],
+    [
+     "x86_64",
+     "7.098.048",
+     "7,10"
+    ],
+    [
+     "Las cuatro juntas",
+     "26.305.072",
+     "26,31"
+    ]
+   ],
+   "cap": "Medido sobre react-android-0.86.3-release.aar bajado de Maven Central el 16-11-2026. Es una sola de las bibliotecas nativas; el APK de Senda lleva varias más."
+  },
+  {
+   "t": "p",
+   "x": "El 6,99 MB de la primera fila coincide con el «React Native 7,0 MB» de la tabla de peso de Senda: su APK lleva solo `arm64-v8a`, y se nota. Empaquetar las cuatro arquitecturas cuadruplicaría, para esa biblioteca sola, lo que cualquier teléfono real necesita. Los emuladores de PC existen y a veces piden `x86_64`, pero llevar esa carpeta en el APK que se reparte a los teléfonos es peso muerto. Esta cuenta es la razón de fondo para tener AAB, que vemos enseguida."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un cambio que viene: páginas de 16 KB",
+   "x": [
+    "Algunas bibliotecas nativas están compiladas suponiendo que el sistema maneja la memoria en páginas de 4 KB. Desde Android 15 hay dispositivos con páginas de 16 KB, y Google Play exige que las apps que apuntan a Android 15 o superior las soporten: a partir del 1 de febrero de 2027, una actualización que no las soporte no se puede publicar (según la página oficial, leída el 16-11-2026) [#mob2526-android-page-sizes].",
+    "Lo medí en dos bibliotecas mías con `readelf -lW`: compilada normal, los segmentos `LOAD` declaran alineación `0x1000` (4 KB); recompilada con `-Wl,-z,max-page-size=16384`, declaran `0x4000` (16 KB). Y revisé las de React Native 0.86.3: las cinco de `arm64-v8a` (`libreactnative`, `libjsi`, `libhermestooling`, `libfbjni` y `libc++_shared`) ya vienen en `0x4000`; la `armeabi-v7a` (32 bits) está en `0x1000`, que no es un problema porque la exigencia es para 64 bits."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El AAB: la materia prima que Play convierte en APK"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[AAB]] (Android App Bundle) es un archivo `.aab` que se sube a Google Play. La documentación lo define como un formato de publicación: contiene todo el código y los recursos compilados, pero delega a Play la generación y la firma de los APK [#mob2526-android-app-bundle]. **No se instala.** Es un ZIP como el APK, pero organizado por módulos en lugar de estar listo para el teléfono.",
+    "Lo armé con mi app. Los recursos se compilan en formato intermedio (protocol buffers, el formato binario de [@08-04]), el manifiesto y el DEX se mueven a sus propias carpetas, y `bundletool` agrega un par de archivos de descripción:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "unzip -l mini.aab",
+     "s": "  Length  Name\n      26  BundleConfig.pb\n     117  base/res/drawable-mdpi-v4/logo.png\n     290  base/res/drawable-xxhdpi-v4/logo.png\n    1936  base/dex/classes.dex\n   15104  base/lib/arm64-v8a/libhola.so\n   15104  base/lib/x86_64/libhola.so\n    1418  base/manifest/AndroidManifest.xml\n      43  base/native.pb\n     550  base/resources.pb"
+    },
+    {
+     "c": "bundletool dump config --bundle=mini.aab",
+     "s": "{\"bundletool\": {\"version\": \"1.18.3\"},\n \"optimizations\": {\"splitsConfig\": {\"splitDimension\": [\n   {\"value\": \"ABI\"}, {\"value\": \"SCREEN_DENSITY\"}, {\"value\": \"LANGUAGE\"}]}}}"
+    }
+   ],
+   "cap": "AAB de práctica mío, armado con aapt2 --proto-format y bundletool 1.18.3 en esta VM. La segunda salida es la configuración de cortes que le pedí; el AAB no está firmado: Play lo firma con la clave de la app ([@10-24])."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Se nota lo que cambia respecto del APK: hay una carpeta `base/` (el módulo principal; una app puede sumar módulos de funciones y paquetes de recursos), el manifiesto vive en `manifest/`, el DEX en `dex/`, y `resources.pb`, `native.pb` y `BundleConfig.pb` le cuentan a la tienda qué hay y cómo cortarlo [#mob2526-android-app-bundle-format]. Un detalle práctico: el AAB se firma con `jarsigner`; la documentación aclara que `apksigner` no sirve para bundles [#mob2526-android-bundletool]."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Qué hace Play con eso"
+  },
+  {
+   "t": "p",
+   "x": "Con un AAB, Play genera un APK base, un APK de configuración por cada ABI, por cada densidad de pantalla y por cada idioma, y le entrega a cada teléfono solamente los que necesita. Es el mecanismo de *split APKs* (APK partidos), que Android trata como una sola app instalada [#mob2526-android-app-bundle-format]. Podés reproducirlo en tu máquina, porque `bundletool` es la misma herramienta que usa Play:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "bundletool build-apks --bundle=mini.aab --output=mini.apks",
+     "s": "mini.apks: toc.pb + 33 archivos en splits/\n(base-master, base-arm64_v8a, base-x86_64, base-es,\n base-ldpi … base-xxxhdpi, y de cada uno tres variantes)"
+    },
+    {
+     "c": "bundletool extract-apks --apks=mini.apks --device-spec=spec.json --output-dir=ext",
+     "s": "base-master_3.apk       8461 bytes\nbase-arm64_v8a_3.apk   37021 bytes\nbase-es_3.apk           8339 bytes\nbase-xxhdpi_3.apk       8416 bytes"
+    },
+    {
+     "c": "bundletool get-size total --apks=mini.apks --device-spec=spec.json",
+     "s": "MIN,MAX\n12398,12398"
+    }
+   ],
+   "cap": "Dispositivo imaginario descrito en spec.json: arm64-v8a y armeabi-v7a, español e inglés, 480 dpi, Android 14 (API 34). El APK base más los tres cortes que le tocan; la tercera salida es la descarga estimada, comprimida. No corrí nada de esto en un teléfono."
+  },
+  {
+   "t": "pensa",
+   "x": "El APK universal de mi app (el que trae todo, `--mode=universal`) pesa 12.846 bytes, y la descarga estimada del conjunto partido para un teléfono es de 12.398. Casi no hay ahorro. ¿Se rompió la idea de los cortes?",
+   "resp": "No: mi app es diminuta y cada corte tiene un costo fijo (su propio manifiesto, su firma y el relleno de alineación; el corte de `arm64-v8a` ocupa 37.021 bytes aunque la biblioteca pese 15.104, probablemente por esa alineación y el bloque de firma, algo que no medí). Con 90 MB de bibliotecas y recursos, lo que se evita bajar es enorme frente a ese costo fijo. La moraleja es general: partir cuesta algo constante y ahorra algo proporcional al tamaño, así que solo conviene cuando hay mucho que ahorrar."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Por qué Play pide AAB",
+   "x": "Desde agosto de 2021, las apps nuevas tienen que publicarse como AAB en Google Play [#mob2526-android-app-bundle]. La descarga comprimida de lo que instala un teléfono (base más cortes) tiene que quedar dentro de los límites de la tienda: según la ayuda de Play Console, leída hoy, 500 MB para el módulo base y 4 GB acumulados entre módulos y paquetes de instalación. Senda está lejos de ambos topes."
+  },
+  {
+   "t": "h",
+   "x": "El IPA: el paquete de iOS"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo lo de esta sección es documentación de Apple: no hay Mac ni iPhone en este entorno, y no corrí nada.",
+    "Un [[IPA]] (iOS App Store Package) es el archivo con el que una app de iPhone se distribuye. Según una nota técnica de Apple, ya archivada, es un ZIP: al renombrarlo a `.zip` y expandirlo aparece una carpeta `Payload` con el paquete de la app, el `.app` [#mob2526-apple-qa1798]. Ese `.app` es el [[bundle de iOS]] que viste en [@10-05]: una carpeta con el ejecutable (en formato Mach-O, el equivalente de iOS al ELF de Linux de [@02-20]), recursos, un `Info.plist` que cumple el papel del manifiesto y los datos de firma de [@10-24].",
+    "Es el hermano del APK en lo práctico: se firma, lleva todo el código nativo y es lo que se sube. Y es también el hermano del AAB en algo menos obvio: **lo que subís no es lo que se descarga**. Apple procesa la compilación y genera variantes por dispositivo, lo que su documentación llama *app thinning* (adelgazar la app): cada iPhone baja solo las arquitecturas y los recursos que usa. Es un mecanismo parecido al de los cortes de Play, con una diferencia: no hay un formato nuevo de publicación, la entrega sigue siendo el IPA."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "APK",
+    "AAB",
+    "IPA"
+   ],
+   "filas": [
+    [
+     "Sistema",
+     "Android",
+     "Android (solo publicación)",
+     "iOS y iPadOS"
+    ],
+    [
+     "¿Se instala en el teléfono?",
+     "Sí",
+     "No",
+     "Sí (el que genera Apple, o uno firmado para pruebas)"
+    ],
+    [
+     "Quién genera lo que se instala",
+     "Tu compilación",
+     "Google Play, a partir del AAB",
+     "App Store, a partir del IPA; o tu compilación en pruebas"
+    ],
+    [
+     "Se firma con",
+     "apksigner (esquemas v2/v3)",
+     "jarsigner (clave de carga)",
+     "Certificado y perfil de Apple (Xcode)"
+    ],
+    [
+     "Se compila en",
+     "Cualquier PC con Gradle",
+     "Cualquier PC con Gradle",
+     "Solo macOS con Xcode, o un servicio con Macs"
+    ],
+    [
+     "Límite que importa",
+     "Legado: 100 MB para APK sueltos",
+     "500 MB base, 4 GB total (descarga comprimida)",
+     "4 GB sin comprimir; ejecutable hasta 500 MB"
+    ]
+   ],
+   "cap": "Los límites de Android son de la ayuda de Play (leída el 16-11-2026); los de iOS, de la página de tamaños máximos de App Store Connect [#mob2526-apple-max-build-sizes]. El 500 MB del IPA es para la suma de las secciones de texto del ejecutable, no para todo el paquete."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que exigen las tiendas hoy (verificado el 16-11-2026)",
+   "x": [
+    "Google Play: desde el 31 de agosto de 2026, apps nuevas y actualizaciones deben apuntar a Android 16 (API 36) o superior; con prórroga posible hasta el 1 de noviembre de 2026 [#android-play-target-sdk]. Senda declara `targetSdk` 36 en el catálogo de React Native 0.86.3 que usa Expo.",
+    "Apple: desde el 28 de abril de 2026, lo que se sube a App Store Connect tiene que estar compilado con Xcode 26 o superior y el SDK de iOS 26 [#swift-apple-requirements]. La página no menciona todavía un SDK 27."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: qué pesa en su APK"
+  },
+  {
+   "t": "p",
+   "x": "Senda tiene un documento de peso (`docs/PESO.md`, medición del 23-10-2026). Es un HECHO medido por su propia compilación: el APK de prueba, solo `arm64-v8a`, pesaba **89,1 MB**. Y la compilación publica desde entonces la tabla de qué ocupa cada parte. Con esta lista en la cabeza, ya podés leerla:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Parte del APK",
+    "En el APK (MB)",
+    "Instalado, sin comprimir (MB)"
+   ],
+   "filas": [
+    [
+     "Bibliotecas nativas (`lib/`)",
+     "35,9",
+     "35,9"
+    ],
+    [
+     "Recursos (Biblias, sonidos, imágenes)",
+     "25,4",
+     "51,7"
+    ],
+    [
+     "Código Java/Kotlin (`.dex`)",
+     "15,3",
+     "41,3"
+    ],
+    [
+     "JavaScript (Hermes)",
+     "9,8",
+     "9,8"
+    ],
+    [
+     "Otros",
+     "2,1",
+     "2,4"
+    ]
+   ],
+   "cap": "Fuente: docs/PESO.md de senda-app, commit 25e08fa (2026-11-08). Las cinco filas suman 88,5 MB y el documento da 89,1: la diferencia no está explicada ahí. Mi hipótesis, sin medirla, es el bloque de firma y el relleno de alineación del ZIP."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos cosas confirman lo que viste. Primero, `lib/` pesa igual dentro y fuera del APK (35,9 y 35,9) porque las bibliotecas van sin comprimir, y los DEX son al revés: 15,3 comprimidos y 41,3 instalados. Segundo, lo más pesado individual, según el mismo documento, son las bibliotecas de Rive (9,3 MB, el motor de Lany), React Native (7,0), el JavaScript con todo el contenido (9,8) y las ocho Biblias completas (10,7, unos 4 MB cada una sin comprimir).",
+    "El documento también apunta qué conviene hacer. Con R8 el APK 37 bajó de 95,9 a 87,1 MB (HECHO, 25-10-2026; [@10-26] lo explica). Y deja como ESTIMACIÓN que mandar las Biblias de otros idiomas con Play Asset Delivery ahorraría unos 8 MB, pero necesita la cuenta de Play. Lo que **no** se puede medir todavía es lo que una persona descarga: la propia documentación de Senda lo marca como INFERENCIA, porque depende de los cortes que haga Play con un AAB que aún no se subió."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "El mismo código produce dos de los tres archivos",
+   "x": [
+    "Senda arma APK y AAB con dos flujos distintos de GitHub Actions. El de prueba, `apk.yml`, compila solo `arm64-v8a` (`-PreactNativeArchitectures=arm64-v8a`; con la opción `emulador` suma `x86_64`) y publica el APK en una pantalla de Releases. El de tienda, `aab.yml`, corre `bundleRelease` sin esa restricción: genera el AAB para todas las arquitecturas, porque eso se lo deja a Play. Lo leí en los dos archivos; no corrí ninguno.",
+    "Hay tres diferencias para saber, verificadas en el código y no corridas: `aab.yml` no tiene el paso de R8 (`scripts/android_r8.sh`), no inyecta los ID de AdMob y no corre el validador de contenido ni las pruebas que sí corre el de prueba. Es una brecha ya anotada en el mapa técnico de Senda (commit 25e08fa); el código cambia, la forma permanece. Y no existe versión para iPhone: `eas.json` deja preparado el perfil `produccion` con salida `app-bundle` para Android e IPA para iOS, pero según `docs/TIENDAS.md` la app nunca se compiló para iOS, y falta la cuenta de Apple."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/aab.yml",
+    "docs/PESO.md",
+    "eas.json",
+    "scripts/android_r8.sh",
+    "app.json"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«El AAB es un APK más grande»",
+   "x": "Es una confusión común porque los dos son ZIP y se parecen. El APK es un producto terminado: lo instalás. El AAB es un insumo: no lo instalás, tiene el manifiesto y los recursos en formato intermedio y le falta la firma final. Un AAB suele pesar más que cualquier APK que se derive de él, y aun así genera descargas más chicas, porque cada teléfono baja una fracción."
+  },
+  {
+   "t": "h",
+   "x": "Laboratorio: abrir un APK propio"
+  },
+  {
+   "t": "p",
+   "x": "No necesitás Android Studio para esto: las herramientas de línea de comandos alcanzan, y se bajan con `sdkmanager` (un paquete llamado `build-tools`). Si en algún momento tenés un APK a mano, con tres comandos ves casi todo lo de hoy."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Tres comandos sobre cualquier APK",
+   "pasos": [
+    {
+     "t": "Listá el contenido",
+     "x": "`unzip -lv app.apk` muestra cada entrada con su tamaño y si va comprimida. Fijate en tres cosas: cuántos `classes*.dex` hay, qué carpetas `lib/<ABI>/` tiene y si `resources.arsc` va `Stored`."
+    },
+    {
+     "t": "Leé el manifiesto",
+     "x": "`aapt2 dump badging app.apk` imprime el paquete, el `versionCode`, el `minSdk`, el `targetSdk`, los permisos y la actividad que abre el ícono. `apkanalyzer manifest print app.apk` lo muestra como XML [#mob2526-android-apkanalyzer]."
+    },
+    {
+     "t": "Medí qué pesa",
+     "x": "`apkanalyzer files list app.apk` y `apkanalyzer apk download-size app.apk` dan la estructura y una estimación de lo que pesa comprimido. Sirven para encontrar en qué parte está el peso antes de optimizar."
+    }
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un APK de una app multiplataforma tiene `lib/arm64-v8a/libreactnative.so` (7 MB) y la compilación se hace con las cuatro arquitecturas. Calculá cuánto sumaría esa sola biblioteca si usás las medidas de la tabla de hoy, y cuánto baja la descarga de un teléfono moderno si se parte como AAB.",
+   "pista": "Sumá las cuatro filas de la tabla de `libreactnative.so` y comparalas con la fila de `arm64-v8a`. Recordá que Play entrega un solo ABI por teléfono.",
+   "solucion": "Las cuatro suman 26,31 MB (6,99 + 4,86 + 7,36 + 7,10). Un teléfono moderno recibe solo la de `arm64-v8a`, 6,99 MB: un 73 % menos. Esa es la parte que se ahorra por ABI; los cortes por idioma y densidad se suman aparte. Dos aclaraciones: son bytes de la biblioteca sin comprimir, y la descarga real depende de la compresión de Play, que no medí."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "const abis = {\n  'arm64-v8a': 6985168,\n  'armeabi-v7a': 4859120,\n  'x86': 7362736,\n  'x86_64': 7098048\n};\nconst total = Object.values(abis).reduce((a, b) => a + b, 0);\nconsole.log('Las cuatro juntas:', total, 'bytes');\nfor (const [abi, bytes] of Object.entries(abis)) {\n  const pct = (100 * bytes / total).toFixed(1);\n  console.log(abi.padEnd(12), String(bytes).padStart(9), pct + ' % del total');\n}\nconst ahorro = 100 * (1 - abis['arm64-v8a'] / total);\nconsole.log('Un teléfono arm64 se ahorra', ahorro.toFixed(1) + ' %');",
+   "cap": "Los números son los de la tabla de hoy; probado antes en node 22. Cambiá las cifras para ver cómo cambia el ahorro."
+  }
+ ],
+ "recap": [
+  "Un APK es un ZIP firmado con el manifiesto binario, el DEX, los recursos, las bibliotecas por ABI y la firma; es lo que Android instala.",
+  "El DEX es el bytecode propio de Android; un solo archivo admite 65.536 referencias a métodos y, si no alcanza, se parte en varios (multidex).",
+  "El código nativo se compila por arquitectura (ABI) y va en `lib/<ABI>/`; llevar las cuatro cuadruplica lo que cada teléfono usa.",
+  "Un AAB no se instala: es el formato que se sube a Play, y Play genera con él un APK base más cortes por ABI, densidad e idioma.",
+  "Un IPA es un ZIP con `Payload/<app>.app`; como con el AAB, lo que se sube no es lo que se baja: App Store genera variantes.",
+  "Partir un paquete tiene un costo fijo y un ahorro proporcional; en Senda el peso medido está en las bibliotecas nativas, los recursos y el DEX, y lo que la gente baja realmente solo se sabrá con Play."
+ ],
+ "repaso": [
+  {
+   "p": "Querés mirar qué permisos declara un APK pero, al abrir su `AndroidManifest.xml` con un editor de texto, ves símbolos ilegibles. ¿Qué pasa?",
+   "o": [
+    "Está en formato binario por la compilación: se lee con aapt2 o apkanalyzer",
+    "Está cifrado con la clave de firma y solo Play puede leerlo",
+    "Está dañado: un APK instalable lleva el manifiesto en XML de texto",
+    "Lo comprimió ZIP con una contraseña que viene en META-INF"
+   ],
+   "c": 0,
+   "e": "El compilador de recursos convierte el manifiesto a un XML binario para que el sistema lo lea rápido; no está cifrado ni dañado, y la firma sirve para verificar que no se alteró, no para ocultarlo. Se lo vuelve a mostrar con aapt2 dump xmltree o apkanalyzer."
+  },
+  {
+   "p": "Subís a Play un AAB de una app con las cuatro arquitecturas y 90 MB de bibliotecas nativas. ¿Qué recibe un teléfono arm64 moderno?",
+   "o": [
+    "Un APK base y los cortes de su ABI, su densidad y sus idiomas",
+    "El AAB completo, que Android instala con adb",
+    "Un APK universal con las cuatro arquitecturas dentro",
+    "Solo el APK base, y las bibliotecas se bajan al primer uso"
+   ],
+   "c": 0,
+   "e": "Play arma el APK base y los APK de configuración que corresponden a ese teléfono. El AAB no se instala, el universal es el APK que se arma a pedido para pruebas (no el que baja un usuario) y las bibliotecas del ABI viajan como corte de instalación, no a pedido."
+  },
+  {
+   "p": "Una app con AppCompat, Material y poco código propio compila bien en debug y falla al empaquetar, con un error de límite de métodos. ¿Cuál es la causa más probable?",
+   "o": [
+    "Un archivo DEX admite 65.536 referencias a métodos y las bibliotecas lo superaron",
+    "Material pesa más que 100 MB y excede el límite de un APK",
+    "La firma v2 no admite más de 10 bibliotecas",
+    "El manifiesto binario no puede declarar tantas actividades"
+   ],
+   "c": 0,
+   "e": "El límite es por archivo DEX, y se resuelve con multidex (partir en varios) o achicando con R8. Las otras opciones mezclan límites que existen en otros lugares: 100 MB es el viejo tope de APK en Play, y no hay un tope de bibliotecas en la firma."
+  },
+  {
+   "p": "Una app de Senda pesa 89 MB con una sola arquitectura. Un colega propone subir un APK con las cuatro para «cubrir todos los teléfonos». ¿Cuál es el efecto principal?",
+   "o": [
+    "Cada instalación incluye bibliotecas de procesadores que ese teléfono nunca usa",
+    "El APK se vuelve más rápido porque Android elige la mejor biblioteca",
+    "Se vuelve imposible de firmar, por el tamaño",
+    "Solo cambia el archivo, no lo que se descarga"
+   ],
+   "c": 0,
+   "e": "Cada carpeta `lib/<ABI>` es peso muerto para los teléfonos de otras arquitecturas, y en un APK suelto se descarga todo. El AAB existe para que Play haga ese corte. La firma no depende del tamaño y la velocidad no mejora por tener más bibliotecas."
+  },
+  {
+   "p": "Alguien te pasa un `.ipa` y querés saber qué hay adentro sin tener un Mac. ¿Qué podés hacer?",
+   "o": [
+    "Renombrarlo a .zip y abrirlo: hay una carpeta Payload con el .app",
+    "Nada: el formato es cifrado y exige Xcode",
+    "Instalarlo con bundletool para ver los cortes",
+    "Abrirlo con apkanalyzer, que lee los dos sistemas"
+   ],
+   "c": 0,
+   "e": "Según Apple, el IPA es un ZIP con la carpeta Payload y el .app. bundletool y apkanalyzer son herramientas de Android. Verlo no requiere Xcode; lo que sí requiere un Mac es compilarlo y firmarlo."
+  },
+  {
+   "p": "Mide el tamaño de lo que se sube a la tienda y de lo que se baja: ¿en cuál de estos casos coinciden mejor ambas cosas?",
+   "o": [
+    "Un APK distribuido por fuera de la tienda, tal cual",
+    "Un AAB subido a Google Play",
+    "Un IPA subido a App Store Connect",
+    "Los tres coinciden siempre"
+   ],
+   "c": 0,
+   "e": "Solo con un APK suelto, instalado desde un archivo, lo que baja la persona es el mismo archivo. Con AAB e IPA, la tienda genera variantes por dispositivo, así que lo que se baja es distinto de lo que se subió."
+  },
+  {
+   "p": "En el APK de Senda, `lib/` pesa 35,9 MB dentro del APK y 35,9 MB instalado, mientras que el DEX pesa 15,3 y 41,3. ¿Qué explica la diferencia?",
+   "o": [
+    "Las bibliotecas nativas van sin comprimir y el DEX va comprimido en el ZIP",
+    "El DEX se duplica al instalarse y las bibliotecas no",
+    "Las bibliotecas nativas se descargan de nuevo al abrir la app",
+    "Los números son estimaciones sin relación con el formato"
+   ],
+   "c": 0,
+   "e": "Los APK guardan las bibliotecas `.so` sin comprimir para que Android las lea directo; el DEX se comprime con Deflate y al instalarse se expande. No se duplica ni se vuelve a bajar nada, y los números salen de la medición de la compilación de Senda."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca abrió un archivo de instalación qué diferencia hay entre un APK, un AAB y un IPA, y por qué Google y Apple no quieren que les subas siempre el mismo archivo que va a bajar la gente. Usá tu propio ejemplo en lugar del de Senda.",
+ "para_profundizar": [
+  {
+   "fuente": "mob2526-android-app-bundle-format",
+   "nota": "La estructura exacta de un AAB: módulos, carpetas `dex/` y `manifest/`, archivos `.pb`. Es lo que viste en el `unzip -l` de hoy, explicado por sus autores."
+  },
+  {
+   "fuente": "mob2526-android-bundletool",
+   "nota": "Todos los comandos de bundletool (`build-apks`, `extract-apks`, `get-size`). Sirve para repetir el experimento con tu propio AAB cuando tengas uno."
+  },
+  {
+   "fuente": "mob2526-android-page-sizes",
+   "nota": "Cómo comprobar si las bibliotecas nativas de tu app están alineadas a 16 KB y qué exige Play. Útil antes del 1 de febrero de 2027."
+  },
+  {
+   "fuente": "mob2526-apple-max-build-sizes",
+   "nota": "Los límites de tamaño de App Store Connect por plataforma; sirve para saber si tu app está cerca de algún tope."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Android App Bundle bundletool explained split APKs",
+   "por_que": "Para ver la generación de cortes explicada en pantalla, con una app real."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "APK",
+   "d": "Android Package: el archivo que Android instala. Es un ZIP firmado con el manifiesto, el código en DEX, los recursos y las bibliotecas nativas por arquitectura."
+  },
+  {
+   "t": "AAB",
+   "d": "Android App Bundle: el formato con el que se publica una app en Google Play. No se instala: Play lo usa para generar los APK de cada dispositivo y firmarlos."
+  },
+  {
+   "t": "IPA",
+   "d": "iOS App Store Package: el archivo con el que se distribuye una app de iPhone. Es un ZIP con una carpeta Payload que contiene el .app."
+  },
+  {
+   "t": "DEX",
+   "d": "Dalvik Executable: el formato de bytecode propio de Android, generado con la herramienta d8 a partir de las clases de Java o Kotlin. Un archivo DEX admite hasta 65.536 referencias a métodos."
+  },
+  {
+   "t": "ABI",
+   "d": "Application Binary Interface: la combinación de procesador y convención de llamadas para la que se compiló el código nativo. En Android: arm64-v8a, armeabi-v7a, x86 y x86_64."
+  },
+  {
+   "t": "split APK",
+   "d": "APK partido: un APK base más APK de configuración (por ABI, densidad o idioma) que Android instala y trata como una sola app. Es lo que genera Play a partir de un AAB."
+  },
+  {
+   "t": "multidex",
+   "d": "Técnica que reparte el código de una app en varios archivos DEX (`classes.dex`, `classes2.dex`…) cuando se supera el límite de 65.536 referencias a métodos."
+  },
+  {
+   "t": "bundletool",
+   "d": "Herramienta oficial de Google que arma un AAB y lo convierte en APK. Es la misma que usa Google Play, y se puede correr en cualquier PC."
+  },
+  {
+   "t": "app thinning",
+   "d": "Nombre que da Apple a la entrega de variantes por dispositivo: el App Store genera, a partir del IPA subido, una versión con solo lo que cada iPhone necesita."
+  }
+ ],
+ "siguiente": "Cómo se compila una app móvil: Gradle, los pasos entre el código y el APK, R8 y su equivalente en iOS.",
+ "fuentes_nuevas": [
+  {
+   "id": "mob2526-android-app-bundle",
+   "t": "Android App Bundles (Android Developers)",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/guide/app-bundle"
+  },
+  {
+   "id": "mob2526-android-app-bundle-format",
+   "t": "The Android App Bundle format",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/guide/app-bundle/app-bundle-format"
+  },
+  {
+   "id": "mob2526-android-bundletool",
+   "t": "bundletool",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/tools/bundletool"
+  },
+  {
+   "id": "mob2526-android-page-sizes",
+   "t": "Support 16 KB page sizes",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/guide/practices/page-sizes"
+  },
+  {
+   "id": "mob2526-android-apkanalyzer",
+   "t": "apkanalyzer",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/tools/apkanalyzer"
+  },
+  {
+   "id": "mob2526-apple-max-build-sizes",
+   "t": "Maximum build file sizes (App Store Connect)",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/help/app-store-connect/reference/app-uploads/maximum-build-file-sizes"
+  },
+  {
+   "id": "mob2526-apple-qa1798",
+   "t": "Technical Q&A QA1798: Checking Distribution Entitlements (archivada)",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/library/archive/qa/qa1798/_index.html"
+  },
+  {
+   "id": "aosp-dex-format-2611",
+   "t": "Dalvik Executable format",
+   "a": "Android Open Source Project",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/runtime/dex-format"
+  },
+  {
+   "id": "android-multidex-2611",
+   "t": "Enable multidex for apps with over 64K methods",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/build/multidex"
+  }
+ ]
+}
