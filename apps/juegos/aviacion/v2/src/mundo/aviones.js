@@ -80,16 +80,25 @@ class Armado {
     return this;
   }
   rueda(x, y, z, r) { return this.mas(new THREE.CylinderGeometry(r, r, r * 0.55, 12), '#22242a', tr(pos(x, y, z), rot(0, 0, Math.PI / 2))); }
-  fundir(lista) {
+  // acento (opcional): el color de la librea de este tipo. Las piezas de ese color llevan el color de la empresa: se anota en qué
+  // vértices quedaron (geo.userData.empresa) para poder repintarlas cuando la empresa cambia de color.
+  fundir(lista, acento = null, empresa = null) {
     if (!lista.length) return null;
-    const gs = lista.map(([g, c]) => {
+    const hexAcento = acento ? col(acento).getHex() : null, rangos = [];
+    let desde = 0;
+    const gs = lista.map(([g, c0]) => {
       g.deleteAttribute('uv');
+      const mio = hexAcento != null && c0.getHex() === hexAcento, c = mio && empresa ? empresa : c0;
       const n = g.attributes.position.count, arr = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
       g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+      if (mio) rangos.push([desde, n]);
+      desde += n;
       return g;
     });
-    return mergeGeometries(gs, false);
+    const geo = mergeGeometries(gs, false);
+    if (geo && rangos.length) geo.userData.empresa = rangos;
+    return geo;
   }
 }
 
@@ -144,7 +153,7 @@ const TIPOS = {
     a.mas(barra(V(-0.1, -0.15, 0.15), V(0.1, -0.15, 0.15), 0.005), oscuro);
     a.mas(barra(V(0, -0.03, -0.32), V(0, -0.075, -0.35), 0.006), oscuro);
     lucesNavegacion(a, 0.5, 0.165, 0.14, [0.15, -0.36]);
-    return { a, envergadura: 1.0, suelo: 0.195, cabeceo: 0.2 };
+    return { a, envergadura: 1.0, suelo: 0.195, cabeceo: 0.2, acento: rojo };
   },
   // Monoplano de ala alta de 1929: cabina cerrada, ala gruesa sobre montantes.
   tero() {
@@ -167,7 +176,7 @@ const TIPOS = {
     a.mas(barra(V(0.07, 0.0, 0.1), V(0.12, -0.17, 0.16), 0.006), oscuro, null, true);
     a.mas(barra(V(0, -0.03, -0.38), V(0, -0.08, -0.41), 0.006), oscuro);
     lucesNavegacion(a, 0.58, 0.14, 0.08, [0.18, -0.42]);
-    return { a, envergadura: 1.16, suelo: 0.22, cabeceo: 0.17 };
+    return { a, envergadura: 1.16, suelo: 0.22, cabeceo: 0.17, acento: azul };
   },
   // Bimotor metálico de 1936, 21 asientos.
   chaja() {
@@ -183,7 +192,7 @@ const TIPOS = {
     a.mas(new THREE.BoxGeometry(0.13, 0.04, 0.07), '#27404f', tr(pos(0, 0.075, 0.42), rot(-0.5, 0, 0)));
     a.mas(barra(V(0, -0.02, -0.5), V(0, -0.08, -0.52), 0.006), oscuro);
     lucesNavegacion(a, 0.72, 0.0, 0.03, [0.27, -0.52]);
-    return { a, envergadura: 1.5, suelo: 0.25, cabeceo: 0.13 };
+    return { a, envergadura: 1.5, suelo: 0.25, cabeceo: 0.13, acento: naranja };
   },
   // Cuatrimotor de posguerra.
   cauquen() {
@@ -202,7 +211,7 @@ const TIPOS = {
     ventanillas(a, -0.4, 0.46, 12, 0.045, 0.1, 0.02);
     a.mas(new THREE.BoxGeometry(0.13, 0.04, 0.07), '#27404f', tr(pos(0, 0.07, 0.63), rot(-0.55, 0, 0)));
     lucesNavegacion(a, 0.95, 0.02, 0.0, [0.33, -0.68]);
-    return { a, envergadura: 1.9, suelo: 0.27, cabeceo: 0 };
+    return { a, envergadura: 1.9, suelo: 0.27, cabeceo: 0, acento: azul };
   },
   // Turbohélice de ala alta.
   petrel() {
@@ -219,7 +228,7 @@ const TIPOS = {
     ventanillas(a, -0.34, 0.36, 11, 0.04, 0.097, 0.02);
     a.mas(new THREE.BoxGeometry(0.13, 0.04, 0.07), '#27404f', tr(pos(0, 0.065, 0.53), rot(-0.6, 0, 0)));
     lucesNavegacion(a, 0.8, 0.11, 0.03, [0.29, -0.66]);
-    return { a, envergadura: 1.6, suelo: 0.2, cabeceo: 0 };
+    return { a, envergadura: 1.6, suelo: 0.2, cabeceo: 0, acento: verde };
   },
   // Jet de pasajeros: alas en flecha, dos motores bajo el ala.
   halcon() {
@@ -236,7 +245,7 @@ const TIPOS = {
     ventanillas(a, -0.6, 0.62, 20, 0.04, 0.103, 0.016);
     a.mas(new THREE.BoxGeometry(0.13, 0.035, 0.07), '#27404f', tr(pos(0, 0.062, 0.82), rot(-0.6, 0, 0)));
     lucesNavegacion(a, 0.92, 0.03, -0.24, [0.4, -0.98]);
-    return { a, envergadura: 1.95, suelo: 0.24, cabeceo: 0 };
+    return { a, envergadura: 1.95, suelo: 0.24, cabeceo: 0, acento: azul };
   },
   // Carguero: panza grande, joroba, cuatro motores.
   cormoran() {
@@ -252,7 +261,7 @@ const TIPOS = {
     a.mas(mediaAla(0.44, 0.36, 0.13, 0.026, 0.3), naranja, tr(pos(0, 0.08, -0.82), rot(0, 0, Math.PI / 2)));
     a.mas(new THREE.BoxGeometry(0.15, 0.035, 0.07), '#27404f', tr(pos(0, 0.165, 0.9), rot(-0.6, 0, 0)));
     lucesNavegacion(a, 1.15, 0.05, -0.27, [0.5, -1.12]);
-    return { a, envergadura: 2.4, suelo: 0.285, cabeceo: 0 };
+    return { a, envergadura: 2.4, suelo: 0.285, cabeceo: 0, acento: naranja };
   },
 };
 
@@ -268,11 +277,25 @@ function materiales() {
 }
 export const materialLucesAvion = () => { materiales(); return matLuces; };
 
+// El color de la empresa: pinta la librea de todos los aviones (el rojo de la Golondrina es el de fábrica: una partida nueva se ve
+// igual que siempre). Cambiarlo repinta los vértices de la librea de cada tipo ya armado; los aviones en vuelo cambian en el acto.
+export const COLOR_EMPRESA = '#cf3f2c';
+let colorEmpresa = col(COLOR_EMPRESA);
+export function pintarEmpresa(hex) {
+  colorEmpresa = col(hex);
+  for (const p of cache.values()) {
+    const at = p.cuerpo?.attributes.color;
+    if (!at) continue;
+    for (const [desde, n] of p.cuerpo.userData.empresa ?? []) for (let i = desde; i < desde + n; i++) at.setXYZ(i, colorEmpresa.r, colorEmpresa.g, colorEmpresa.b);
+    at.needsUpdate = true;
+  }
+}
+
 function plantilla(tipo) {
   if (cache.has(tipo)) return cache.get(tipo);
   materiales();
-  const { a, envergadura, suelo, cabeceo } = (TIPOS[tipo] ?? TIPOS.golondrina)();
-  const p = { cuerpo: a.fundir(a.piezas), luces: a.fundir(a.luces), helices: a.helices, envergadura, suelo, cabeceo };
+  const { a, envergadura, suelo, cabeceo, acento } = (TIPOS[tipo] ?? TIPOS.golondrina)();
+  const p = { cuerpo: a.fundir(a.piezas, acento, colorEmpresa), luces: a.fundir(a.luces), helices: a.helices, envergadura, suelo, cabeceo };
   cache.set(tipo, p);
   return p;
 }

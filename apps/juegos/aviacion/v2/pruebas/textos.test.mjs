@@ -74,3 +74,40 @@ test('cada opción de una decisión dice qué pasa si se la elige y cada encargo
     assert.equal((T.g_noche.match(/<b>[^<]*<\/b>/g) ?? []).length, 1, `${lengua}.g_noche pide una sola acción`);
   }
 });
+
+// ── etapa 1 «decidir sabiendo» (16-11-2026) ──
+import { readFileSync } from 'node:fs';
+const fuente = (f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8');
+
+test('la tarjeta de decisión tiene sus tres palabras y las tres velocidades tienen nombre, en los dos idiomas', () => {
+  for (const lengua of ['es', 'en']) {
+    const T = TEXTOS[lengua];
+    for (const k of ['tj_cuesta', 'tj_deja', 'tj_paga', 'vTranquila', 'vNormal', 'vRapida', 'frenado', 'enPausa', 'acercar', 'alejar']) assert.ok(T[k] && T[k].length <= 20, `${lengua}.${k}: «${T[k]}»`);
+    assert.ok(T.frenadoPorque.length <= 40);
+    assert.ok(T.tj_rutaSola.includes('{avion}'), `${lengua}: la tarjeta de una ruta dice con qué avión va la cuenta`);
+    assert.ok(/\{a\}.*\{b\}/.test(T.entre), `${lengua}: el rango lleva sus dos números`);
+  }
+  assert.deepEqual([TEXTOS.es.tj_cuesta, TEXTOS.es.tj_deja, TEXTOS.es.tj_paga], ['Cuesta', 'Deja por día', 'Se paga en']);
+});
+
+test('todo porqué, consejo, causa y texto de la bandeja que nombra el código existe en los dos idiomas y es corto', () => {
+  const claves = new Set();
+  for (const f of ['estimador.js', 'libro.js', 'main.js']) for (const m of fuente(f).matchAll(/['"`]((?:pq|cz|cj|res|ban|parte|tj|col|s)_[A-Za-z0-9]+)['"`]/g)) claves.add(m[1]);
+  assert.ok(claves.size > 60, `se encontraron ${claves.size} claves`);
+  const tope = { pq: 110, cz: 90, cj: 130, res: 70, ban: 60, parte: 60, tj: 130, col: 20, s: 90 };
+  for (const k of claves) for (const lengua of ['es', 'en']) {
+    const v = TEXTOS[lengua][k];
+    assert.ok(v, `falta ${lengua}.${k}`);
+    assert.ok(v.length <= tope[k.split('_')[0]], `${lengua}.${k} es largo (${v.length}): ${v}`);
+  }
+});
+
+test('el juego ya no pide apurar el reloj: cuando no hay nada que decidir, invita a mirar', () => {
+  for (const lengua of ['es', 'en']) for (const [k, v] of Object.entries(TEXTOS[lengua])) assert.ok(!/aceler[aá]|speed up/i.test(v), `${lengua}.${k}: «${v}»`);
+  assert.ok(!('s_acelerar' in TEXTOS.es) && !('s_juntar' in TEXTOS.es));
+  assert.ok(/cámara/.test(TEXTOS.es.s_mirar) && /camera/.test(TEXTOS.en.s_mirar));
+});
+
+test('el nombre de fábrica de la empresa es propio y entra en la barra', () => {
+  for (const lengua of ['es', 'en']) { const n = TEXTOS[lengua].empresaDef; assert.ok(n && n.length <= 24, n); }
+});

@@ -61,19 +61,19 @@ fs.mkdirSync(carpeta, { recursive: true });
   if (quiere('noche')) {
     console.log('noche con faros y vista de la base');
     const p = await abrir(1280, 720, '&saltar=guia');
-    await p.evaluate(() => { const h = window.__hn, M = h.M, s = h.s; s.dinero = 300000;
+    await p.evaluate(() => { const h = window.__hn, M = h.M, s = h.s; s.dinero = 300000; h.fijarVel(1);
       for (const [a, b2, n] of [['BUE', 'MVD', 2], ['BUE', 'BHI', 2], ['BUE', 'ROS', 1], ['BUE', 'MDQ', 1]]) { M.abrirRuta(s, a, b2); for (let i = 0; i < n; i++) M.comprarAvion(s, 'golondrina', M.idRuta(a, b2)); }
       for (const k of ['base', 'tarde', 'noche', 'encargo', 'faros', 'despegueNoche', 'ciudades', 'perdio']) h.ver(k);
       h.avanzar(52);
       for (let i = 0; i < 600 && !(M.hora(s) >= 17.9 && M.hora(s) < 18.3); i++) h.avanzar(0.25);
-      s.dinero = 86400; h.mundo.ultimoManual = performance.now() + 1e9; h.limpiar(); h.elegir({ tipo: 'ciudad', id: 'BUE' });
+      s.dinero = 86400; h.limpiar(); h.elegir({ tipo: 'ciudad', id: 'BUE' }, { camara: 'pedida' }); h.cuentas();   // con el panel abierto el reloj queda frenado
     });
     await foto(p, '07-base-atardecer.jpg', 9000);
     await p.evaluate(() => { const h = window.__hn, M = h.M, s = h.s; h.accion('cerrarPanel', {}, null);
       for (let i = 0; i < 600 && !(M.hora(s) >= 20.5 && M.hora(s) < 21); i++) h.avanzar(0.25);
       for (const r of s.rutas.slice(0, 3)) M.ponerBalizas(s, r.id);
       s.flags.despNoche1 = true; // sin la tarjeta del primer vuelo nocturno: la captura muestra la red
-      h.limpiar(); h.accion('cerrarPanel', {}, null); h.verRed();
+      h.limpiar(); h.accion('cerrarPanel', {}, null); h.mundo.pedida(); h.verRed();
     });
     await foto(p, '06-noche-faros.jpg', 12000);
     await p.close();

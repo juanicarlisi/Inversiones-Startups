@@ -19,7 +19,7 @@ const { chromium } = require('/opt/node22/lib/node_modules/playwright');
       await p.evaluate(() => {
         const h = window.__hn, M = h.M, s = h.s; s.dinero = 500000;
         for (const [a, b2] of [['BUE', 'MVD'], ['BUE', 'BHI'], ['BUE', 'ROS'], ['BUE', 'MDQ']]) { M.abrirRuta(s, a, b2); M.comprarAvion(s, 'golondrina', M.idRuta(a, b2)); M.comprarAvion(s, 'golondrina', M.idRuta(a, b2)); }
-        h.avanzar(8); h.mundo.ultimoManual = performance.now() + 1e9; h.verRed(false);
+        h.fijarVel(1); h.avanzar(8); h.limpiar(); h.mundo.pedida(); h.verRed(false); h.mundo.manual();   // la cámara queda quieta durante la medición
         h.mundo.medidor.historia.length = 0;
       });
       await p.waitForTimeout(seg * 1000);

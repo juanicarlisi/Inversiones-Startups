@@ -10,13 +10,19 @@ import { Nubes } from './nubes.js';
 import { Ciudad, RADIO_CIUDAD, materialesCiudad } from './ciudades.js';
 import { RutaVista, materialFaros } from './rutas.js';
 import { Vuelos } from './vuelos.js';
-import { crearAvion, materialLucesAvion } from './aviones.js';
+import { crearAvion, materialLucesAvion, pintarEmpresa } from './aviones.js';
 import { Particulas, crearAnillo, crearFlecha } from './efectos.js';
 import { elegirCalidad, Medidor, NIVELES } from './calidad.js';
 
 CameraControls.install({ THREE });
 const A = CameraControls.ACTION;
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _obj = new THREE.Vector3(), _pos = new THREE.Vector3();
+const _n = new THREE.Vector3(), _rayo = new THREE.Vector3(), _u = new THREE.Vector3();
+// Cámara: qué tan cerca y qué tan lejos se puede mirar, y cuánto crecen los modelos con la distancia.
+//  · de cerca (menos de 4,8) los modelos ya no se achican: acercar agranda de verdad, hasta ver un avión a pantalla llena;
+//  · de lejos crecen con la distancia (exponente 0,72) para seguir legibles con toda la red de la época en pantalla.
+export const DIST_MIN = 0.9, DIST_MAX_BASE = 40, ESCALA_MIN = 0.8, ESCALA_MAX = 9;
+const PASO_RUEDA = 0.0016, PASO_PELLIZCO = 0.01, PASO_BOTON = 1.6, DOBLE_MS = 320, DOBLE_PX = 30;
 const col = (hex, k = 1) => new THREE.Color(hex).multiplyScalar(k);
 
 export class Mundo {
@@ -60,15 +66,22 @@ export class Mundo {
     this.escena.add(this.anillo, this.anilloGuia, this.flecha);
 
     // cámara
+    // camera-controls hace las transiciones suaves, los límites y el giro (botón derecho o tres dedos). Arrastrar, la rueda, el
+    // pellizco y el doble toque se atienden acá (gestos()): el punto del suelo que está bajo el dedo o el cursor queda bajo el dedo
+    // o el cursor, cosa que la librería no hace con la cámara inclinada (medido el 15-11-2026: una muesca de rueda corría el suelo
+    // 3,2 unidades, y el gesto de trackpad cambiaba el zoom de la lente sin tope, de 0,01 a 33,8).
     const c = this.controles = new CameraControls(this.camara, this.lienzo);
-    c.minDistance = 2.4; c.maxDistance = 64; c.minPolarAngle = 0.2; c.maxPolarAngle = 1.2;
-    c.dollyToCursor = true; c.smoothTime = 0.28; c.draggingSmoothTime = 0.09; c.dollySpeed = 0.7;
-    c.mouseButtons.left = A.TRUCK; c.mouseButtons.right = A.ROTATE; c.mouseButtons.wheel = A.DOLLY; c.mouseButtons.middle = A.DOLLY;
-    c.touches.one = A.TOUCH_TRUCK; c.touches.two = A.TOUCH_DOLLY_TRUCK; c.touches.three = A.TOUCH_ROTATE;
+    c.minDistance = DIST_MIN; c.maxDistance = 64; c.minPolarAngle = 0.2; c.maxPolarAngle = 1.2;
+    c.minZoom = 1; c.maxZoom = 1;                       // la lente no se toca nunca: acercar es siempre mover la cámara
+    c.dollyToCursor = false; c.smoothTime = 0.22; c.draggingSmoothTime = 0.09;
+    c.mouseButtons.left = A.NONE; c.mouseButtons.right = A.ROTATE; c.mouseButtons.wheel = A.NONE; c.mouseButtons.middle = A.NONE;
+    c.touches.one = A.NONE; c.touches.two = A.NONE; c.touches.three = A.TOUCH_ROTATE;
     c.setBoundary(new THREE.Box3(new THREE.Vector3(relieve.x0 + 6, -1, relieve.zN + 6), new THREE.Vector3(relieve.x0 + relieve.w - 6, 2, relieve.zN + relieve.h - 6)));
     c.boundaryFriction = 0.2;
-    c.addEventListener('controlstart', () => { this.ultimoManual = performance.now(); this.siguiendo = null; });
+    c.addEventListener('controlstart', () => { if (this.girando) this.manual(); });
     c.setLookAt(0, 9, 9, 0, 0, 0, false);
+    this.alza = 0; this.propia = false; this.dist = 9;
+    this.gestos();
     this.armarPosproceso();
     this.medir();
     return this;
@@ -104,6 +117,7 @@ export class Mundo {
     for (const r of this.rutas.values()) r.mat.resolution.set(W, H);
     this.particulas && (this.particulas.mat.uniforms.uAlto.value = H * dpr);
     this.altoPx = H * dpr;
+    this.limites();
   }
 
   // Sube o baja la calidad cuando el medidor lo pide.
@@ -179,11 +193,12 @@ export class Mundo {
       if (n) this.controles.moveTo(n.pos.x, 0, n.pos.z, true); else this.siguiendo = null;
     }
     this.controles.update(dt);
-    this.controles.getTarget(_obj);
-    const dist = this.camara.position.distanceTo(_obj);
-    const S = limitar((dist / 6.5) ** 0.72, 0.8, 6.5);
+    this.controles.getTarget(_obj, false);
+    const dist = this.controles.distance;
+    const S = limitar((dist / 6.5) ** 0.72, ESCALA_MIN, ESCALA_MAX);
     this.S += (S - this.S) * Math.min(1, dt * 5);
     this.dist = dist;
+    this.alzar(dt, dist);
     this.cielo.seguir(this.camara, _obj);
     this.nubes.actualizar(dt, _obj, dist);
     this.terreno.material.uniforms.uViento.value.copy(this.nubes.viento).negate();
@@ -262,8 +277,9 @@ export class Mundo {
   // ── cámara ──
   // Encuadra un conjunto de puntos del mundo. margen: aire alrededor; abajo, derecha e izquierda: fracción de la pantalla tapada
   // por la interfaz de ese lado (los paneles): lo encuadrado queda en la parte libre, no debajo de un panel.
-  encuadrar(puntos, { margen = 1.35, suave: s = true, azimut = null, polar = 0.86, abajo = 0, derecha = 0, izquierda = 0, distMin = 4.2, distMax = 60 } = {}) {
+  encuadrar(puntos, { margen = 1.35, suave: s = true, azimut = null, polar = 0.86, abajo = 0, derecha = 0, izquierda = 0, distMin = 4.2, distMax = null } = {}) {
     if (!puntos.length) return;
+    distMax ??= this.controles.maxDistance;
     const caja = new THREE.Box3();
     for (const p of puntos) caja.expandByPoint(_v.set(p.x, 0, p.z));
     caja.getCenter(_v);
@@ -278,9 +294,175 @@ export class Mundo {
     // la interfaz tapa a un costado: se corre el objetivo hacia ese lado de la pantalla (lo que se mira va al lado libre)
     const corrD = (derecha - izquierda) * d * Math.tan(hf / 2), ox = Math.cos(az) * corrD, oz = -Math.sin(az) * corrD;
     this.controles.normalizeRotations();
+    this.controles.zoomTo(1, false);
     this.controles.setLookAt(_v.x + ox + Math.sin(az) * Math.sin(polar) * d, Math.cos(polar) * d, _v.z + oz + corr + Math.cos(az) * Math.sin(polar) * d, _v.x + ox, 0, _v.z + oz + corr, s);
   }
   seguir(idAvion) { this.siguiendo = idAvion; }
+
+  // Hasta dónde se puede alejar: lo justo para que entren todas las ciudades de la época, con aire (cambia con la forma de la
+  // pantalla: en un celular vertical hace falta alejarse más para lo mismo).
+  limites(puntos = this.puntosLimite) {
+    this.puntosLimite = puntos;
+    if (!puntos?.length || !this.controles) return;
+    const caja = new THREE.Box3();
+    for (const p of puntos) caja.expandByPoint(_v.set(p.x, 0, p.z));
+    const ancho = caja.max.x - caja.min.x, prof = caja.max.z - caja.min.z, polar = 0.86, margen = 1.5;
+    const vf = THREE.MathUtils.degToRad(this.camara.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * this.camara.aspect);
+    const d = Math.max((ancho * margen / 2) / Math.tan(hf / 2), (prof * Math.cos(polar) * margen / 2) / Math.tan(vf / 2));
+    this.controles.maxDistance = Math.max(DIST_MAX_BASE, d * 1.06);
+  }
+
+  // ── la cámara es del jugador ──
+  // Desde que el jugador mueve, acerca o gira la cámara, el juego no se la mueve más por su cuenta (propia = true): solo cuando
+  // él lo pide («Ver mi red», «Siguiente paso», «Seguirlo con la cámara»).
+  manual() { this.ultimoManual = performance.now(); this.propia = true; }
+  pedida() { this.propia = false; }
+
+  // La cámara mira a la altura de lo que hay: de cerca, el suelo (o el avión que se sigue) queda en el centro, no el nivel del mar.
+  // De lejos no cambia nada. Nunca se hunde en el relieve.
+  alzar(dt, dist) {
+    const w = 1 - suave(7, 16, dist);
+    let h = 0;
+    if (w > 0 && !this.cine && !this.orbita) {             // la entrada y la portada llevan su propia cámara
+      const n = this.siguiendo != null ? this.vuelos.naves.get(this.siguiendo) : null;
+      h = (n ? n.pos.y : this.relieve.y(_obj.x, _obj.z)) * w;
+    }
+    this.alza += (h - this.alza) * Math.min(1, dt * 4);
+    const cam = this.camara;
+    cam.position.y += this.alza;
+    const piso = this.relieve.y(cam.position.x, cam.position.z) + 0.05;
+    if (cam.position.y < piso) cam.position.y = piso;
+    cam.updateMatrixWorld();
+  }
+
+  // Dirección del rayo que sale de la cámara por un punto de la pantalla (píxeles).
+  rayo(x, y, out = _rayo) {
+    return out.set(x / this.W * 2 - 1, -(y / this.H) * 2 + 1, 0.5).unproject(this.camara).sub(this.camara.position).normalize();
+  }
+  // El punto del suelo (a la altura a la que mira la cámara) que se ve en ese punto de la pantalla. null si se mira al cielo.
+  suelo(x, y, out = new THREE.Vector3()) {
+    const r = this.rayo(x, y), cam = this.camara.position;
+    if (r.y > -0.02) return null;
+    const k = (this.alza - cam.y) / r.y;
+    return out.set(cam.x + r.x * k, this.alza, cam.z + r.z * k);
+  }
+  // A dónde tiene que mirar la cámara (a distancia d) para que el punto del suelo G quede en ese punto de la pantalla.
+  // Con la cámara a distancia d del objetivo T: G = T + d · u, donde u depende solo de la orientación y del punto de la pantalla.
+  objetivoPara(G, x, y, d, out = new THREE.Vector3()) {
+    const r = this.rayo(x, y);
+    if (r.y > -0.02) return null;
+    this.controles.getTarget(_obj, false); this.controles.getPosition(_pos, false);
+    _n.subVectors(_pos, _obj).normalize();                         // del objetivo a la cámara
+    _u.copy(_n).addScaledVector(r, -_n.y / r.y);                    // horizontal: su altura se anula
+    return out.set(G.x - d * _u.x, 0, G.z - d * _u.z);
+  }
+  distFinal() { return this.controles._sphericalEnd?.radius ?? this.controles.distance; }
+
+  // Acerca (k < 1) o aleja (k > 1) dejando quieto el punto del suelo que está en (x, y). Varias muescas seguidas usan el mismo
+  // punto de anclaje (el de la primera): así el zoom no «camina» aunque la transición no haya terminado.
+  acercarEn(x, y, k, { suave: s = true, ancla = null } = {}) {
+    const c = this.controles, ahora = performance.now();
+    const d = limitar(this.distFinal() * k, c.minDistance, c.maxDistance);
+    this.manual();
+    if (this.siguiendo != null) { c.dollyTo(d, s); return d; }             // siguiendo a un avión, el centro es el avión
+    let a = ancla ?? this.anclaZoom;
+    if (!ancla && (!a || ahora - a.t > 260 || Math.hypot(a.x - x, a.y - y) > 8)) { const G = this.suelo(x, y); a = this.anclaZoom = G ? { x, y, G, t: ahora } : null; }
+    if (a) a.t = ahora;
+    const T = a && this.objetivoPara(a.G, x, y, d, _w);
+    c.dollyTo(d, s);
+    if (T) c.moveTo(T.x, 0, T.z, s);
+    return d;
+  }
+  // Los botones + y −, las teclas y el doble toque: un paso fijo, hacia el centro de la parte libre de la pantalla.
+  // sentido: +1 acerca, −1 aleja.
+  pasoZoom(sentido, x = this.W / 2, y = this.H / 2) { this.anclaZoom = null; return this.acercarEn(x, y, sentido > 0 ? 1 / PASO_BOTON : PASO_BOTON); }
+
+  // Lleva lo justo: mueve la cámara lo mínimo para que esos puntos queden en la parte libre de la pantalla (fracciones tapadas por
+  // la interfaz de cada lado). No acerca nunca; se aleja solo si no entran. Si ya se ven, no hace nada.
+  asegurarVisible(puntos, { izquierda = 0, derecha = 0, arriba = 0.1, abajo = 0, margen = 56 } = {}) {
+    if (!puntos.length) return false;
+    const x0 = this.W * izquierda + margen, x1 = this.W * (1 - derecha) - margen, y0 = this.H * arriba + margen * 0.6, y1 = this.H * (1 - abajo) - margen;
+    let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity, atras = false;
+    const o = {};
+    for (const p of puntos) { _v.copy(p).project(this.camara); if (_v.z > 1) atras = true; o.x = (_v.x * 0.5 + 0.5) * this.W; o.y = (-_v.y * 0.5 + 0.5) * this.H; a0 = Math.min(a0, o.x); a1 = Math.max(a1, o.x); b0 = Math.min(b0, o.y); b1 = Math.max(b1, o.y); }
+    if (atras || a1 - a0 > x1 - x0 || b1 - b0 > y1 - y0) {
+      // no entran a esta distancia: se encuadran alejando lo justo (nunca más cerca que ahora)
+      this.encuadrar(puntos, { margen: 1.5, azimut: this.controles.azimuthAngle, polar: this.controles.polarAngle, abajo, derecha, izquierda, distMin: this.distFinal() });
+      return true;
+    }
+    const dx = a0 < x0 ? x0 - a0 : a1 > x1 ? x1 - a1 : 0, dy = b0 < y0 ? y0 - b0 : b1 > y1 ? y1 - b1 : 0;
+    if (!dx && !dy) return false;
+    // el suelo que hoy está en el centro tiene que quedar corrido (dx, dy) en la pantalla
+    const cx = this.W / 2, cy = this.H / 2, G = this.suelo(cx, cy, _w);
+    const T = G && this.objetivoPara(G, cx + dx, cy + dy, this.distFinal());
+    if (!T) return false;
+    this.siguiendo = null;
+    this.controles.moveTo(T.x, 0, T.z, true);
+    return true;
+  }
+
+  // ── gestos: arrastrar, rueda, pellizco, doble toque ──
+  gestos() {
+    const el = this.lienzo, dedos = new Map();
+    let g = null, toque = null, ultimoToque = null;
+    const centro = () => { let x = 0, y = 0; for (const p of dedos.values()) { x += p.x; y += p.y; } return { x: x / dedos.size, y: y / dedos.size }; };
+    const abertura = () => { const [a, b] = [...dedos.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+    const empezar = () => {
+      if (dedos.size === 1) { const p = centro(), G = this.suelo(p.x, p.y); g = G ? { tipo: 'mover', G, x0: p.x, y0: p.y, movido: false } : null; }
+      else if (dedos.size === 2) { const p = centro(), G = this.suelo(p.x, p.y); g = G ? { tipo: 'pellizco', G, ab0: Math.max(24, abertura()), d0: this.distFinal() } : null; this.manual(); this.siguiendo = null; }
+      else g = null;
+    };
+    el.addEventListener('pointerdown', (e) => {
+      if (!this.controles.enabled) return;
+      this.girando = e.pointerType === 'mouse' && e.button === 2;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      dedos.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try { el.setPointerCapture(e.pointerId); } catch { /* sin captura */ }
+      toque = dedos.size === 1 ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
+      empezar();
+    });
+    el.addEventListener('pointermove', (e) => {
+      const p = dedos.get(e.pointerId);
+      if (!p) return;
+      p.x = e.clientX; p.y = e.clientY;
+      if (!g || !this.controles.enabled) return;
+      const c = this.controles, m = centro();
+      if (g.tipo === 'mover') {
+        if (!g.movido && Math.hypot(m.x - g.x0, m.y - g.y0) < 6) return;     // un toque que tiembla no es un arrastre
+        if (!g.movido) { g.movido = true; this.manual(); this.siguiendo = null; el.classList.add('arrastra'); }
+        const T = this.objetivoPara(g.G, m.x, m.y, this.dist, _w);
+        if (T) c.moveTo(T.x, 0, T.z, false);
+      } else if (g.tipo === 'pellizco') {
+        const d = limitar(g.d0 * g.ab0 / Math.max(24, abertura()), c.minDistance, c.maxDistance);
+        c.dollyTo(d, false);
+        const T = this.objetivoPara(g.G, m.x, m.y, d, _w);
+        if (T) c.moveTo(T.x, 0, T.z, false);
+      }
+    });
+    const soltar = (e) => {
+      if (!dedos.delete(e.pointerId)) return;
+      el.classList.remove('arrastra');
+      // doble clic o doble toque: acerca hacia ese punto
+      if (toque && e.type === 'pointerup' && dedos.size === 0 && Math.hypot(e.clientX - toque.x, e.clientY - toque.y) < 9 && e.timeStamp - toque.t < 500) {
+        if (ultimoToque && e.timeStamp - ultimoToque.t < DOBLE_MS && Math.hypot(e.clientX - ultimoToque.x, e.clientY - ultimoToque.y) < DOBLE_PX) { this.anclaZoom = null; this.acercarEn(e.clientX, e.clientY, 0.5); ultimoToque = null; this.alDoble?.(); }
+        else ultimoToque = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+      }
+      toque = null;
+      empezar();                                         // si queda un dedo, sigue arrastrando desde donde está
+    };
+    el.addEventListener('pointerup', soltar);
+    el.addEventListener('pointercancel', soltar);
+    // la rueda (y el gesto de trackpad, que llega como rueda con ctrl): siempre acerca o aleja la cámara, hacia el cursor, con tope
+    el.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (!this.controles.enabled) return;
+      let dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 300 : 1);
+      dy = limitar(dy, -260, 260);
+      this.acercarEn(e.clientX, e.clientY, Math.exp(dy * (e.ctrlKey ? PASO_PELLIZCO : PASO_RUEDA)));
+    }, { passive: false });
+  }
+
+  colorEmpresa(hex) { pintarEmpresa(hex); }
 
   // Secuencia de cine: claves = [{ t (segundos), pos: [x,y,z], obj: [x,y,z], hora? }]; pasa suave por todas.
   rodar(claves, alTerminar) {
@@ -305,7 +487,7 @@ export class Mundo {
   cortarCine() {
     const c = this.cine; if (!c) return;
     this.cine = null; this.controles.enabled = true; this.horaFija = null;
-    this.controles.maxPolarAngle = 1.2; this.controles.minDistance = 2.4;
+    this.controles.maxPolarAngle = 1.2; this.controles.minDistance = DIST_MIN;
     // si se saltó antes del final, la cámara va suave hasta la última toma
     const u = c.claves[c.claves.length - 1];
     if (c.t < c.dur) this.controles.setLookAt(...u.pos, ...u.obj, true);

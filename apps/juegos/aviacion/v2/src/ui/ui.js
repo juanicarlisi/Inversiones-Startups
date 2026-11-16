@@ -6,6 +6,8 @@ import { t, plata, plataSigno, numero, fechaTexto, horaTexto } from './textos.js
 import { colocar } from './rotulos.js';
 
 export const $ = (sel) => document.querySelector(sel);
+// Las tres velocidades del reloj (minutos de juego por segundo real: 5, 10 y 30). La partida nueva arranca en la tranquila.
+export const VELOCIDADES = [{ v: 0.5, clave: 'vTranquila', ico: 'vel1' }, { v: 1, clave: 'vNormal', ico: 'vel2' }, { v: 3, clave: 'vRapida', ico: 'vel3' }];
 export const esc = (x) => String(x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const raiz = () => $('#ui');
 
@@ -15,16 +17,21 @@ export function montar() {
     <div id="volantes"></div>
     <header id="barra">
       <button class="pastilla caja" data-accion="glosario"><span id="i-moneda">${icono('moneda')}</span><span><b id="plata">$ 0</b><small id="hoy"></small></span></button>
-      <div class="pastilla reloj"><span id="astro">${icono('sol')}</span><span id="fecha"></span><b id="hora"></b></div>
+      <button class="pastilla marca" data-accion="empresa" id="marca"><i class="banderin"></i><span id="marca-nombre"></span></button>
+      <div class="pastilla reloj" id="reloj"><span id="astro">${icono('sol')}</span><span id="fecha"></span><b id="hora"></b></div>
       <div class="pastilla vel" role="group">
-        <button data-accion="pausar" class="solo-movil" id="b-pausa">${icono('pausa')}</button>
-        <button data-accion="vel" data-v="0">${icono('pausa')}</button>
-        <button data-accion="vel" data-v="1">${icono('play')}</button>
-        <button data-accion="vel" data-v="3">${icono('rapido')}</button>
+        <button data-accion="pausar" id="b-pausa">${icono('pausa')}</button>
+        ${VELOCIDADES.map((v) => `<button data-accion="vel" data-v="${v.v}" class="con-nombre">${icono(v.ico)}<span></span></button>`).join('')}
+        <button data-accion="velSig" class="solo-movil" id="b-vel">${icono('vel1')}</button>
       </div>
-      <button class="ib redonda" data-accion="centrar" id="b-red">${icono('red')}</button>
+      <button class="ib redonda" data-accion="oficina" id="b-oficina" hidden>${icono('oficina')}</button>
       <button class="ib redonda" data-accion="menu" id="b-menu">${icono('menu')}</button>
     </header>
+    <div id="zoom" role="group">
+      <button class="ib redonda" data-accion="alejar" id="b-alejar">${icono('menos')}</button>
+      <button class="ib redonda" data-accion="acercar" id="b-acercar">${icono('mas')}</button>
+      <button class="ib redonda" data-accion="centrar" id="b-red">${icono('red')}</button>
+    </div>
     <section id="mision" aria-live="polite"></section>
     <div id="avisos" aria-live="polite"></div>
     <button id="paso" data-accion="paso" hidden></button>
@@ -41,8 +48,9 @@ export function montar() {
 }
 export function textosFijos() {
   const ar = (sel, k) => { const e = $(sel); if (e) { e.setAttribute('aria-label', t(k)); e.title = t(k); } };
-  ar('#b-menu', 'menu'); ar('#b-red', 'centrar');
-  ar('.vel [data-v="0"]', 'pausa'); ar('#b-pausa', 'pausa'); ar('.vel [data-v="1"]', 'normal'); ar('.vel [data-v="3"]', 'rapido');
+  ar('#b-menu', 'menu'); ar('#b-red', 'centrar'); ar('#b-acercar', 'acercar'); ar('#b-alejar', 'alejar'); ar('#b-oficina', 'oficina'); ar('#marca', 'tuEmpresa');
+  ar('#b-pausa', 'pausa');
+  for (const v of VELOCIDADES) { ar(`.vel [data-v="${v.v}"]`, v.clave); $(`.vel [data-v="${v.v}"] span`).textContent = t(v.clave); }
   $('#cine .saltar').textContent = t('saltar');
 }
 
@@ -51,6 +59,20 @@ export function pintar(el, html) {
   if (el._html === html) return false;
   el._html = html; el.innerHTML = html;
   return true;
+}
+// La rueda nunca mueve la página que contiene al juego (un portal lo muestra dentro de un marco): sobre un panel solo se deja
+// pasar si ese panel tiene para dónde correrse; en cualquier otro lugar de la interfaz se frena. (El mundo 3D atiende la suya.)
+export function frenarRueda() {
+  addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.target?.id === 'mundo') return;
+    for (let el = e.target; el && el !== document.body; el = el.parentElement) {
+      if (!(el instanceof HTMLElement) || el.scrollHeight <= el.clientHeight + 1) continue;
+      const o = getComputedStyle(el).overflowY;
+      if (o !== 'auto' && o !== 'scroll') continue;
+      if ((e.deltaY < 0 && el.scrollTop > 0) || (e.deltaY > 0 && el.scrollTop + el.clientHeight < el.scrollHeight - 1)) return;
+    }
+    e.preventDefault();
+  }, { passive: false, capture: true });
 }
 export function escuchar(fn) {
   let ultimo = 0;
@@ -69,18 +91,30 @@ export function escuchar(fn) {
 let plataMostrada = null, animPlata = null;
 // sinRojo: en los primeros minutos (antes del primer cobro) una pérdida no se muestra; después, el dato va como es, y en rojo solo
 // cuando pesa (menos de $ 100 no asusta a nadie).
-export function barra({ dinero, gananciaHoy, fecha, noche, vel, sinRojo = false }) {
+// frenado: null (el reloj corre), 'decide' (espera mientras se decide) o 'pausa' (lo frenó el jugador).
+export function barra({ dinero, gananciaHoy, fecha, noche, vel, velElegida = vel, frenado = null, sinRojo = false }) {
   const el = $('#plata');
   if (plataMostrada == null) { plataMostrada = dinero; el.textContent = plata(dinero); }
   else if (Math.round(dinero) !== Math.round(plataMostrada.meta ?? plataMostrada)) contarPlata(dinero);
   const h = $('#hoy');
   const g = sinRojo ? Math.max(0, Math.round(gananciaHoy)) : Math.round(gananciaHoy);
   h.textContent = `${plataSigno(g)} ${t('hoy')}`; h.className = g > 0 ? 'mas' : g <= -100 ? 'menos' : '';
-  $('#fecha').textContent = fechaTexto(fecha); $('#hora').textContent = horaTexto(fecha);
-  pintar($('#astro'), icono(noche ? 'luna' : 'sol'));
-  for (const b of document.querySelectorAll('.vel button[data-v]')) b.classList.toggle('activa', +b.dataset.v === vel);
-  const bp = $('#b-pausa'); pintar(bp, icono(vel === 0 ? 'play' : 'pausa')); bp.classList.toggle('activa', vel === 0);
+  // el reloj frenado se ve en el reloj mismo: el astro pasa a ser el signo de pausa y la fecha dice «Reloj frenado»
+  const reloj = $('#reloj');
+  reloj.classList.toggle('frenado', !!frenado);
+  $('#fecha').textContent = frenado ? t(frenado === 'pausa' ? 'enPausa' : 'frenado') : fechaTexto(fecha); $('#hora').textContent = horaTexto(fecha);
+  reloj.title = frenado === 'decide' ? t('frenadoPorque') : '';
+  pintar($('#astro'), icono(frenado ? 'pausa' : noche ? 'luna' : 'sol'));
+  for (const b of document.querySelectorAll('.vel button[data-v]')) b.classList.toggle('activa', +b.dataset.v === velElegida);
+  const bp = $('#b-pausa'); pintar(bp, icono(vel === 0 ? 'vel1' : 'pausa')); bp.classList.toggle('activa', vel === 0);
+  pintar($('#b-vel'), icono(VELOCIDADES.find((x) => x.v === velElegida)?.ico ?? 'vel1'));
 }
+// El nombre y el color de la empresa en la barra (el color también va a la interfaz como --empresa).
+export function empresa(nombre, color) {
+  $('#marca-nombre').textContent = nombre;
+  document.documentElement.style.setProperty('--empresa', color);
+}
+export function botonOficina(ver) { $('#b-oficina').hidden = !ver; }
 function contarPlata(hasta) {
   const el = $('#plata');
   const desde = typeof plataMostrada === 'object' ? plataMostrada.v : plataMostrada;
@@ -116,10 +150,10 @@ export function paso(p) {
 }
 
 // ── panel ──
-export function panel(html) {
+export function panel(html, ancho = false) {
   const el = $('#panel'), habia = !el.hidden;
-  if (html == null) { el.hidden = true; el._html = null; raiz().classList.remove('con-panel'); return; }
-  el.hidden = false; raiz().classList.add('con-panel');
+  if (html == null) { if (!el.hidden || el._html != null) { el.hidden = true; el._html = null; el.innerHTML = ''; } raiz().classList.remove('con-panel'); return; }   // cerrado y vacío: no quedan botones viejos escondidos
+  el.hidden = false; raiz().classList.add('con-panel'); el.classList.toggle('ancho', ancho);
   if (pintar(el, html) && !habia) { el.classList.remove('entra'); void el.offsetWidth; el.classList.add('entra'); el.scrollTop = 0; }
 }
 export const panelAbierto = () => !$('#panel').hidden;
@@ -160,6 +194,7 @@ export function momento(m) {
   if (!m) { el.hidden = true; raiz().classList.remove('con-momento'); return; }
   el.innerHTML = `${m.img ? `<img src="${m.img}" alt="">` : icono(m.ico ?? 'mision')}<h3>${esc(m.titulo)}</h3><p>${m.texto}</p>${m.elige ? `<div class="elige">${m.elige}</div>` : ''}`;
   el.hidden = false; raiz().classList.add('con-momento');
+  el.classList.toggle('res', m.clase === 'res');
   el.classList.remove('entra'); void el.offsetWidth; el.classList.add('entra');
   if (!m.elige) relojMomento = setTimeout(() => momento(null), m.dura ?? 6500);
 }
@@ -170,8 +205,7 @@ export function aviso(texto, { ico = null, tono = '', dura = 4200 } = {}) {
   const caja = $('#avisos');
   const el = document.createElement('div');
   el.className = `aviso ${tono}`; el.innerHTML = `${ico ? icono(ico) : ''}<span>${texto}</span>`;
-  caja.appendChild(el);
-  while (caja.children.length > 3) caja.firstChild.remove();
+  caja.replaceChildren(el);        // un aviso por vez (los carteles van en fila: main.js)
   setTimeout(() => { el.classList.add('fuera'); setTimeout(() => el.remove(), 320); }, dura);
 }
 
@@ -181,6 +215,7 @@ export function limpiarAvisos() { $('#avisos').replaceChildren(); }
 let relojCartel = null;
 export function cartel(titulo, sub, premio, alCobrar, dura = 3400) {
   const el = $('#cartel');
+  if (titulo == null) { clearTimeout(relojCartel); el.hidden = true; el.style.opacity = ''; return; }   // fuera ya: le toca al siguiente de la fila
   el.innerHTML = `<div class="estrella">${icono('mision').replace('class="ico "', 'class="ico" style="width:100%;height:100%"')}</div><h2>${esc(titulo)}</h2><p>${esc(sub)}</p>${premio ? `<span class="prm">${icono('moneda')}+${plata(premio)}</span>` : ''}`;
   el.hidden = false;
   animate(el.querySelector('.estrella'), { scale: [0, 1], rotate: [-140, 0], duration: 700, ease: 'outBack' });
@@ -279,7 +314,7 @@ export function ocultarJuego(si) { raiz().classList.toggle('oculta-ui', si); doc
 // prioridad. rotulos.js decide dónde va cada uno para que no se pisen entre sí ni con los paneles fijos; el que no entra, no se ve.
 const etiquetasVivas = new Map(), memoriaRotulos = new Map();
 let obstaculos = [], obstaculosT = 0, genMedida = 0;
-const FIJOS = '#barra > *, #mision > *, #panel, #paso, #momento, #burbuja, #avisos > *';
+const FIJOS = '#barra > *, #mision > *, #panel, #paso, #momento, #burbuja, #avisos > *, #zoom';
 function leerObstaculos() {
   const out = [];
   for (const el of document.querySelectorAll(FIJOS)) {

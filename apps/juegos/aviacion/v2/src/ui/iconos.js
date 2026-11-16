@@ -37,6 +37,12 @@ export const ICONOS = {
   pausa: svg(`<rect x="8" y="6" width="5.500" height="20" rx="2" fill="currentColor"/><rect x="18.500" y="6" width="5.500" height="20" rx="2" fill="currentColor"/>`),
   play: svg(`<path d="M10 5.500v21a1.500 1.500 0 0 0 2.300 1.300l16-10.500a1.500 1.500 0 0 0 0-2.600l-16-10.500A1.500 1.500 0 0 0 10 5.500z" fill="currentColor"/>`),
   rapido: svg(`<path d="M3 7v18a1.300 1.300 0 0 0 2 1.100L16 18v7a1.300 1.300 0 0 0 2 1.100l11.500-9a1.300 1.300 0 0 0 0-2.200L18 5.900A1.300 1.300 0 0 0 16 7v7L5 5.900A1.300 1.300 0 0 0 3 7z" fill="currentColor"/>`),
+  // velocidades: una, dos y tres puntas (tranquila, normal, rápida)
+  vel1: svg(`<path d="M11 6.500v19a1.400 1.400 0 0 0 2.200 1.200l13.500-9.500a1.400 1.400 0 0 0 0-2.400L13.200 5.300A1.400 1.400 0 0 0 11 6.500z" fill="currentColor"/>`),
+  vel2: svg(`<path d="M4 7.500v17a1.300 1.300 0 0 0 2 1.100l10-7.300v6.200a1.300 1.300 0 0 0 2 1.100l11-8.500a1.300 1.300 0 0 0 0-2.200l-11-8.500a1.300 1.300 0 0 0-2 1.100v6.200L6 6.400a1.300 1.300 0 0 0-2 1.100z" fill="currentColor"/>`),
+  vel3: svg(`<path d="M1.500 8.500v15a1.100 1.100 0 0 0 1.800.9l7.200-6v5.100a1.100 1.100 0 0 0 1.800.9l7.200-6v5.100a1.100 1.100 0 0 0 1.800.9l9-7.500a1.100 1.100 0 0 0 0-1.800l-9-7.500a1.100 1.100 0 0 0-1.800.9v5.100l-7.200-6a1.100 1.100 0 0 0-1.800.9v5.100l-7.200-6a1.100 1.100 0 0 0-1.800.9z" fill="currentColor"/>`),
+  menos: svg(`<path d="M6 16h20" ${L}/>`),
+  oficina: svg(`<path d="M3 13h26v4H3zM6 17v10M26 17v10M12 17h9v6h-9z" ${L}/><path d="M20 13V8l5-3" ${L}/><circle cx="26" cy="5.500" r="2" fill="currentColor"/>`),
   menu: svg(`<path d="M6 9h20M6 16h20M6 23h20" ${L}/>`),
   cerrar: svg(`<path d="M8 8l16 16M24 8L8 24" ${L}/>`),
   sonido: svg(`<path d="M5 12v8h5l7 6V6l-7 6z" fill="currentColor"/><path d="M21 11a7 7 0 0 1 0 10M24.500 7.500a12 12 0 0 1 0 17" ${L}/>`),
