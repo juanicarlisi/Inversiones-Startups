@@ -45,3 +45,64 @@ Bitácora de cómo se hizo el comercial de 60 s con personas fotorrealistas sin 
    planos cercanos de los chicos y una sola toma abierta.
 6. **Montaje por tramos.** Cada toma carga solo su tramo, porque el video entero a 1080×1920 no entra en memoria. Así, 60 s se arman
    en unos 35 minutos en 4 núcleos.
+
+## Versión 2 (17-11-2026, después del rechazo del fundador)
+
+**Qué rechazó el fundador de la primera versión:**
+- las pantallas vibraban dentro del teléfono y del proyector;
+- todo iba lento;
+- la gente parecía robot;
+- la iglesia como lugar para jugar no es el core de Senda;
+- la música no tenía nada que ver con la app.
+
+**Cómo se rehizo (INFERENCIA de lo que falló → decisión):**
+1. **Pantallas.** La app ya no se compone sobre teléfonos generados (la detección cuadro a cuadro tiembla). Va en un teléfono dibujado
+   por código (Remotion, transformaciones 3D de CSS): la pantalla es parte del teléfono y no puede moverse sola.
+2. **Velocidad.**
+   - Cortes al compás: 115 golpes por minuto, un plano cada uno o dos tiempos.
+   - La app, grabada a velocidad real con el reloj de Playwright y apenas acelerada.
+   - Las personas, a 1,08× y en tramos de un segundo.
+3. **Personas.** El fundador eligió IA en planos cortos. Lo que cambió:
+   - el estilo pasó de «película» a foto documental de teléfono, con luz natural y casas comunes (el mate en la mesa);
+   - reacciones chicas, nunca sobreactuadas;
+   - dos variantes por toma y se elige la mejor;
+   - se revisa a resolución completa el tramo exacto que se usa.
+
+   Se descartaron por mostrar la IA: la reacción sobreactuada (ojos desorbitados), los brazos que se enredan en un grupo de cinco, las
+   cabezas que se funden y una cara que cambia en medio segundo.
+4. **Core.** Aprender la Biblia jugando, solo o con amigos y familia:
+   - la ruleta y la pregunta;
+   - la Travesía;
+   - la armadura;
+   - el duelo con un amigo;
+   - los torneos con el grupo;
+   - una lección.
+
+   Sin iglesia.
+5. **Música.** «Funky Chunk» de Kevin MacLeod (CC BY 4.0), la música del Espadeo que el fundador pidió como estilo. Se usan los últimos
+   30 s del tema, así el final real de la música coincide con la cruz del logo. Encima van los sonidos de la app.
+
+**Montaje de la v2 (INFERENCIA de lo que se vio al revisar cuadro a cuadro):**
+1. **El render de solo audio de Remotion no carga un iframe.** El cierre real del logo (un HTML) nunca termina de cargar, así que el
+   sonido va en una composición propia sin imagen (`Comercial30Audio`) y se une al final.
+2. **Las pantallas llenas de la app se recortan arriba y abajo**, porque la app es más alta que el 9:16. Los títulos de arriba
+   («¡Ganaste!», «Pieza ganada») se cortaban:
+   - el recorte se corre hacia arriba;
+   - el acercamiento de cámara se ancla arriba.
+3. **Zona segura de redes.** Abajo, TikTok e Instagram ponen la descripción y los botones. Los textos van arriba (y = 190–460 de
+   1920); la única excepción es la armadura, que lleva una franja oscura y queda más arriba que antes.
+4. **Lany con armadura quieta 1,5 s se sentía muerta.** El baile del Taller de Lany funciona con «Armadura completa»; los gestos
+   sueltos no se mueven al grabarlos cuadro a cuadro.
+5. **El cierre arranca con la luz ya en camino** (sin medio segundo de fondo vacío). El tiempo del cierre va por tramos, así la cruz
+   se enciende igual en el golpe final de la música.
+6. **Un toque se ve.** Cada toque en la app lleva un anillo y su sonido en el mismo cuadro (la pregunta y la lección).
+7. **Render por tramos de 150 cuadros**, cada uno en su propio proceso: con 4 núcleos y 15 GB, 30 s salen en unos 15 minutos. Al
+   cambiar una toma se rehacen solo sus tramos. Ojo: una toma puede cruzar el borde de un tramo, y entonces hay que rehacer los dos.
+
+**Gasto** (ESTIMACIÓN; método: segundos del registro `registro_vertex.jsonl` × USD 0,40, la tarifa con sonido; sin sonido es más
+barato, así que es un techo):
+- v2: 60 s de video (7 tomas de 4 s y 4 segundas variantes) → ~USD 24;
+- v1: 84 s → ~USD 34;
+- 29 imágenes clave → ~USD 1.
+
+Total de la campaña: **~USD 59 de USD 330**. Hay que confirmarlo en la consola de facturación de Google Cloud.
