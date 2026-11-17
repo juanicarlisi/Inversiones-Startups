@@ -632,6 +632,19 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - **Hub Nocturno, a la noche (16-11-2026)**: las correcciones de la prueba a ciegas están publicadas (versión 7 del enlace; 49
     pruebas); falta la segunda prueba a ciegas para cerrar la etapa 1; el 16-11 se llegó al límite semanal de Claude (vuelve el
     20-11 a las 9 UTC): un agente quedó cortado mirando la oficina en celular (360 y 390 de ancho), revisar eso primero;
+  - **Datos del 17-11-2026 (holding; DEC-2026-11-17-6 a -9)**:
+    - una sola **Consola del Holding v2** (mismo enlace) con panorama, selector por proyecto (camino, plataformas, próximos que se
+      tildan, horas y caso), línea de tiempo, ideas con estrella y horas; lee también las fichas y el modelo; al empezar, leer
+      `marcas` (pendientes, próximos `px-…` e ideas `idea-…` con `interesa`) y `notas`;
+    - **Nido y Telar** a fondo: corte 0 hecho (web instalable, datos locales, sin internet) con versión de prueba; a Google Play con
+      Capacitor; cuenta personal de Play = prueba cerrada de 12 personas por 14 días;
+    - **Ladrillo (P12)**: inversión inmobiliaria por tramos; hoy no se compra (renta neta ~4% contra 6,5-7% de la renta fija); solo
+      ladrillo de papel regulado con OK;
+    - **música (Remanso y Sobremesa)**: la hace Claude, casi gratis (piano compuesto y Stable Audio 3 en su máquina, escenas por código);
+      la vía la decide la escucha a ciegas del fundador (colección `votos` del artefacto https://claude.ai/artifact/DW5Qn3vJdCZQ8kttz5Cn7a);
+      YouTube pide 8.000 horas desde el 01-02-2027;
+    - permisos del repositorio abiertos a pedido del fundador (`.claude/settings.json`); el scratchpad se borra al reiniciar el
+      contenedor: lo que haga falta conservar va al repositorio.
   - **Andén «Tu planta»**: el gemelo de cualquier planta desde fotos, videos, croquis y planos
     (`oportunidades/proyectos/anden/gemelo-de-planta.md`); la planta piloto es de su empleador: sus datos viven solo en el
     repositorio privado `plaza-gemelo2`, nunca acá (este repositorio es público);

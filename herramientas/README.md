@@ -7,6 +7,7 @@
 | `cartera.py` | Resumen del libro de capital y proyección compuesta a 5 años | `python3 herramientas/cartera.py resumen` · `proyectar [--estres 0.6] [--md] [--png]` |
 | `config.yaml` | Pesos del scorecard, tarifa sombra, umbrales, estados y roles | Cambiarlo es una decisión (registrar en `cartera/decisiones.md`) |
 | `modelos/` | Un modelo YAML por oportunidad + `resultados/` generados | Copiar `_plantilla.yaml` |
+| `musica/` | Taller de música por código (Remanso, Sobremesa): compone, renderiza con muestras libres, masteriza a -14 LUFS y arma el video | Ver `herramientas/musica/README.md` |
 
 Dependencias: `python3 -m pip install -r requirements.txt`.
 

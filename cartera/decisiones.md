@@ -2019,3 +2019,60 @@ se sigue con modelos abiertos.
 > precios regionales, descuentos, devoluciones e impuestos, la cuenta prudente es ~USD 5 por copia (ESTIMACIÓN): 2.000 deseados
 > equivalen a ~540 copias y ~USD 2.700 el primer mes, no 3.800. El valor esperado total queda en ~USD 95 por mes a tres años; lo
 > que sube es el techo. Las compuertas no cambian. Detalle: `oportunidades/proyectos/hub-nocturno/producto-y-negocio.md` §5 bis.
+
+## DEC-2026-11-17-6 · Holding: una sola consola central con panorama y vista por proyecto
+
+**Pedido del fundador (17-11-2026):** trabajar a fondo Nido y Telar, con consolas por app o una central donde se elija con qué app se
+trabaja; sumar Remanso, Sobremesa, la plataforma de flujogramas (Cauce) y la app de pendientes (Próximos); y ver el panorama de todo
+el holding a nivel de gestión.
+**Decisión (Claude):** una sola Consola del Holding (versión 2, https://claude.ai/artifact/SvBRRWKhNKimPvRJdNMdy9), no una por app:
+panorama (lo que se trabaja por importancia, grupos, lo que te toca, la fila de ideas), un selector «¿Con qué proyecto trabajamos?»
+con dónde sale cada uno (web, Google Play, iPhone), el camino por etapas, próximos que se tildan, hito, regla de corte, horas y caso;
+línea de tiempo, ideas con estrella y horas y plata. La fuente sigue en `cartera/consola.yaml`; el generador lee además las fichas
+`P*.yaml` y el modelo del holding. Una consola por app duplicaría datos y se desactualizaría.
+**Entran a la consola:** Cauce (propuesto, espera DEC-2026-11-17-5 de otra sesión; su rama todavía no está unida), Próximos (herramienta
+del fundador, semilla de la vista «Hoy» de Telar) y Ladrillo (P12, DEC-2026-11-17-8).
+**Horas:** las fichas piden 11-12 horas por semana en 2027 contra el tope de 10; queda como pendiente del fundador (recomendado: correr
+Posta a 2028).
+
+## DEC-2026-11-17-7 · Nido y Telar: los dos a fondo, primero la web instalable y después Google Play con Capacitor
+
+**Pedido del fundador (17-11-2026):** ir a fondo con las dos apps, para la web y para Play Store, como Senda.
+**Hecho:** corte 0 de las dos (web instalable, datos solo en el dispositivo, sin internet, sin terceros, mudanza desde la app de hoy,
+pruebas automáticas) y versiones de prueba privadas: Nido https://claude.ai/artifact/KDVqA7NGhDx8vwSumyDGfe (17 pruebas) y Telar
+https://claude.ai/artifact/DhU8MUGoZYrZ8C3XJwwFNG (27 pruebas, 17 pasos en el navegador, accesibilidad sin problemas).
+**Decisión técnica (regla 10):** a Google Play con **Capacitor 8**, no con la web empaquetada (Trusted Web Activity): el widget, el
+aviso del banco (Nido) y los avisos y el widget «Hoy» (Telar) tienen que leer los datos, que en una TWA quedan dentro de Chrome
+(`apps/nido/TIENDAS.md`, `apps/telar/TIENDAS.md`).
+**HECHO (ayuda de Play Console, answer/14151465, 17-11-2026):** las cuentas personales creadas después del 13-11-2023 necesitan una
+prueba cerrada de 12 personas durante 14 días seguidos antes de publicar; si se repite por app no lo aclara (se supone que sí). Las
+mismas personas de Senda pueden servir. Con qué cuenta salen, decide el fundador.
+**Camino:** Nido: beta privada en enero, web pública en marzo, Google Play en abril-julio de 2027, iPhone a fin de año. Telar: beta
+pública gratis «Planificá tu 2027» a principios de enero, Google Play en mayo de 2027. Cortes de cada ficha sin cambios.
+**Pendiente del fundador:** probar las dos versiones, el OK para sumar «Exportar copia completa» a la app de su familia (parche v33,
+`apps/nido/migracion/`), nombres (Alero recomendado; Telar).
+
+## DEC-2026-11-17-8 · Ladrillo (P12): inversión inmobiliaria por tramos; hoy no se compra
+
+**Pedido del fundador (17-11-2026):** sumar inversión inmobiliaria en Argentina (Bariloche, Córdoba, CABA y otras), con benchmark
+exhaustivo. **Investigación:** `conocimiento/2026-11-17-inmobiliario-argentina.md` (11 plazas, formas de invertir por capital,
+impuestos 2026, TIR por escenario). **Ficha:** `oportunidades/proyectos/P12-ladrillo.yaml` (sub-balde de Cimiento).
+**Conclusión (ESTIMACIÓN):** a precio de hoy un 2 ambientes en CABA deja ~4% neto y ~4,5% de TIR a 10 años, contra 6,5-7% de la renta
+fija en dólares; el temporario rinde menos (~2,6% CABA, ~2,8% Bariloche). **Compuerta de compra:** capital suficiente, renta neta ≥ 6%
+o precio de cierre 15% abajo, y tasación independiente con salida pensada. Mientras tanto, solo ladrillo de papel regulado (hasta
+USD 500 en el fondo cerrado de hipotecas en dólares, después de leer su reglamento; el fundador aprueba en diciembre). Nunca
+plataformas no reguladas. No es asesoramiento financiero regulado.
+
+## DEC-2026-11-17-9 · Remanso y Sobremesa: los canales los hace Claude, casi gratis; la vía del piano la decide la escucha a ciegas
+
+**Pedido del fundador (17-11-2026):** crear los canales de música con Claude (música, imágenes, todo), con las herramientas que haya,
+lo más barato y de la mejor calidad; lo pago, solo si no es monstruoso.
+**Hecho:** tres investigaciones y un taller (`conocimiento/2026-11-17-musica-ia-*.md`), Stable Audio 3 funcionando gratis en la
+máquina de Claude, y la prueba de escucha a ciegas (https://claude.ai/artifact/DW5Qn3vJdCZQ8kttz5Cn7a). Plan:
+`oportunidades/proyectos/musica/plan-canales.md`.
+**Decisión (Claude):** música de Remanso compuesta por Claude con piano grabado de licencia libre (o Stable Audio 3 si gana la escucha);
+colchones y Sobremesa con Stable Audio 3 (o Lyria 3.5 a USD 0,08 por tema si la escucha lo pide); escenas dibujadas por código; armado
+con ffmpeg; directos desde un servidor de ~USD 6 por mes (con OK). Presupuesto: USD 0 a ~6 por mes; tope ~70.
+**Cambios por la evidencia:** YouTube pide 8.000 horas desde el 01-02-2027 → corte de Remanso de 9 a 12 meses; pago por mil vistas en
+español ~USD 0,9 (la ficha suponía 2); Remanso sale en enero de 2027 con 8 videos (antes, abril); Sobremesa arranca solo si Remanso pasa
+la compuerta del mes 6; la venta a locales, solo con opinión legal. Ficha P9 al día.
