@@ -1785,3 +1785,17 @@ ya se lee exactamente como en la RVR1960 queda en la RV1909 (`igual_rvr1960.json
 citas en relatos y fichas) la hicieron revisores en paralelo contra un chequeador que exige cita textual en la versión elegida, hueco
 que se lea igual en la RVR1960, ninguna palabra vieja a la vista y nada copiado de la 1960; el validador de la app controla la versión
 de cada ejercicio.
+
+## DEC-2026-11-17-3 — Senda: salida en EE. UU. el 18-12; Brasil y la UE esperan
+**Decisión del fundador (17-11-2026):** «si hay que contratar, Brasil y UE esperan, y si EE. UU. permite salir sin contratar la persona
+allá, podemos hacer la gestión para salir». **HECHO de base** (`conocimiento/2026-11-14-senda-lanzamiento-eeuu.md`, B7 e I4): para
+publicar en EE. UU. como persona física no hace falta representante ni domicilio allá; lo único pago es el agente DMCA (USD 6, lo
+registra el fundador). **Queda así:** el 18-12 Latinoamérica (sin Brasil) y EE. UU. con la opción A recomendada en el informe
+(Comunidad solo para mayores de 18 en EE. UU., sin premios y sin la sala en vivo; de 13 a 17 leen, hacen la Travesía y juegan solos),
+que no necesita abogado; Brasil sigue el 01-03-2027 (DEC-2026-11-07-6) y la UE, cuando se aprueben representantes. **Lo técnico
+(Claude):** señales de edad de Play y Apple, edad obligatoria antes de cualquier cuenta, voz solo en el teléfono para menores de 13,
+privacidad y términos en inglés con la parte de EE. UU., consentimiento por datos que pueden mostrar la fe, reglas por país de la
+tienda y fichas en inglés. **Lo del fundador:** correo de soporte y domicilio, W-8BEN y capacidad Declared Age Range en Apple, EE. UU.
+y Age signals en Play, impuestos en AdMob, publicar el sitio en inglés y el agente DMCA. **Regla de corte:** 05-12 (si las señales de
+edad no andan en un iPhone y un Android reales, EE. UU. pasa a enero sin atrasar Latinoamérica). Cierra DEC-2026-11-14-2.
+
