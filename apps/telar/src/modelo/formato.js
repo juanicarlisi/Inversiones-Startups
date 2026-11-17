@@ -88,6 +88,7 @@ const texto = (v, porDefecto) => {
   return s ? s.slice(0, 500) : porDefecto;
 };
 const esColor = (c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
+const tieneId = (v) => (typeof v === 'string' && v.trim() !== '') || typeof v === 'number';
 const esWeb = (u) => typeof u === 'string' && /^https?:\/\/[^\s]+$/i.test(u.trim());
 
 /** Revisa y repara un plan que viene de afuera. Nunca tira error por un dato suelto: lo arregla y avisa. */
@@ -107,7 +108,7 @@ export function sanear(crudo, { hoy = hoyLocal() } = {}) {
   for (const a of crudo.areas) {
     if (!a || typeof a !== 'object') continue;
     const id = idUnico(a.id, 'a');
-    if (!mapaArea.has(String(a.id))) mapaArea.set(String(a.id), id);
+    if (tieneId(a.id) && !mapaArea.has(String(a.id))) mapaArea.set(String(a.id), id);
     areas.push({ id, n: texto(a.n, 'Área sin nombre'), color: esColor(a.color) ? a.color.toLowerCase() : PALETA[areas.length % PALETA.length] });
   }
 
@@ -126,7 +127,7 @@ export function sanear(crudo, { hoy = hoyLocal() } = {}) {
   for (const p of crudo.projects) {
     if (!p || typeof p !== 'object') continue;
     const id = idUnico(p.id, 'p');
-    if (!mapaProy.has(String(p.id))) mapaProy.set(String(p.id), id);
+    if (tieneId(p.id) && !mapaProy.has(String(p.id))) mapaProy.set(String(p.id), id);
     let a = mapaArea.get(String(p.a));
     if (!a) {
       a = areaParaHuerfanos();

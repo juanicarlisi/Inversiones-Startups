@@ -3,7 +3,7 @@
    - Una versión nueva espera hasta que la persona toque «Actualizar» (mensaje {tipo:'activar'}); nunca toca los datos,
      que viven en IndexedDB y no en la caché.
    - Primero la caché y, si falta algo, la red. No guarda nada que venga de otro dominio (la app no lo usa). */
-const VERSION = 'c5b442234f';
+const VERSION = '54a5a5cbd5';
 const CACHE = 'nido-app-' + VERSION;
 const ARCHIVOS = [
   "./",

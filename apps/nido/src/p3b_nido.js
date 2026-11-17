@@ -63,14 +63,26 @@ function pideRespaldo() {
 }
 
 /* ---------- Tus datos ---------- */
-function descargar(nombre, texto, tipo) {
+// Dentro del visor de claude.ai (versión de prueba) los enlaces de descarga no andan: se usa su capacidad «downloads».
+// En la web instalable no existe window.claude y sale por el enlace de siempre. Devuelve false si la persona no lo guardó.
+async function descargar(nombre, texto, tipo) {
+  let visor = null;
+  try { visor = window.claude && window.claude.use ? await window.claude.use('downloads') : null; } catch { visor = null; }
+  if (visor) {
+    try { await visor.save({ filename: nombre, data: texto }); return true; }
+    catch (e) {
+      if (e && /dismiss|declin|cancel|not_granted/i.test(String(e.code || e.message))) return false;
+      try { await visor.save({ filename: nombre, data: new Blob([texto], { type: tipo || 'application/octet-stream' }) }); return true; } catch { return false; }
+    }
+  }
   const blob = new Blob([texto], { type: tipo || 'application/octet-stream' });
   const url = URL.createObjectURL(blob), a = document.createElement('a');
   a.href = url; a.download = nombre; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return true;
 }
-function guardarRespaldo() {
-  descargar(nombreRespaldo(), JSON.stringify(armarRespaldo(Store.todo()), null, 1), 'application/json');
+async function guardarRespaldo() {
+  if (!await descargar(nombreRespaldo(), JSON.stringify(armarRespaldo(Store.todo()), null, 1), 'application/json')) return;
   lsSet('nido_ultimo_respaldo', String(Date.now())); render(); toast('Respaldo guardado en Descargas');
 }
 function cardDatos() {

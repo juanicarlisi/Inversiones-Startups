@@ -171,11 +171,19 @@ function emptyState(emoji, t, s, btn) { return `<div class="empty"><div class="b
 function header() {
   if (S.vista === 'ajustes') return `<div class="top"><button class="icon-btn" data-act="go" data-v="inicio" aria-label="Volver">${IC.left}</button><div class="mes"><span class="lbl">Ajustes</span></div></div>`;
   const u = cfg().usuarios;
-  const quien = u.length > 1 ? `<div class="who" role="group" aria-label="Quién carga">${u.map(n => `<button class="${n === userName() ? 'on' : ''}" data-act="user" data-u="${esc(n)}" aria-label="Carga ${esc(n)}" aria-pressed="${n === userName()}"><span class="full">${esc(n)}</span><span class="ini">${esc(n.slice(0, 1))}</span></button>`).join('')}</div>` : '';
+  const ini = iniciales(u);
+  const quien = u.length > 1 ? `<div class="who" role="group" aria-label="Quién carga">${u.map((n, i) => `<button class="${n === userName() ? 'on' : ''}" data-act="user" data-u="${esc(n)}" aria-label="Carga ${esc(n)}" aria-pressed="${n === userName()}"><span class="full">${esc(n)}</span><span class="ini">${esc(ini[i])}</span></button>`).join('')}</div>` : '';
   return `<div class="top"><div class="mes"><button class="icon-btn" data-act="mes-prev" aria-label="Mes anterior">${IC.left}</button><button class="lbl" data-act="mes-pick" aria-label="${ymLabel(S.mes)}">${ymName(S.mes)}<small>${S.mes.slice(0, 4)}${S.mes === ymNow() ? ' · este mes' : ''}</small></button><button class="icon-btn" data-act="mes-next" aria-label="Mes siguiente">${IC.right}</button></div>
   ${quien}
   <button class="icon-btn" data-act="go" data-v="ajustes" aria-label="Ajustes">${IC.gear}</button></div>
   ${avisosArriba()}`;
+}
+/* Iniciales que no se repitan: «Persona A / Persona B» → PA / PB; «Sol / Sofi» → Sol / Sof. */
+function iniciales(us) {
+  const pal = n => String(n).trim().split(/\s+/).filter(Boolean);
+  const opciones = [n => pal(n).slice(0, 2).map(w => w[0]).join('').toUpperCase(), n => pal(n)[0].slice(0, 2), n => pal(n)[0].slice(0, 3)];
+  for (const f of opciones) { const r = us.map(n => f(n || '?') || '?'); if (new Set(r.map(x => x.toLowerCase())).size === r.length) return r; }
+  return us.map((n, i) => String(i + 1));
 }
 function pendientes() {
   const n = new Date(); const ym = ymNow();

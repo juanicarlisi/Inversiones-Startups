@@ -8,11 +8,11 @@ export function crearHistorial({ tope = 100, ventana = 1500, reloj = () => Date.
   let ultimaClave = null;
   let ultimoT = 0;
   return {
-    /** Llamar ANTES de cambiar el plan. */
+    /** Llamar ANTES de cambiar el plan (o pasar la foto en texto tomada antes). */
     antes(plan, clave = null) {
       const t = reloj();
       if (clave === null || clave !== ultimaClave || t - ultimoT > ventana) {
-        atras.push(JSON.stringify(plan));
+        atras.push(typeof plan === 'string' ? plan : JSON.stringify(plan));
         if (atras.length > tope) atras.shift();
       }
       adelante.length = 0;
