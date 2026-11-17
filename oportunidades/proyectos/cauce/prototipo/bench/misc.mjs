@@ -1,0 +1,22 @@
+import { BpmnModdle } from 'bpmn-moddle';
+import { layoutProcess } from 'bpmn-auto-layout';
+import { Resvg } from '@resvg/resvg-js';
+import { LoroDoc } from 'loro-crdt';
+import * as Y from 'yjs';
+import fs from 'fs';
+const xml = `<?xml version="1.0" encoding="UTF-8"?><bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1" targetNamespace="http://x"><bpmn:process id="p1" isExecutable="false"><bpmn:startEvent id="s"/><bpmn:task id="t1" name="Recibir pedido"/><bpmn:exclusiveGateway id="g"/><bpmn:task id="t2" name="Preparar"/><bpmn:endEvent id="e"/><bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="t1"/><bpmn:sequenceFlow id="f2" sourceRef="t1" targetRef="g"/><bpmn:sequenceFlow id="f3" sourceRef="g" targetRef="t2"/><bpmn:sequenceFlow id="f4" sourceRef="t2" targetRef="e"/></bpmn:process></bpmn:definitions>`;
+const m = new BpmnModdle();
+const { rootElement, warnings } = await m.fromXML(xml);
+console.log('bpmn-moddle parse ok, flowElements', rootElement.rootElements[0].flowElements.length, 'warnings', warnings.length);
+const laid = await layoutProcess(xml);
+console.log('bpmn-auto-layout added DI shapes:', (laid.match(/<bpmndi:BPMNShape/g)||[]).length);
+const { xml: out } = await m.toXML(rootElement, { format: true }); console.log('roundtrip bytes', out.length);
+let t=Date.now(); const png = new Resvg(fs.readFileSync('diag.svg','utf8'), { fitTo:{mode:'zoom', value:3} }).render().asPng(); fs.writeFileSync('diag.png', png);
+console.log('resvg PNG x3', Date.now()-t, 'ms', png.length, 'bytes');
+// CRDT: 20k shapes in a map, snapshot size
+const ld = new LoroDoc(); const shapes = ld.getMap('shapes');
+t=Date.now(); for (let i=0;i<20000;i++){ shapes.set('s'+i, {x:i%200*150, y:Math.floor(i/200)*90, w:120, h:60, type:'task', name:'Tarea '+i, costo:i%97, tiempo:i%13}); } ld.commit();
+const snap = ld.export({mode:'snapshot'}); console.log('Loro 20k shapes', Date.now()-t,'ms snapshot', snap.length,'bytes');
+const yd = new Y.Doc(); const ym = yd.getMap('shapes');
+t=Date.now(); yd.transact(()=>{ for (let i=0;i<20000;i++){ ym.set('s'+i, {x:i%200*150, y:Math.floor(i/200)*90, w:120, h:60, type:'task', name:'Tarea '+i, costo:i%97, tiempo:i%13}); }});
+const yu = Y.encodeStateAsUpdate(yd); console.log('Yjs 20k shapes', Date.now()-t,'ms update', yu.length,'bytes');

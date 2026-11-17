@@ -45,7 +45,7 @@ proximo_paso: "Fundador: decidir si Cauce nace como motor de Andén y si corren 
 
 # OP-17 — Cauce: procesos con números
 
-Visión completa, benchmark y decisiones: `oportunidades/proyectos/cauce/vision.html` (publicada como artefacto). Definición del
+Visión completa, benchmark y decisiones: `oportunidades/proyectos/cauce/vision.html` (publicada en https://claude.ai/artifact/BYdduRTycrpctGqGw6ejsE; prototipo en https://claude.ai/artifact/JVSrLuiox5miFbLVtTXScT). Definición del
 proyecto: `oportunidades/proyectos/cauce/definicion.yaml`. Prototipo: `oportunidades/proyectos/cauce/prototipo/`. Bitácoras:
 `conocimiento/2026-11-17-cauce-0[1-7]-*.md`.
 

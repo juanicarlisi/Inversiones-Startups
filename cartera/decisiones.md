@@ -1818,7 +1818,7 @@ procesos», a partir de su experiencia con Miro y Bizagi (límites de licencia a
 por bloque, simulación, IA, colaboración, exportación profesional y conexión con sistemas, transversal al holding y vendible.
 **Qué se hizo:** seis investigaciones en paralelo y un red team (`conocimiento/2026-11-17-cauce-0[1-7]-*.md`), la visión y el
 benchmark (`oportunidades/proyectos/cauce/vision.html`, publicada), la ficha OP-17, la definición del proyecto
-(`oportunidades/proyectos/cauce/definicion.yaml`) y un prototipo funcional (https://claude.ai/artifact/JVSrLuiox5miFbLVtTXScT).
+(`oportunidades/proyectos/cauce/definicion.yaml`) y un prototipo funcional (https://claude.ai/artifact/JVSrLuiox5miFbLVtTXScT); visión publicada en https://claude.ai/artifact/BYdduRTycrpctGqGw6ejsE.
 **HECHOS clave:** Miro vendida a Bending Spoons por USD 1.355 M (cierre 26-10-2026, −90 % contra 2022); draw.io exporta PDF
 vectorial, SVG y VSDX gratis; Bizagi Modeler sigue gratis con simulación; ninguna herramienta revisada calcula mientras se dibuja;
 la simulación cuesta USD 2.000–19.000 por puesto y año; el cursograma IRAM 34501/34502 no tiene soporte nativo.
