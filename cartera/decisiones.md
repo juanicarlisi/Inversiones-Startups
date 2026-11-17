@@ -2076,3 +2076,7 @@ con ffmpeg; directos desde un servidor de ~USD 6 por mes (con OK). Presupuesto: 
 **Cambios por la evidencia:** YouTube pide 8.000 horas desde el 01-02-2027 → corte de Remanso de 9 a 12 meses; pago por mil vistas en
 español ~USD 0,9 (la ficha suponía 2); Remanso sale en enero de 2027 con 8 videos (antes, abril); Sobremesa arranca solo si Remanso pasa
 la compuerta del mes 6; la venta a locales, solo con opinión legal. Ficha P9 al día.
+
+> **Decisión del fundador del 17-11-2026 sobre DEC-2026-11-17-9:** por ahora todo gratis (Stable Audio 3 en la máquina de Claude,
+> curado y con postproducción). Lyria 3.5 de Google queda preparada (`herramientas/musica/lyria.py`) y se activa cuando el fundador
+> cargue una clave de la API de Gemini con facturación (pendiente opcional en la Consola).
