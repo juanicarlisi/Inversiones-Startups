@@ -19,6 +19,7 @@ export const E = {
     level: 'proyectos', // 'areas' | 'proyectos' | 'tareas'
     exp: new Set(), // áreas y proyectos abiertos
     sel: null, // id elegido
+    detalle: true, // en el celular: false = barra elegida con la píldora; true = hoja de detalle abierta
     q: '',
     fst: 'all',
     foco: false,

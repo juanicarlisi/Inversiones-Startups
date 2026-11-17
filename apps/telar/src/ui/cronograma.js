@@ -38,7 +38,7 @@ function cabecera(anchoTL) {
       rot = mesCorto(cur);
       if (mesDe(cur) === 0 || cur === R.s) rot += ' ' + String(anioDe(cur)).slice(2);
     }
-    m += `<div class="m" style="left:${x}px;width:${ancho}px">${esc(rot)}</div>`;
+    m += `<div class="m" style="left:${x}px;width:${ancho}px"><span>${esc(rot)}</span></div>`;
     cur = sig;
   }
   if (E.ui.zoom === 'dia') {
@@ -65,6 +65,20 @@ function grilla(anchoTL) {
   return `<div class="grid" style="width:${anchoTL}px">${g}</div>`;
 }
 
+/** Ancho del texto de una barra (con la misma letra que usa la pantalla). */
+const anchoTexto = (() => {
+  const cache = new Map();
+  let ctx = null;
+  return (txt) => {
+    if (!ctx) {
+      ctx = document.createElement('canvas').getContext('2d');
+      ctx.font = '500 11.5px "Instrument Sans", system-ui, sans-serif';
+    }
+    if (!cache.has(txt)) cache.set(txt, ctx.measureText(txt).width);
+    return cache.get(txt);
+  };
+})();
+
 const ESTADO_TXT = { todo: 'pendiente', doing: 'en curso', done: 'hecha' };
 function descripcion(t) {
   const s = dn(t.s);
@@ -81,9 +95,12 @@ function barra(t, c) {
   const cls = ['bar', t.ty === 'hito' ? 'hito' : '', t.ty === 'habito' ? 'habito' : '', t.st, seCorrio(t, E.hoy) ? 'late' : '', E.ui.sel === t.id ? 'sel' : ''].filter(Boolean).join(' ');
   const izq = t.ty === 'hito' ? x + PPD / 2 : x;
   const asas = t.ty === 'hito' ? '' : '<span class="h l" data-h="l"></span><span class="h r" data-h="r"></span>';
-  const rotulo = t.ty === 'tarea' && w >= 64 ? `<span class="bl">${esc(t.n)}</span>` : '';
+  // El nombre va dentro de la barra si entra; si no, a la derecha (los hábitos, largos y rayados, solo a la izquierda).
+  const adentro = t.ty === 'tarea' && w >= anchoTexto(t.n) + 16;
+  const rotulo = adentro ? `<span class="bl">${esc(t.n)}</span>` : '';
+  const afuera = !adentro && t.ty !== 'habito' ? `<span class="bl-f${t.st === 'done' ? ' hecha' : ''}" style="left:${t.ty === 'hito' ? izq + 16 : izq + w + 6}px" aria-hidden="true">${esc(t.n)}</span>` : '';
   const tip = t.ty === 'hito' ? `${t.n} · ${fechaCorta(s)}` : `${t.n} · ${fechaCorta(s)} → ${fechaCorta(e)} (${dias(e - s + 1)})`;
-  return `<div class="${cls}" data-id="${t.id}" style="left:${izq}px;width:${w}px;--c:${c}" title="${esc(tip)}">${rotulo}${asas}</div>`;
+  return `<div class="${cls}" data-id="${t.id}" style="left:${izq}px;width:${w}px;--c:${c}" title="${esc(tip)}">${rotulo}${asas}</div>${afuera}`;
 }
 
 const botonesOrden = () => `<button data-act="up" title="Subir (más prioridad)" aria-label="Subir">${ic.up}</button><button data-act="down" title="Bajar" aria-label="Bajar">${ic.down}</button>`;
@@ -129,14 +146,20 @@ export function render() {
   const anchoTL = (R.e - R.s + 1) * PPD;
   if (ultimoInicio !== null && ultimoInicio !== R.s) gantt.scrollLeft += (ultimoInicio - R.s) * PPD;
   ultimoInicio = R.s;
+  if (!E.plan.areas.length) {
+    // Sin nada en el plan: el primer proyecto ocupa la pantalla (sin línea de tiempo vacía).
+    canvas.style.width = '100%';
+    canvas.innerHTML = `<div class="empty vacio">${htmlPrimerProyecto()}</div>`;
+    ultimoInicio = null;
+    return;
+  }
   const rs = filas(E.plan, E.ui.exp, { q: E.ui.q, estado: E.ui.fst, foco: E.ui.foco }, E.hoy);
   const sy = gantt.scrollTop;
   let h = `<div class="head"><div class="corner"><b>Prioridad</b><span class="long">de arriba a abajo</span></div>${cabecera(anchoTL)}</div>`;
   h += grilla(anchoTL);
   h += rs.map((r) => fila(r, anchoTL)).join('');
-  if (!E.plan.areas.length) h += `<div class="empty">${htmlPrimerProyecto()}</div>`;
-  else if (!rs.length)
-    h += `<div class="empty"><div><h2>Nada coincide con lo que buscás</h2><div>Probá con otra palabra o mostrá todas las tareas.</div><div class="sbx"><button class="btn" data-m2="limpiar">Quitar filtros</button></div></div></div>`;
+  if (!rs.length)
+    h += `<div class="empty filtro" style="width:${gantt.clientWidth - 2}px"><div><h2>Nada coincide con lo que buscás</h2><div>Probá con otra palabra o mostrá todas las tareas.</div><div class="sbx"><button class="btn" data-m2="limpiar">Quitar filtros</button></div></div></div>`;
   canvas.style.width = `calc(var(--lw) + ${anchoTL}px)`;
   canvas.innerHTML = h;
   gantt.scrollTop = sy;
@@ -158,8 +181,13 @@ export function ponerZoom(v) {
 }
 
 export function mostrarFila(id) {
+  // Solo en vertical: scrollIntoView también correría la línea de tiempo (la fila es más ancha que la pantalla).
   const row = canvas.querySelector(`.row[data-id="${CSS.escape(id)}"]`);
-  if (row) row.scrollIntoView({ block: 'nearest' });
+  if (!row) return;
+  const arriba = row.offsetTop - parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--headh') || 54);
+  const abajo = row.offsetTop + row.offsetHeight - gantt.clientHeight + 8;
+  if (gantt.scrollTop > arriba) gantt.scrollTop = arriba;
+  else if (gantt.scrollTop < abajo) gantt.scrollTop = abajo;
 }
 
 /* ───────── arranque ───────── */
@@ -194,7 +222,8 @@ export function montar() {
     const id = row.dataset.id;
     const k = row.dataset.k;
     if (bar) {
-      A.seleccionar(bar.dataset.id);
+      // En el celular, tocar la barra la elige para moverla (sin tapar el cronograma con el detalle).
+      A.seleccionar(bar.dataset.id, { detalle: false });
       return;
     }
     const act = e.target.closest('[data-act]');
@@ -274,6 +303,7 @@ function arrastrarFilas() {
       const lc = row.querySelector('.lc');
       const fan = crearFantasma(lc, 'fila');
       fan.el.querySelectorAll('.acts').forEach((x) => x.remove());
+      fan.el.style.setProperty('--c', row.style.getPropertyValue('--c'));
       const r = lc.getBoundingClientRect();
       fan.dx = e.clientX - r.left;
       fan.dy = e.clientY - r.top;
@@ -337,6 +367,8 @@ function arrastrarBarras() {
       const tactilSinElegir = e.pointerType === 'touch' && !el.classList.contains('sel');
       const modo = h && !tactilSinElegir ? h.dataset.h : 'm';
       el.classList.add('drag');
+      const fuera = el.parentElement.querySelector('.bl-f');
+      if (fuera) fuera.hidden = true;
       return { t, el, modo, x0: xContenido(e.clientX), s: dn(t.s), e: dn(t.e), ns: dn(t.s), ne: dn(t.e) };
     },
     mover(s, p) {

@@ -13,7 +13,7 @@
 // 4 semanas del fundador el arrastre falla en un teléfono real (iPhone o Android), el tablero pasa a SortableJS.
 
 const MARGEN = 40; // px desde el borde donde empieza el autodesplazamiento
-const VEL_MAX = 18; // px por cuadro
+const VEL_MAX = 14; // px por cuadro (≈ 840 px por segundo pegado al borde)
 
 let activo = null; // hay un solo arrastre a la vez en toda la app
 let tragarClic = false;

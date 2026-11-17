@@ -19,9 +19,36 @@ const opcionesArea = (sel) => E.plan.areas.map((a) => `<option value="${a.id}"${
 const ordenHTML = () =>
   `<div class="row2"><button class="btn" data-act="up">${ic.up}Subir</button><button class="btn" data-act="down">${ic.down}Bajar</button><button class="btn" data-act="top">${ic.top}Al tope</button></div>`;
 
+const angosto = window.matchMedia('(max-width: 760px)');
+let pildora;
+
+/** Celular con una barra elegida: una píldora abajo (nombre, fechas, Detalle, Hecha, cerrar) en vez de la hoja. */
+function renderPildora(it) {
+  if (!it || it.k !== 'task' || !angosto.matches || E.ui.detalle) {
+    pildora.hidden = true;
+    pildora.innerHTML = '';
+    return false;
+  }
+  const t = it.o;
+  const p = proyectoDe(E.plan, t);
+  const a = p ? areaDe(E.plan, p) : null;
+  const s = dn(t.s);
+  const e = dn(t.e);
+  pildora.style.setProperty('--c', a ? a.color : GRIS);
+  pildora.innerHTML = `<div class="tx"><b>${esc(t.n)}</b><small>${t.ty === 'hito' ? 'Fecha clave · ' + fechaCorta(s) : `${fechaCorta(s)} → ${fechaCorta(e)} · ${dias(e - s + 1)}`}</small></div>
+    <button class="btn" data-pil="detalle">Detalle</button>
+    <button class="btn icono" data-pil="hecha" aria-pressed="${t.st === 'done'}" aria-label="${t.st === 'done' ? 'Marcar como pendiente' : 'Marcar como hecha'}" title="Hecha">${ic.check}</button>
+    <button class="btn icono" data-pil="cerrar" aria-label="Dejar de elegir">${ic.x}</button>`;
+  pildora.setAttribute('aria-label', `Tarea elegida: ${t.n}. Arrastrá la barra para moverla o sus puntas para estirarla.`);
+  pildora.hidden = false;
+  return true;
+}
+
 export function render(foco = false) {
   const it = E.ui.sel && E.idx.get(E.ui.sel);
-  if (!it) {
+  const conPildora = renderPildora(it);
+  document.body.classList.toggle('con-hoja', !!it && !conPildora && angosto.matches);
+  if (!it || conPildora) {
     panel.hidden = true;
     panel.innerHTML = '';
     return;
@@ -102,6 +129,26 @@ function campo(prop, valor) {
 
 export function montar() {
   panel = $('#panel');
+  pildora = $('#pildora');
+  angosto.addEventListener('change', () => render());
+  pildora.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pil]');
+    const it = E.ui.sel && E.idx.get(E.ui.sel);
+    if (!b || !it) return;
+    if (b.dataset.pil === 'detalle') {
+      E.ui.detalle = true;
+      render(false);
+    } else if (b.dataset.pil === 'hecha') {
+      A.mutar(() => {
+        it.o.st = it.o.st === 'done' ? 'todo' : 'done';
+      });
+      render();
+    } else {
+      E.ui.sel = null;
+      A.render();
+      render();
+    }
+  });
   panel.addEventListener('input', (e) => {
     const t = e.target;
     if (t.id === 'f-name') campo('n', t.value.trim() ? t.value : 'Sin nombre');
