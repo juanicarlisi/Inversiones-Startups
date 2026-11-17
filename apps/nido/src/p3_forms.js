@@ -323,6 +323,7 @@ async function cpSave() {
   } else if (CP.img && CP.tipo === 'gasto') docs[0].data.img = CP.img;
   const ok = await guardar(async () => { for (const d of docs) await Store.set('mov', d.id, d.data); });
   if (ok) {
+    if (docs[0].data.tipo === 'gasto' && !CP.id) metrica('gasto');
     const def = SHEETS.find(s => s.id === 'cp'); closeSheet(def);
     const d0 = docs[0].data, mes0 = d0.mes; let titulo = 'Gasto guardado', sub = '', tono = 'accent';
     if (d0.tipo === 'gasto') {
