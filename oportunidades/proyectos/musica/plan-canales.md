@@ -23,6 +23,13 @@
 | Stable Audio 3 (modelo abierto, entrenado con música con licencia) **corre en la máquina de Claude sin GPU**, más rápido que el tiempo real | Prueba propia del 17-11-2026 (§2) | Música generada gratis para Sobremesa y para colchones de ambiente |
 | ElevenLabs Music prohíbe armar una biblioteca de música en sus planes; Suno no tiene API oficial | Términos de cada uno (09-10-2026 y 03-09-2026) | Quedan afuera de la cadena |
 
+## 1 bis. La primera escucha a ciegas (17-11-2026, notas del fundador de 1 a 10)
+
+Piano compuesto por Claude (A) 3; piano de Stable Audio 3 rápido (B) 2 y de calidad (C) 5; bossa compuesta por Claude (D) 4; bossa (E)
+y tango lounge (F) de Stable Audio 3, 6 cada uno. «Están buenos en general pero falta bastante.» **Lectura:** el generador le gana a la
+composición nota por nota; nada llega a 7. **Ronda 2:** muchas semillas por estilo, un evaluador automático de calidad para curar,
+postproducción profesional y el flamenco y la música española sumados; Lyria 3.5 en cuanto haya clave de la API de Gemini.
+
 ## 2. Lo que se probó hoy (HECHO, máquina de Claude: 4 núcleos, sin GPU)
 
 | Vía | Qué salió | Tiempo | Costo | Nota franca (sin oído humano todavía) |
@@ -67,8 +74,10 @@ reglas de Senda) y 4 de fondo (1 y 3 horas). Dos por semana los primeros tres me
 oración») y 24/7 desde el mes 2. Cortos de 20-40 s con un versículo. Cruce con Senda: banda sonora propia de la app (sus juegos
 no pueden usar música de Mixkit) y enlaces en las dos direcciones.
 
-**Sobremesa, «Bossa y jazz para la sobremesa», solo si Remanso pasa la compuerta del mes 6** (julio de 2027). Un estilo con
-identidad porteña; tango lounge a los 6 meses. La venta a locales queda cerrada hasta tener una opinión legal escrita (SADAIC,
+**Sobremesa, solo si Remanso pasa la compuerta del mes 6** (julio de 2027), con **dos series desde el arranque** (pedido del
+fundador, 17-11-2026): «Bossa y jazz para la sobremesa» con identidad porteña, y **«Española»: flamenco chill, guitarra española
+y rumba suave**, siempre funcional (para comer, para la tarde, para la bodega). Tango lounge y lobby de hotel, a los 6 meses. Todo en
+un solo canal con listas por estilo (la investigación de mercado recomendaba un solo estilo: dos series bien hechas, no cinco). La venta a locales queda cerrada hasta tener una opinión legal escrita (SADAIC,
 AADI-CAPIF, Fondo Nacional de las Artes) y un reproductor propio: los términos de YouTube no permiten pasar su música en un local.
 
 **Reglas de oro:** declarar siempre el contenido sintético; pocos videos y distintos; capa humana a la vista; identidad propia (sin
