@@ -1799,3 +1799,4 @@ tienda y fichas en inglés. **Lo del fundador:** correo de soporte y domicilio, 
 y Age signals en Play, impuestos en AdMob, publicar el sitio en inglés y el agente DMCA. **Regla de corte:** 05-12 (si las señales de
 edad no andan en un iPhone y un Android reales, EE. UU. pasa a enero sin atrasar Latinoamérica). Cierra DEC-2026-11-14-2.
 
+**Actualización DEC-2026-11-15-3 (17-11):** el fundador eligió el dominio del ministerio: la Pantalla queda en senda.ministerionuevageneracion.com/pantalla (CNAME «senda» → senda-1zw.pages.dev, DNS only, cargado en su cuenta de Cloudflare; la app ya la muestra).
