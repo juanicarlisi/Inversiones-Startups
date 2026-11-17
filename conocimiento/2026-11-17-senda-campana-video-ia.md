@@ -105,4 +105,54 @@ barato, así que es un techo):
 - v1: 84 s → ~USD 34;
 - 29 imágenes clave → ~USD 1.
 
-Total de la campaña: **~USD 59 de USD 330**. Hay que confirmarlo en la consola de facturación de Google Cloud.
+Total de las dos primeras versiones: **~USD 59 de USD 330**.
+
+## Versión 3: 15 s (17-11-2026 a la noche)
+
+**Qué pidió el fundador después de la v2:**
+- Lany movía los brazos demasiado rápido.
+- El versículo de la lección («les amargó la vida con dura servidumbre») era una mala elección.
+- Faltaban:
+  - la reunión de jóvenes, como grupo chico con mate en una iglesia no tan grande;
+  - Senda en el proyector;
+  - la calle en S, que se entienda que es la S de Senda;
+  - los vuelos tipo dron que entran y salen.
+- No reciclar la megapantalla de la v1.
+- Mantener los teléfonos sin pantallas rotas.
+
+**Cómo se hizo (INFERENCIA → decisión):**
+1. **Lany.** HECHO: en el archivo de Rive de la app, el baile es un ciclo de 48 cuadros a 50 cps (0,96 s), pensado para verse chico. A
+   pantalla completa parece que se desarma, así que se grabó a media velocidad (`VEL=0.5`).
+2. **La S de Senda.** Pegarle el logo a una calle recta no sirve: Gemini pegaba el logo encima. Lo que funcionó fue pedir una calle
+   que sube una loma en curvas hasta una capilla con la cruz arriba, como el logo (un camino que se aleja hacia la cruz).
+   - Para que se lea como la S de Senda, al final una luz con el degradé del logo recorre esa calle, de la casa a la cruz.
+   - La cruz estalla en un destello y debajo el logo se dibuja con la misma luz.
+   - Deformar la línea de la calle hasta la forma del logo quedaba como un resorte y se descartó.
+3. **Un solo recorrido, el mismo pueblo:**
+   - una casa al pie de la loma; el mismo clip sirve al derecho (sale por la ventana) y al revés (entra);
+   - la calle en S;
+   - la capilla;
+   - la reunión.
+   Las tomas al revés se usan solo sin gente caminando.
+4. **El proyector sin temblor.** Las tomas de la reunión se generaron con cámara fija y la pantalla en verde. Las esquinas se miden
+   una vez, en la mediana de todos los cuadros, así que la homografía queda fija. Para que no parezca pegado:
+   - bordes rectos con antialias;
+   - negros levantados y un desenfoque leve;
+   - la caída de luz del propio verde;
+   - el reflejo verde de la pared y del piso llevado a neutro (teñirlo de violeta dejaba manchas);
+   - lo que pasa por delante (un brazo) tapa la imagen.
+   En el proyector va La Pantalla real con 12 jóvenes respondiendo Juan 3:16.
+5. **Capilla evangélica.** Gemini puso crucifijos con la figura en 3 de 4 imágenes de la reunión. Hay que pedir explícitamente «una
+   cruz lisa, sin figura, sin imágenes».
+6. **Teléfonos.** Gemini dibuja pantallas encendidas aunque se le pida que no. Hay que pedir «el teléfono bajo, en la falda, sin ninguna
+   pantalla a la vista» y elegir la variante sin pantallas.
+7. **Revisar cada toma a resolución completa.** HECHO: en la toma de la puerta de la capilla, Veo dibujó adentro una figura blanca sobre
+   un pedestal (parecía una imagen religiosa), aunque la imagen clave pedía una capilla evangélica. Se vio recién en la revisión final,
+   cuadro a cuadro. En lugar de pagar otra toma, el hueco de la puerta se llenó de luz cálida (`scripts/campana2/code/puerta_luz.py`):
+   - el hueco se busca en cada cuadro;
+   - su borde se ajusta con una curva suave en el tiempo, así no tiembla.
+
+**Gasto** (ESTIMACIÓN con el registro, techo con la tarifa con sonido):
+- v3: 64 s de video y 33 imágenes → ~USD 27;
+- toda la campaña: 208 s y 62 imágenes → **~USD 86 de USD 330**.
+Hay que confirmarlo en la consola de facturación de Google Cloud.
