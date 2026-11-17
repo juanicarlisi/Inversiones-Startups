@@ -1775,3 +1775,13 @@ afuera y entre las demás gana la más parecida (resultado: RV1909 77,1 %, PDT 1
 versión, la pregunta, las opciones y el hueco se reescriben con sus palabras y se muestra su nombre (1.202 de 5.136 preguntas de
 trivia y 2.417 de 10.271 ejercicios de la Travesía); (3) todo de una, antes del lanzamiento. El texto de la RVR1960 nunca entra a la
 app ni a un repositorio: quedan los scripts y la tabla de versiones (`scripts/autor/rvr1960/` de la app).
+**Ejecución (17-11, misma sesión):** la regla se afinó con sus dos mitades, porque «palabra clave primero» también quiere decir no
+perder la palabra de la RVR1960 (en 2 Corintios 12:9 la NBV dice «Debe bastarte mi amor» y pierde «gracia»): cada palabra vieja a la
+vista vale 1 problema, cada palabra clave de la fe que la RVR1960 dice y la versión no (gracia, fe, salvación, Espíritu, virgen,
+Jehová…) vale 2, y la PDT con nombres transliterados («YAVÉ», «ʼAdonay») queda afuera; gana la de menos problemas y, a igualdad, la
+más parecida (RV1909 80,1 %, PDT 14,1 %, BES 4,5 %, NBV 1,3 %). Cada ejercicio y pregunta lleva `version`, la app la nombra al lado de
+la cita y el pasaje se abre en ella; el versículo del día sigue la misma tabla (reemplaza a la NBV de la prueba 41). Lo que en la RV1909
+ya se lee exactamente como en la RVR1960 queda en la RV1909 (`igual_rvr1960.json`). La reescritura (unas 3.300 preguntas, ejercicios y
+citas en relatos y fichas) la hicieron revisores en paralelo contra un chequeador que exige cita textual en la versión elegida, hueco
+que se lea igual en la RVR1960, ninguna palabra vieja a la vista y nada copiado de la 1960; el validador de la app controla la versión
+de cada ejercicio.

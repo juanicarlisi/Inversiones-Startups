@@ -576,6 +576,9 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     regla «palabra clave primero» (nunca «caridad» donde la 1960 dice «amor»); los ejercicios se reescriben con las palabras de la
     versión que se muestra; la RV1909 sigue por defecto (la más parecida en general); el PDF de la RVR1960 (`libros-referencia4`)
     se lee solo para comparar y su texto nunca entra a la app ni a un repositorio (`scripts/autor/rvr1960/` de la app).
+  - «palabra clave primero» tiene dos mitades: ni palabra vieja a la vista ni perder la palabra clave de la RVR1960 («Bástate mi
+    gracia»: la que dice «amor» pierde); cada ejercicio lleva `version`, el validador la exige y el versículo del día sigue la misma
+    tabla (`python3 scripts/autor/versiones_por_versiculo.py` después de regenerar el contenido).
 
 ## 2. Reglas no negociables
 
