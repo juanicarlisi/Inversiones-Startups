@@ -540,6 +540,45 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     Brasil solo con representante legal, si no el 01-03-2027) espera su decisión (DEC-2026-11-14-2; capítulo 80 §2.9);
   - el torneo con premios: «La Gran Copa de Verano», final el sábado 30-01-2027, clasificatorias en enero y tabla por grupo; premios
     solo en Latinoamérica; espera su decisión y el presupuesto (DEC-2026-11-14-1; capítulo 80 §2.10).
+- **Datos del 16-11-2026 (Senda, prueba 56):**
+  - velocidad: «anda LENTÍSIMA… invertí todo lo que haya que invertir»; se arreglaron las causas leídas en el código (la senda y el
+    mapa como una sola imagen de decenas de MB, paisajes de pantalla completa, 1.625 lecciones cargadas al abrir); el emulador de
+    GitHub no sirve para comparar variantes (la misma versión dio 60, 150 y 450 ms por cuadro): la velocidad se mide en el teléfono
+    con Ajustes → «Medir la velocidad», con «Animaciones: todas» y «reducidas»; no se toca a Lany a ciegas (DEC-2026-11-16-1);
+  - avisos: ícono propio para 24 puntos, un solo color (violeta; el ámbar espera su OK), el título dice quién y el cuerpo qué pasó,
+    en el idioma del teléfono; salen con prioridad alta y en el momento; lo que va a muchos espera a las 8 si es de noche
+    (DEC-2026-11-15-1); deslizar hacia abajo actualiza Inicio, Jugar, Comunidad y Torneos;
+  - el teclado nunca tapa el campo donde se escribe («tiene que funcionar perfecto»; react-native-keyboard-controller);
+  - Nerón no está en el texto de la Biblia (era una nota de los editores de 1909, que salió): Nombres por letra explica por qué no
+    cuenta un nombre de la tradición; la voz se reconoce en el teléfono cuando está el modelo del idioma;
+  - torneos: invitar con código, QR y enlace; buscar amigos; «De un PDF» con la corona; día de cierre a elección; terminan cuando
+    jugaron todos; historial y palmarés en el perfil con la categoría (DEC-2026-11-15-2); sirve igual para el «Abecé» cuando entre;
+  - la Trivia de la iglesia, separada de los torneos, con dos puertas (Participar y Crear): el líder sube el PDF, corrige las
+    preguntas y fija el formato; la persona juega el campeonato, practica contra Lany o desafía a un amigo (DEC-2026-11-15-4);
+  - «la Pantalla»: una página que muestra la sala en vivo para proyectar (`web/pantalla/` en la app), con identidad propia y un
+    benchmark de 49 herramientas (`conocimiento/2026-11-15-senda-benchmark-pantalla-en-vivo.md`); el fundador es dueño de
+    ministerionuevageneracion.com y se puede usar; la dirección y el tope de la sala gratis esperan su decisión (DEC-2026-11-15-3);
+  - «Te esperan» y Torneos, ordenados por lo que le toca a la persona («LA MEJOR UX DEL MUNDO»: que nunca tenga que buscar qué hacer);
+    en los grupos, el rol y el título se ven juntos («Líder · Guitarra»);
+  - la auditoría de textos se corre con `--solo pantallas` (sin eso recorre también las 1.625 lecciones y las preguntas, y tarda horas);
+    las capturas del manual se sacan con región Argentina (con región de EE. UU. la sala en vivo no aparece).
+
+- **Datos del 17-11-2026 (Senda, tienda):**
+  - salida gradual (DEC-2026-11-17-1): en la tienda, al lanzar, Jugar tiene el Espadeo, la Trivia de la iglesia, los torneos de trivia
+    y la sala en vivo; un juego nuevo cada tres semanas y, en la Travesía, 15 rutas de entrada y una ruta más por área cada lunes desde
+    el 28-12; fechas en `contenido/liberacion.json` de la app y la tabla `liberaciones` de Supabase; métricas `leccion_terminada` (con
+    ruta, área y avance) y `ruta_terminada`;
+  - las capturas y el gráfico de la tienda le parecieron «espantosos» («lo hiciste rápido y para sacártelo de encima»): se rehicieron
+    con titular, teléfono con marco, Lany entera en alta (nunca cortada), ruleta y festejo, y temas claro y oscuro (`scripts/tienda/`);
+  - la descripción de la tienda tiene que vender («la app al servicio de las iglesias», «aprende jugando»), sin sonar a IA ni a
+    básica, y sin prometer lo que no está el día uno (`tienda/ficha_es.md` de la app).
+  - la RVR1960 como vara (DEC-2026-11-17-2): en cada cita va la versión libre más parecida a la RVR1960, con su nombre, con la
+    regla «palabra clave primero» (nunca «caridad» donde la 1960 dice «amor»); los ejercicios se reescriben con las palabras de la
+    versión que se muestra; la RV1909 sigue por defecto (la más parecida en general); el PDF de la RVR1960 (`libros-referencia4`)
+    se lee solo para comparar y su texto nunca entra a la app ni a un repositorio (`scripts/autor/rvr1960/` de la app).
+  - «palabra clave primero» tiene dos mitades: ni palabra vieja a la vista ni perder la palabra clave de la RVR1960 («Bástate mi
+    gracia»: la que dice «amor» pierde); cada ejercicio lleva `version`, el validador la exige y el versículo del día sigue la misma
+    tabla (`python3 scripts/autor/versiones_por_versiculo.py` después de regenerar el contenido).
 
 - **Datos del 17-10-2026 (holding):**
   - **Claude Max 5x desde el 17-10-2026** (reemplaza «Pro hasta fin de 2026»); Max saca el límite de Claude, no el de sus horas: se

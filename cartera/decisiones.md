@@ -1775,6 +1775,132 @@ consentimiento aparte por los datos que pueden mostrar la fe. **Falta en el cód
 los textos legales en inglés y portugués, la versión UE con el DSA y el modo protegido completo de Brasil. Esta propuesta reemplaza, si
 se aprueba, la recomendación de lanzar sin EE. UU., Brasil ni la UE (DEC-2026-11-07-5). Capítulo 80 §2.9.
 
+## DEC-2026-11-15-1 — Senda: los avisos al teléfono (ícono, color, textos, prioridad y hora de silencio)
+**Pedido del fundador (15-11-2026):** «Sale MUY FEO el logo en la notificación. Y a veces el texto parece muy IA. Investigá a fondo».
+**Investigación:** `conocimiento/2026-11-15-senda-avisos.md` (guías de Android, Apple y Expo). **Decisiones (técnicas, de Claude):**
+(a) el ícono del aviso es la S del «Camino en la noche» redibujada para 24 puntos, con la cruz separada (`scripts/marca/aviso.py`);
+(b) un solo color para todos los avisos, el violeta de la marca (#6E56F7): contraste 4,8 sobre claro y 3,5 sobre oscuro, contra 2,0 del
+ámbar sobre claro (HECHO, medido); **a confirmar por el fundador: violeta o ámbar** (se cambia en una línea); (c) cada aviso tiene una
+clave y sus datos, y el texto se arma al mandarlo en el idioma del teléfono (37 textos × 3 idiomas): el título dice quién o qué y el
+cuerpo qué pasó, nunca «Senda» ni «Espadeo» de título; (d) salen con prioridad alta y en el momento en que se crean (antes: prioridad
+normal y una vez por minuto, la causa de que los duelos tardaran; HECHO, documentación de Expo leída el 15-11-2026); (e) lo que va para
+muchos a la vez espera a las 8 si es de noche para esa persona; lo que una persona le manda a otra llega siempre; (f) un duelo ocupa un
+solo aviso. **Regla de corte:** si en el teléfono del fundador un duelo tarda más de 10 segundos con los dos teléfonos con internet, se
+revisa el camino de FCM directo. Capítulo 81 §2.2.
+
+## DEC-2026-11-15-2 — Senda: los torneos terminan cuando jugaron todos, quedan en el historial y dan palmarés
+**Pedidos del fundador (15-11-2026):** «una vez que jugaron todos, a pesar de que resten días para que cierre, ya debería aparecer como
+finalizado… y quedar en el historial de la persona»; «el que gana el torneo debería poder acceder a… tipo palmarés, y que las personas
+lo puedan ver», con la categoría (interno o de Senda); «cuándo vence: debería permitir poner un día específico»; sumarse con código, QR y
+que al crear diga el código; buscar amigos; subir un PDF, con una corona. **Decisión:** se hace todo (migración `torneos_56`). Un torneo
+con enlace termina solo cuando ya no se puede sumar nadie; el palmarés cuenta los torneos de 3 personas o más y las eliminatorias, respeta
+la vitrina oculta (DEC-2026-11-06-6) y muestra el nombre del grupo solo a quien es del grupo (dice dónde se congrega alguien: dato que
+puede mostrar la fe). La duración máxima pasa de 14 a 31 días. Sirve tal cual para el «Abecé» cuando entre. Capítulo 81 §2.5.
+
+## DEC-2026-11-15-3 — Senda: «la Pantalla», una página que muestra la sala en vivo para todos (hecha) y su dirección (PROPUESTA, a decidir)
+**Pedido del fundador (15-11-2026):** «¿no deberíamos incorporar una página para que puedan ingresar y, mientras responden, se vea en una
+pantalla para todos? Tipo Kahoot… UN TOTALMENTE EXHAUSTIVO Y COMPLETO BENCHMARK… sin plagio»; considerar el dominio del ministerio.
+**Benchmark:** 49 herramientas, `conocimiento/2026-11-15-senda-benchmark-pantalla-en-vivo.md`. **Decisión (hecha):** una página que solo
+muestra (`web/pantalla/` en la app, publicada con el sitio): espera con código y QR, pregunta con cuenta regresiva, resultado con «Escrito
+está» y final con podio. La respuesta correcta no sale de la base hasta que el anfitrión muestra el resultado. Identidad propia: opciones
+con letra, sin las formas de colores, los nombres ni la música de otros productos (blindaje legal). **A decidir por el fundador:** la
+dirección: (a) `senda.ministerionuevageneracion.com` (gratis; el dominio es suyo; pide un registro en el DNS) o (b) un dominio corto propio
+(unos USD 10 por año, ESTIMACIÓN). **Recomendación:** (a) ahora y (b) cuando haya que imprimirlo o decirlo en voz alta. También a decidir:
+el tope de la sala gratis (hoy 10; recomendación 40, lo que mide un grupo de jóvenes). **Lo que sigue (enero):** responder desde el
+navegador sin instalar, equipos, pregunta para romper el hielo, repaso de las tres más difíciles. Capítulo 81 §2.6.
+
+## DEC-2026-11-15-4 — Senda: la Trivia de la iglesia, separada de los torneos y con dos entradas
+**Pedido del fundador (15-11-2026):** «tiene que tener un diferencial con el torneo… arriba, las dos opciones nomás: crear trivia de la
+iglesia y participar de la trivia de mi iglesia»; el líder sube el PDF, corrobora las preguntas y decide el formato (torneo o
+eliminatoria); la persona entra y juega: el campeonato, practicar contra Lany o desafiar a alguien, siempre con las preguntas de ese PDF.
+«Lo que se crea igual tiene que estar perfecto para que el líder no tenga que andar chequeando a cada rato». **Decisión:** se hace así.
+Salen los modos de pasar el teléfono. Para que salga bien de entrada, después de armar las preguntas hay una segunda lectura automática
+contra el sermón que corrige o saca la que no pasa (cuesta una llamada más por PDF; el tope de 8 por mes de Max no cambia). Las mismas
+preguntas sirven para el campeonato, la práctica, los desafíos, la sala en vivo y la Pantalla. **Pendiente:** un PDF personal sin grupo
+todavía pide crear un grupo. Capítulo 81 §2.7.
+
+## DEC-2026-11-16-1 — Senda: la velocidad se mide en el teléfono de la persona, no en el emulador
+**Pedido del fundador (15-11-2026):** «Anda LENTÍSIMA la app en general… Invertí todo lo que haya que invertir». **Hecho:** las causas
+leídas en el código se arreglaron (la senda y el mapa se dibujaban como una sola imagen de decenas de MB; los paisajes eran dibujos de
+pantalla completa; las 1.625 lecciones se cargaban al abrir). **HECHO medido (16-11-2026):** tres corridas de la misma versión en el
+emulador de GitHub dieron 60, 150 y 450 ms por cuadro según la máquina (43779199399, 43779201805, 43779204444): ese emulador no sirve
+para comparar variantes. **Decisión (técnica, de Claude):** (a) no se apagan animaciones ni se toca a Lany a ciegas; (b) el APK 56 trae
+«Medir la velocidad» en Ajustes (informe por pantalla, con el modelo del teléfono, que se copia para mandarlo); (c) el fundador mide con
+«Animaciones: todas» y con «reducidas» en su teléfono. **Regla de corte:** si con «reducidas» las trabas bajan a menos de la mitad, en la
+prueba 57 Lany y los brillos se pausan cuando la pantalla no se toca y en las pestañas que no se ven; si no, se trabaja la pantalla que
+el informe marque como la peor. Capítulo 81 §2.1.1.
+
+## DEC-2026-11-16-2 — Senda: AdMob con clasificación PG en la cuenta y G para adolescentes
+**Decisión del fundador (16-11-2026), con Claude en Chrome:** la cuenta de AdMob queda con clasificación máxima **PG** (no G). Google
+estimaba con G entre -36 % y -69 % de ingresos de la red de AdMob (HECHO: estimación mostrada por la consola de AdMob el 16-11-2026).
+La app pide G a los adolescentes (13 a 17) y PG a los adultos; manda el más estricto; menores de 13, sin anuncios. Bloqueadas 12
+categorías sensibles (citas, estética, política, sexo, casino social, dinero rápido, pérdida de peso, salud sexual, sensacionalismo,
+medicamentos, apuestas, alcohol) y, en generales, astrología, ocultismo y todos los préstamos; «Religión» permitida porque es un solo
+interruptor y bloquearía también los anuncios cristianos. Mensajes RGPD (con «No consentir» en la primera pantalla) y de estados de
+EE. UU. publicados. Perfil de pagos particular con la dirección del DNI (9 de Julio). **Regla de corte:** si aparece un anuncio que no
+encaja con Senda, se bloquea puntual desde la revisión de anuncios; si con gente real el ingreso por mil impresiones es muy bajo, se
+revisan los bloqueos con datos. `docs/ANUNCIOS.md` de la app.
+
+## DEC-2026-11-17-1 — Senda: salida gradual (pocos juegos y rutas al principio, se liberan de a poco)
+**Pedido del fundador (17-11-2026):** «en juegos, al principio solo aparezca la trivia; en las travesías, algunos por travesía, para
+que la persona no se sienta abrumada; luego vamos liberando». Aprobó la propuesta («va así», «sí, está bien») y pidió los juegos más
+espaciados, «una nueva ruta más por área por semana» y métricas de avance. **Decisión:** en la versión de la tienda, al lanzar, Jugar
+muestra el Espadeo, la Trivia de la iglesia, los torneos de trivia y la sala en vivo; un juego nuevo cada tres semanas (¿Quién es? 11-01,
+Antes o después 01-02, Vivir la historia 22-02, Nombres por letra 15-03, En la frente 05-04-2027); la Travesía abre con 15 rutas de
+entrada (463 niveles) y, desde el 28-12, una ruta más por área cada lunes; cada área anuncia sus próximas tres rutas con su día. Las
+fechas viven en `contenido/liberacion.json` de la app y la tabla `liberaciones` de Supabase las adelanta o atrasa sin sacar otra versión.
+Los APK de prueba muestran todo. Métricas anónimas nuevas: `leccion_terminada` con ruta, área y avance, y `ruta_terminada`. **Regla de
+corte:** si a las tres semanas menos del 20 % de quienes terminan su primera lección termina una ruta, se abren antes las rutas
+cortas; si los juegos nuevos no suben la vuelta semanal, se espacian menos. Commit 3a13945 de la app.
+
+## DEC-2026-11-17-2 — Senda: en cada cita, la versión libre que más se parece a la RVR1960
+**Pedido del fundador (17-11-2026, «CLAVE»):** cargó una RVR1960 en `libros-referencia4` **solo para comparar** (no se usa por la
+licencia). En toda la app (trivia, Travesía, versículo del día, cualquier cita) va la versión libre cuyo texto más se parece a la
+RVR1960, siempre con su nombre; lo que la Travesía manda a leer abre la versión que más se parece en general, con la RVR1960 a un
+toque; «no debe decir "caridad" cuando la RVR1960 dice "amor"». **Medición (HECHO, 17-11):** el PDF se partió en sus 31.102
+versículos alineándolo con la RV1909 (mediana de parecido 0,88); en general gana la RV1909 de Senda (87,5 % de los versículos,
+parecido promedio 0,854; PDT 0,628; BES 0,492; NBV 0,357): sigue siendo la Biblia por defecto. **Decisiones del fundador (17-11):**
+(1) regla «palabra clave primero»: una versión con una palabra vieja o un falso amigo que la RVR1960 ya no usa en ese versículo queda
+afuera y entre las demás gana la más parecida (resultado: RV1909 77,1 %, PDT 17,8 %, BES 4,1 %, NBV 1,0 %); (2) cuando gana otra
+versión, la pregunta, las opciones y el hueco se reescriben con sus palabras y se muestra su nombre (1.202 de 5.136 preguntas de
+trivia y 2.417 de 10.271 ejercicios de la Travesía); (3) todo de una, antes del lanzamiento. El texto de la RVR1960 nunca entra a la
+app ni a un repositorio: quedan los scripts y la tabla de versiones (`scripts/autor/rvr1960/` de la app).
+**Ejecución (17-11, misma sesión):** la regla se afinó con sus dos mitades, porque «palabra clave primero» también quiere decir no
+perder la palabra de la RVR1960 (en 2 Corintios 12:9 la NBV dice «Debe bastarte mi amor» y pierde «gracia»): cada palabra vieja a la
+vista vale 1 problema, cada palabra clave de la fe que la RVR1960 dice y la versión no (gracia, fe, salvación, Espíritu, virgen,
+Jehová…) vale 2, y la PDT con nombres transliterados («YAVÉ», «ʼAdonay») queda afuera; gana la de menos problemas y, a igualdad, la
+más parecida (RV1909 80,1 %, PDT 14,1 %, BES 4,5 %, NBV 1,3 %). Cada ejercicio y pregunta lleva `version`, la app la nombra al lado de
+la cita y el pasaje se abre en ella; el versículo del día sigue la misma tabla (reemplaza a la NBV de la prueba 41). Lo que en la RV1909
+ya se lee exactamente como en la RVR1960 queda en la RV1909 (`igual_rvr1960.json`). La reescritura (unas 3.300 preguntas, ejercicios y
+citas en relatos y fichas) la hicieron revisores en paralelo contra un chequeador que exige cita textual en la versión elegida, hueco
+que se lea igual en la RVR1960, ninguna palabra vieja a la vista y nada copiado de la 1960; el validador de la app controla la versión
+de cada ejercicio.
+
+## DEC-2026-11-17-3 — Senda: salida en EE. UU. el 18-12; Brasil y la UE esperan
+**Decisión del fundador (17-11-2026):** «si hay que contratar, Brasil y UE esperan, y si EE. UU. permite salir sin contratar la persona
+allá, podemos hacer la gestión para salir». **HECHO de base** (`conocimiento/2026-11-14-senda-lanzamiento-eeuu.md`, B7 e I4): para
+publicar en EE. UU. como persona física no hace falta representante ni domicilio allá; lo único pago es el agente DMCA (USD 6, lo
+registra el fundador). **Queda así:** el 18-12 Latinoamérica (sin Brasil) y EE. UU. con la opción A recomendada en el informe
+(Comunidad solo para mayores de 18 en EE. UU., sin premios y sin la sala en vivo; de 13 a 17 leen, hacen la Travesía y juegan solos),
+que no necesita abogado; Brasil sigue el 01-03-2027 (DEC-2026-11-07-6) y la UE, cuando se aprueben representantes. **Lo técnico
+(Claude):** señales de edad de Play y Apple, edad obligatoria antes de cualquier cuenta, voz solo en el teléfono para menores de 13,
+privacidad y términos en inglés con la parte de EE. UU., consentimiento por datos que pueden mostrar la fe, reglas por país de la
+tienda y fichas en inglés. **Lo del fundador:** correo de soporte y domicilio, W-8BEN y capacidad Declared Age Range en Apple, EE. UU.
+y Age signals en Play, impuestos en AdMob, publicar el sitio en inglés y el agente DMCA. **Regla de corte:** 05-12 (si las señales de
+edad no andan en un iPhone y un Android reales, EE. UU. pasa a enero sin atrasar Latinoamérica). Cierra DEC-2026-11-14-2.
+
+**Actualización DEC-2026-11-15-3 (17-11):** el fundador eligió el dominio del ministerio: la Pantalla queda en senda.ministerionuevageneracion.com/pantalla (CNAME «senda» → senda-1zw.pages.dev, DNS only, cargado en su cuenta de Cloudflare; la app ya la muestra).
+
+### DEC-2026-11-17-4 · Prepago de USD 30 para la prueba gratis de Google Cloud (campaña «Una sola Palabra»)
+
+**Decisión del fundador (17-11):** «quiero pagarlo». Google pide un prepago único de USD 30 para activar la prueba gratis de USD 300
+(90 días) en la cuenta de facturación 011594-17AD87-1282AF, vinculada solo al proyecto senda-campana (nunca a senda-fafc8, el de
+Firebase). Según Google, el prepago se devuelve al cerrar la cuenta de facturación; los USD 300 de la prueba se usan primero. El pago
+lo hace el fundador. **Para qué:** las 18 tomas con personas fotorrealistas del comercial (paquete:
+https://claude.ai/artifact/3EqgE6K3akXLFQWf2Q5gEw). **Al terminar:** cerrar la cuenta de facturación y pedir el reembolso del prepago
+(antes de los 90 días). **Regla de corte:** si la prueba no habilita los modelos de video, se cierra la cuenta, se pide el reembolso y
+se sigue con modelos abiertos.
+
 
 ## DEC-2026-11-15-1 · Holding: Consola del Holding, entran Nido (P10) y Telar (P11), y la exploración de herramientas externas
 
