@@ -572,6 +572,10 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     con titular, teléfono con marco, Lany entera en alta (nunca cortada), ruleta y festejo, y temas claro y oscuro (`scripts/tienda/`);
   - la descripción de la tienda tiene que vender («la app al servicio de las iglesias», «aprende jugando»), sin sonar a IA ni a
     básica, y sin prometer lo que no está el día uno (`tienda/ficha_es.md` de la app).
+  - la RVR1960 como vara (DEC-2026-11-17-2): en cada cita va la versión libre más parecida a la RVR1960, con su nombre, con la
+    regla «palabra clave primero» (nunca «caridad» donde la 1960 dice «amor»); los ejercicios se reescriben con las palabras de la
+    versión que se muestra; la RV1909 sigue por defecto (la más parecida en general); el PDF de la RVR1960 (`libros-referencia4`)
+    se lee solo para comparar y su texto nunca entra a la app ni a un repositorio (`scripts/autor/rvr1960/` de la app).
 
 ## 2. Reglas no negociables
 

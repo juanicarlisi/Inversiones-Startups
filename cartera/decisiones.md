@@ -1762,3 +1762,16 @@ fechas viven en `contenido/liberacion.json` de la app y la tabla `liberaciones` 
 Los APK de prueba muestran todo. Métricas anónimas nuevas: `leccion_terminada` con ruta, área y avance, y `ruta_terminada`. **Regla de
 corte:** si a las tres semanas menos del 20 % de quienes terminan su primera lección termina una ruta, se abren antes las rutas
 cortas; si los juegos nuevos no suben la vuelta semanal, se espacian menos. Commit 3a13945 de la app.
+
+## DEC-2026-11-17-2 — Senda: en cada cita, la versión libre que más se parece a la RVR1960
+**Pedido del fundador (17-11-2026, «CLAVE»):** cargó una RVR1960 en `libros-referencia4` **solo para comparar** (no se usa por la
+licencia). En toda la app (trivia, Travesía, versículo del día, cualquier cita) va la versión libre cuyo texto más se parece a la
+RVR1960, siempre con su nombre; lo que la Travesía manda a leer abre la versión que más se parece en general, con la RVR1960 a un
+toque; «no debe decir "caridad" cuando la RVR1960 dice "amor"». **Medición (HECHO, 17-11):** el PDF se partió en sus 31.102
+versículos alineándolo con la RV1909 (mediana de parecido 0,88); en general gana la RV1909 de Senda (87,5 % de los versículos,
+parecido promedio 0,854; PDT 0,628; BES 0,492; NBV 0,357): sigue siendo la Biblia por defecto. **Decisiones del fundador (17-11):**
+(1) regla «palabra clave primero»: una versión con una palabra vieja o un falso amigo que la RVR1960 ya no usa en ese versículo queda
+afuera y entre las demás gana la más parecida (resultado: RV1909 77,1 %, PDT 17,8 %, BES 4,1 %, NBV 1,0 %); (2) cuando gana otra
+versión, la pregunta, las opciones y el hueco se reescriben con sus palabras y se muestra su nombre (1.202 de 5.136 preguntas de
+trivia y 2.417 de 10.271 ejercicios de la Travesía); (3) todo de una, antes del lanzamiento. El texto de la RVR1960 nunca entra a la
+app ni a un repositorio: quedan los scripts y la tabla de versiones (`scripts/autor/rvr1960/` de la app).
