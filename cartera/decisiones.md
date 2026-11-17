@@ -1810,3 +1810,21 @@ lo hace el fundador. **Para qué:** las 18 tomas con personas fotorrealistas del
 https://claude.ai/artifact/3EqgE6K3akXLFQWf2Q5gEw). **Al terminar:** cerrar la cuenta de facturación y pedir el reembolso del prepago
 (antes de los 90 días). **Regla de corte:** si la prueba no habilita los modelos de video, se cierra la cuenta, se pide el reembolso y
 se sigue con modelos abiertos.
+
+### DEC-2026-11-17-5 · Cauce: plataforma de procesos con números (PROPUESTA, espera la decisión del fundador)
+
+**Pedido del fundador (17-11-2026):** explorar y desarrollar «la mejor plataforma de flujogramas y gestión inteligente de
+procesos», a partir de su experiencia con Miro y Bizagi (límites de licencia al exportar), con pizarra, rigor de modelado, datos
+por bloque, simulación, IA, colaboración, exportación profesional y conexión con sistemas, transversal al holding y vendible.
+**Qué se hizo:** seis investigaciones en paralelo y un red team (`conocimiento/2026-11-17-cauce-0[1-7]-*.md`), la visión y el
+benchmark (`oportunidades/proyectos/cauce/vision.html`, publicada), la ficha OP-17, la definición del proyecto
+(`oportunidades/proyectos/cauce/definicion.yaml`) y un prototipo funcional (https://claude.ai/artifact/JVSrLuiox5miFbLVtTXScT).
+**HECHOS clave:** Miro vendida a Bending Spoons por USD 1.355 M (cierre 26-10-2026, −90 % contra 2022); draw.io exporta PDF
+vectorial, SVG y VSDX gratis; Bizagi Modeler sigue gratis con simulación; ninguna herramienta revisada calcula mientras se dibuja;
+la simulación cuesta USD 2.000–19.000 por puesto y año; el cursograma IRAM 34501/34502 no tiene soporte nativo.
+**Recomendación (a decidir):** (1) Cauce nace como el motor y el modelador de Andén (plantillas logísticas primero); la pizarra
+horizontal tipo Miro va al cementerio (K27); (2) dos pruebas entre enero y marzo de 2027 (prueba a ciegas y 30 páginas) deciden si
+abre su puerta propia («contá cualquier proceso y llevate el manual listo para ISO»); (3) nombre Cauce, sujeto a verificación.
+**Reglas de corte propuestas:** cero horas del fundador hasta el 15-01-2027; el modelador nunca más del 20 % de las horas de Andén;
+puerta propia solo si pasan las dos pruebas y además 10 consultores compran una preventa (con OK) o una cátedra adopta el
+cursograma; si Andén no pasa su corte de septiembre de 2027, el modelador queda gratis y sin horas. Gasto: USD 0 hasta decidir.

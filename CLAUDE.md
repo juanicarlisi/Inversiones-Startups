@@ -579,6 +579,11 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - «palabra clave primero» tiene dos mitades: ni palabra vieja a la vista ni perder la palabra clave de la RVR1960 («Bástate mi
     gracia»: la que dice «amor» pierde); cada ejercicio lleva `version`, el validador la exige y el versículo del día sigue la misma
     tabla (`python3 scripts/autor/versiones_por_versiculo.py` después de regenerar el contenido).
+- **Datos del 17-11-2026 (Cauce, plataforma de procesos):**
+  - pidió explorar «la mejor plataforma de flujogramas y gestión inteligente de procesos» (Miro + Bizagi + datos por bloque +
+    simulación + IA, sin muros de licencia al exportar); la visión, el benchmark, el red team y un prototipo funcional están en
+    `oportunidades/proyectos/cauce/` y en OP-17; la recomendación (nacer como motor y modelador de Andén, dos pruebas entre enero y
+    marzo de 2027, cero horas suyas hasta el 15-01) espera su decisión (DEC-2026-11-17-5).
 
 ## 2. Reglas no negociables
 

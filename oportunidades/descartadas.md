@@ -30,6 +30,7 @@
 | K24 | Cocheras en CABA como renta | Rentabilidad bruta 4–4,8% en USD con expensas e impuestos a cargo del dueño (casi nula neta); ilíquidas; USD 20–30 k por unidad | Precio de compra que lleve la renta neta por encima de la tesorería | 2026-09-26 |
 | K25 | Mercados de predicción (Polymarket) con o sin bots | Bloqueado en Argentina por orden judicial (16-03-2026) por operar como juego de azar sin autorización | Habilitación legal local | 2026-09-26 |
 | K26 | Autos para apps de movilidad en CABA a nombre propio, operados por terceros | Fallo porteño (may-2026): licencia profesional y seguro de transporte de pasajeros para los conductores; el dueño responde en forma objetiva por accidentes (CCyC 1757–1758); renta en pesos | Ley de la Legislatura que ordene la actividad + estructura donde el inversor no sea titular del vehículo | 2026-09-26 |
+| K27 | Plataforma universal de flujogramas y pizarra horizontal tipo Miro + Bizagi como producto propio (pedido del fundador del 17-11-2026, tal como fue planteado) | Miro vendida a 2,3 veces su ingreso anual (−90 % contra 2022); draw.io exporta todo gratis; Bizagi Modeler gratis con simulación; la IA que dibuja ya es commodity; construir un lienzo nivel Miro no tiene fondo (bitácoras `2026-11-17-cauce-0*`) | Reformulada en OP-17 (Cauce: motor y modelador de Andén). Revive como producto propio si pasan la prueba a ciegas y las 30 páginas y además 10 consultores compran una preventa o una cátedra adopta el cursograma IRAM | 2026-11-17 |
 
 ## Ideas en observación (no descartadas, sin ficha todavía)
 

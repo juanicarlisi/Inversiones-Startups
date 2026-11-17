@@ -1,13 +1,13 @@
 # Tablero de oportunidades
 
-> Generado por `python3 herramientas/oportunidades.py` el 2026-10-11. **No editar a mano.**
+> Generado por `python3 herramientas/oportunidades.py` el 2026-11-17. **No editar a mano.**
 > Puntaje 0–100 (scorecard ponderado). IVR = (valor esperado al mes 36 − capital óptimo) / recurso,
 > con recurso = capital óptimo + horas del fundador × tarifa sombra. La tesorería (OP-09) marca el piso.
 > Referencias: puntaje ≥ 70 = prioridad; IVR ≥ 1.0 en unidades operativas; en activos intensivos en capital, IVR ≥ 2× el de la tesorería.
 
 ## Pipeline
 
-**validar**: 3 · **explorar**: 2 · **inversion**: 1 · **radar**: 3 · **pausa**: 7
+**validar**: 3 · **explorar**: 3 · **inversion**: 1 · **radar**: 3 · **pausa**: 7
 
 ## Ranking
 
@@ -16,6 +16,7 @@
 | [OP-16](oportunidades/OP-16-logistic-lab.md) | Logistic Lab: calculadoras y simuladores logísticos en español (depósito + distribución), por módulos | validar | plataforma | 76 | 10.01 | 49.860 | 940 | 300 | 3 | 80 | 3/6 | Fundador: las 5 calculadoras que más le hubieran servido + planillas/apuntes; Claude: primeras 5 calculadoras online en 8 semanas con fórmulas documentadas (EXP-10) |
 | [OP-15](oportunidades/OP-15-suite-cristiana.md) | Suite cristiana en español: trivia bíblica, versículo del día, compañero IA y agenda de eventos | validar | motor-de-caja | 78 | 4.72 | 30.160 | 730 | 150 | 4 | 85 | 5/6 | Fundador: enfoque (interdenominacional o evangélico), 1–2 revisores, cuenta de Google Play + AdMob, 12 testers; Claude: banco de 3.000 preguntas con citas y primera versión en 5 semanas (EXP-09) |
 | [OP-08](oportunidades/OP-08-microadquisiciones-digitales-usd.md) | Micro-adquisiciones de negocios digitales en USD operados con IA | validar | cobertura | 70 | 0.25 | 3.027 | 160 | 6.000 | 4 | 70 | 4/6 | Primer paso (DEC-2026-09-26-6): comprar una app o juego Android chico con AdMob verificado en Flippa (USD 1.000–2.500 del ahorro) entre el mes 6 y el 9, tras 3 análisis de práctica (EXP-08, alternativa F1 del catálogo). Compras mayores (F2) en el año 2. |
+| [OP-17](oportunidades/OP-17-cauce-procesos-vivos.md) | Cauce: procesos con números (modelador, análisis en vivo, simulación y manual), nacido como motor de Andén | explorar | plataforma | 65 | 145.16 | 121.938 | 2.260 | 60 | 0.5 | 90 | 3/6 | Fundador: decidir si Cauce nace como motor de Andén y si corren las dos pruebas (ene–mar 2027). Claude: cero horas del fundador hasta el 15-01-2027; preparar la prueba a ciegas (3 procesos genéricos) y las 30 páginas en el dominio de Andén. |
 | [OP-06](oportunidades/OP-06-puente-compre-local-minero.md) | Puente de compre local minero (San Juan) para proveedores de afuera | explorar | opcion | 67 | 1.08 | 16.700 | 710 | 3.000 | 8 | 50 | 5/6 | Esperar reglamentación de la Ley 2827-M y FID de Vicuña (V-13); mientras, OP-07 publica una edición 'Proveedores RIGI' para medir interés y encontrar socio sanjuanino |
 | [OP-05](oportunidades/OP-05-marca-matera-exportable.md) | Marca matera: evaluación de la idea original y versión exportable premium | explorar | opcion | 50 | 0.70 | 11.475 | 475 | 4.000 | 8 | 55 | 4/6 | No invertir en stock ni en precio regalado. Si el fundador quiere explorarla: prueba de 100 kits premium en Amazon/Etsy con tope USD 1.500 (EXP-05), después de EXP-01/02 |
 | [OP-09](oportunidades/OP-09-tesoreria-y-tesis-energia.md) | Tesorería en USD + tesis satélite: Argentina exportadora de energía en un mundo sin Ormuz | inversion | cobertura | 71 | 0.11 | 522 | 17 | 3.000 | 1 | 60 | 6/6 | Definir cuenta en ALyC y política de tesorería (doctrina/03 §5); registrar el primer aporte en cartera/libro-capital.csv |
@@ -37,6 +38,7 @@
 | OP-16 | 3 | 4 | 3 | 4 | 5 | 4 | 4 | 5 | 4 | 3 | 4 |
 | OP-15 | 3 | 3 | 5 | 3 | 5 | 5 | 4 | 4 | 4 | 4 | 3 |
 | OP-08 | 3 | 4 | 4 | 2 | 3 | 5 | 3 | 4 | 3 | 2 | 5 |
+| OP-17 | 2 | 3 | 2 | 3 | 4 | 5 | 3 | 5 | 5 | 4 | 3 |
 | OP-06 | 5 | 4 | 2 | 3 | 2 | 3 | 5 | 4 | 3 | 2 | 4 |
 | OP-05 | 2 | 2 | 3 | 2 | 3 | 3 | 3 | 3 | 2 | 2 | 3 |
 | OP-09 | 3 | 3 | 5 | 3 | 4 | 3 | 3 | 3 | 4 | 5 | 3 |
@@ -58,6 +60,7 @@
 | OP-16 | 100 | 300 | 2.000 | 5.000 | 50 |
 | OP-15 | 50 | 150 | 1.500 | 3.000 | 30 |
 | OP-08 | 3.000 | 6.000 | 45.000 | 100.000 | 40 |
+| OP-17 | 0 | 60 | 600 | 3.000 | 5 |
 | OP-06 | 500 | 3.000 | 10.000 | 20.000 | 250 |
 | OP-05 | 600 | 4.000 | 12.000 | 30.000 | 150 |
 | OP-09 | 100 | 3.000 | 10.000 | 50.000 | 100 |
