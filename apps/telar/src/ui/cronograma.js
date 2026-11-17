@@ -4,7 +4,7 @@ import { E, A, guardarUI, Silencio } from './estado.js';
 import { $, esc } from './util.js';
 import { ic } from './iconos.js';
 import { hacerArrastrable, crearFantasma, moverFantasma } from './arrastre.js';
-import { dn, isoDe, diaSemana, diaDelMes, mesAnio, mesCorto, mesDe, anioDe, fechaCorta, dias, dia } from '../modelo/fechas.js';
+import { dn, isoDe, diaSemana, diaDelMes, mesAnio, mesCorto, mesDe, anioDe, fechaCorta, dias, dia, finMes } from '../modelo/fechas.js';
 import { seCorrio, rango, posicionDeSoltar, moverA, moverPaso, fechasArrastradas, ponerFechas } from '../modelo/plan.js';
 import { filas } from '../modelo/vista.js';
 import { htmlPrimerProyecto } from './primer-minuto.js';
@@ -143,8 +143,12 @@ function fila(r, anchoTL) {
 export function render() {
   PPD = ZOOM[E.ui.zoom] || 6;
   R = rango(E.plan, E.hoy);
+  // La línea de tiempo llena siempre el ancho visible (en Panorama un plan corto dejaba un hueco en blanco).
+  const visibles = Math.ceil((gantt.clientWidth - lwPx()) / PPD) + 1;
+  if (R.e - R.s + 1 < visibles) R.e = finMes(R.s + visibles);
   const anchoTL = (R.e - R.s + 1) * PPD;
-  if (ultimoInicio !== null && ultimoInicio !== R.s) gantt.scrollLeft += (ultimoInicio - R.s) * PPD;
+  const veniaVacio = ultimoInicio === null; // primera vez o recién salido del plan vacío: se va a hoy
+  if (!veniaVacio && ultimoInicio !== R.s) gantt.scrollLeft += (ultimoInicio - R.s) * PPD;
   ultimoInicio = R.s;
   if (!E.plan.areas.length) {
     // Sin nada en el plan: el primer proyecto ocupa la pantalla (sin línea de tiempo vacía).
@@ -163,6 +167,7 @@ export function render() {
   canvas.style.width = `calc(var(--lw) + ${anchoTL}px)`;
   canvas.innerHTML = h;
   gantt.scrollTop = sy;
+  if (veniaVacio) irAHoy(false);
 }
 
 /* ───────── navegación ───────── */
@@ -172,8 +177,10 @@ export function irAHoy(suave = true) {
 }
 
 export function ponerZoom(v) {
+  // Se mantiene a la vista lo elegido (si es una tarea) o, si no, el centro de lo que se estaba mirando.
+  const it = E.ui.sel && E.idx.get(E.ui.sel);
   const cx = gantt.scrollLeft + (gantt.clientWidth - lwPx()) / 2;
-  const centro = R.s + cx / PPD;
+  const centro = it && it.k === 'task' ? (dn(it.o.s) + dn(it.o.e)) / 2 : R.s + cx / PPD;
   E.ui.zoom = v;
   guardarUI();
   A.render();

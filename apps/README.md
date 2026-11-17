@@ -10,7 +10,7 @@ los prototipos que todavía no tienen repositorio (como Senda en el sprint 0).
 | **Andén** (calculadoras logísticas; v0 del 17-10-2026) | `apps/anden/` (temporal) | `oportunidades/proyectos/P2-anden.yaml` |
 | **Andén simulador** (corte 1 «Hub verificado, en escena», cerrado con pendientes el 31-10-2026) | `apps/anden/simulador/` (temporal) | `oportunidades/proyectos/anden/` |
 | **Nido** (finanzas de la casa; hoy «Economía Familiar», en uso por la familia) | `apps/economia-familiar/` (temporal; sin datos personales) | `oportunidades/proyectos/P10-nido.yaml` y `oportunidades/proyectos/nido/` |
-| **Telar** (organización; hoy el artefacto «Plan Maestro») | `apps/plan-maestro/` (temporal) | `oportunidades/proyectos/P11-telar.yaml` y `oportunidades/proyectos/telar/` |
+| **Telar** (organización; base: el artefacto «Plan Maestro»; corte 0 «Salir del artefacto», web instalable, del 17-11-2026) | `apps/telar/` (temporal; Plan Maestro sigue en `apps/plan-maestro/`) | `oportunidades/proyectos/P11-telar.yaml` y `oportunidades/proyectos/telar/` |
 | **Hub Nocturno 3D** (capa nueva en three.js, en construcción) | `apps/juegos/aviacion/v2/` (temporal) | `oportunidades/proyectos/hub-nocturno/` |
 | Laboratorios técnicos (pruebas del radar del 30/31-10-2026) | `apps/anden/laboratorio/`, `apps/juegos/aviacion/laboratorio/` | `oportunidades/proyectos/anden/radar-tecnico.md` |
 

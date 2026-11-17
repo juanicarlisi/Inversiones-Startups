@@ -345,3 +345,24 @@ test('ejemplo «Tu 2027»: válido, alrededor de hoy y con todo tipo de cosas', 
   assert.ok(p.tasks.some((t) => seCorrio(t, HOY)));
   assert.ok(p.tasks.filter((t) => t.star).length >= 2);
 });
+
+/* ───────── uso (métrica norte, en el dispositivo) ───────── */
+
+import { registrarDia, semanasVivas } from '../src/modelo/uso.js';
+
+test('uso: días sin repetir y «semanas con plan vivo»', () => {
+  let d = [];
+  d = registrarDia(d, HOY);
+  d = registrarDia(d, HOY);
+  assert.deepEqual(d, ['2026-11-17']);
+  // Semana del 16-11 (actual): lunes, martes → 2 días. Semana del 9-11: 3 días. Semana del 2-11: 4 días. 26-10: 1.
+  const usados = ['2026-11-16', '2026-11-17', '2026-11-09', '2026-11-11', '2026-11-15', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-08', '2026-10-27'];
+  assert.deepEqual(semanasVivas(usados, HOY), { vivas: 2, de: 4, seguidas: 2 });
+  // Con un día más esta semana, la actual cuenta y la racha llega a 3.
+  assert.deepEqual(semanasVivas([...usados, '2026-11-18'], dn('2026-11-18')), { vivas: 3, de: 4, seguidas: 3 });
+  // Solo guarda los últimos 120 días.
+  let muchos = [];
+  for (let i = 0; i < 200; i++) muchos = registrarDia(muchos, HOY - i);
+  assert.equal(muchos.length, 120);
+  assert.equal(muchos.at(-1), '2026-11-17');
+});

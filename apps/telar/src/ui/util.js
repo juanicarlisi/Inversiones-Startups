@@ -76,8 +76,19 @@ export function dialogo(titulo, contenido, botones = [{ texto: 'Cerrar', valor: 
   });
 }
 
-/** Descarga un archivo generado en el dispositivo (sin pasar por ningún servidor). */
-export function descargar(nombre, contenido, tipo) {
+/** Descarga un archivo generado en el dispositivo (sin pasar por ningún servidor).
+ *  Dentro del visor de claude.ai (versión de prueba) los enlaces de descarga no andan: se usa su capacidad «downloads».
+ *  En la web instalable no existe window.claude y sale por el enlace de siempre. */
+export async function descargar(nombre, contenido, tipo) {
+  let visor = null;
+  try { visor = window.claude && window.claude.use ? await window.claude.use('downloads') : null; } catch { visor = null; }
+  if (visor) {
+    try { await visor.save({ filename: nombre, data: contenido }); return true; }
+    catch (e) {
+      if (e && /dismiss|declin|cancel|not_granted/i.test(String(e.code || e.message))) return false;
+      try { await visor.save({ filename: nombre, data: new Blob([contenido], { type: tipo }) }); return true; } catch { return false; }
+    }
+  }
   const blob = new Blob([contenido], { type: tipo });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -87,6 +98,7 @@ export function descargar(nombre, contenido, tipo) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return true;
 }
 
 /** «hace 3 días», «hoy», «ayer». */

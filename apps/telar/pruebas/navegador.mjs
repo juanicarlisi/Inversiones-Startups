@@ -315,6 +315,27 @@ try {
       assert.deepEqual(await plan(p2), antes);
       assert.ok(await p2.isHidden('#menuPunto'));
     });
+    await paso('teclado: Alt+↓ baja la prioridad, Alt+→ corre un día y Ctrl+Z deshace', async () => {
+      await p2.click('#segLevel button[data-v="tareas"]');
+      await p2.click('#canvas .row.task:has-text("Marco teórico") .nm');
+      const antes = await plan(p2);
+      await p2.keyboard.press('Alt+ArrowDown');
+      let p = await plan(p2);
+      assert.deepEqual(p.tasks.slice(0, 2).map((t) => t.n), ['Entrega del borrador', 'Marco teórico']);
+      await p2.keyboard.press('Alt+ArrowRight');
+      p = await plan(p2);
+      assert.equal(p.tasks[1].s, '2026-11-03');
+      await p2.keyboard.press('Control+z');
+      await p2.keyboard.press('Control+z');
+      assert.deepEqual(await plan(p2), antes);
+      await p2.keyboard.press('Control+Shift+z');
+      assert.equal((await plan(p2)).tasks[0].n, 'Entrega del borrador');
+      for (const z of ['pan', 'dia']) {
+        await p2.click(`#segZoom button[data-v="${z}"]`);
+        await p2.screenshot({ path: `${CAP}telar-1280-claro-escala-${z === 'pan' ? 'panorama' : 'dias'}.png` });
+      }
+      await p2.click('#segZoom button[data-v="mes"]');
+    });
     await c2.close();
   }
 

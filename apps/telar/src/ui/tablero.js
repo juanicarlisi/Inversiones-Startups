@@ -24,9 +24,9 @@ function tarjeta(t) {
   const late = seCorrio(t, E.hoy);
   const cuando = t.ty === 'hito' ? fechaCorta(s) : `${fechaCorta(s)} → ${fechaCorta(e)}`;
   const tipo = t.ty === 'hito' ? 'Fecha clave' : t.ty === 'habito' ? 'Hábito' : '';
-  return `<div class="card${t.st === 'done' ? ' is-done' : ''}${E.ui.sel === t.id ? ' sel' : ''}" data-id="${t.id}" style="--c:${color}" role="button" tabindex="0" aria-label="${esc(t.n)}, ${esc(cuando)}">
+  return `<div class="card${t.st === 'done' ? ' is-done' : ''}${E.ui.sel === t.id ? ' sel' : ''}" data-id="${t.id}" style="--c:${color}">
    ${miga ? `<div class="cr">${miga}</div>` : ''}
-   <div class="ct"><button class="sbtn ${t.st}" data-tick aria-label="${t.st === 'done' ? 'Marcar como pendiente' : 'Marcar como hecha'}" title="Marcar como hecha" style="--c:${color}">${ic.check}</button><span class="cn">${esc(t.n)}</span>${t.star ? ic.star : ''}</div>
+   <div class="ct"><button class="sbtn ${t.st}" data-tick aria-label="${t.st === 'done' ? 'Marcar como pendiente' : 'Marcar como hecha'}" title="Marcar como hecha" style="--c:${color}">${ic.check}</button><button class="cn" aria-label="${esc(t.n)}, ${esc(cuando)}${late ? ', se corrió' : ''}">${esc(t.n)}</button>${t.star ? ic.star : ''}</div>
    <div class="cm"><span class="when${late ? ' late' : ''}">${cuando}${late ? ' · se corrió' : ''}</span>${tipo ? `<span class="tag">${tipo}</span>` : ''}${t.links && t.links.length ? `<span class="tag" title="Enlaces">↗ ${t.links.length}</span>` : ''}${t.note ? '<span class="tag" title="Tiene notas">≡</span>' : ''}</div></div>`;
 }
 
@@ -124,13 +124,6 @@ export function montar() {
       return;
     }
     A.seleccionar(card.dataset.id);
-  });
-  board.addEventListener('keydown', (e) => {
-    const card = e.target.closest('.card');
-    if (card && (e.key === 'Enter' || e.key === ' ') && e.target === card) {
-      e.preventDefault();
-      A.seleccionar(card.dataset.id);
-    }
   });
 
   let marcada = null;

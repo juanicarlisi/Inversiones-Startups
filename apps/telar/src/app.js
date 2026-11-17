@@ -15,6 +15,7 @@ import { planVacio, crearArea, crearProyecto, crearTarea, proyectoDe, moverPaso,
 import { planEjemplo } from './modelo/ejemplo.js';
 import { leerCopia, aJSON, aCSV, ErrorDeCopia } from './modelo/formato.js';
 import { numeros } from './modelo/vista.js';
+import { registrarDia, semanasVivas } from './modelo/uso.js';
 import { isoDe, hoyLocal, dn } from './modelo/fechas.js';
 import { VERSION } from './version.js';
 
@@ -139,6 +140,16 @@ function estadoGuardado(s) {
   $('#saveTxt').textContent = ESTADO_GUARDADO[st] || '';
   el.title = ESTADO_GUARDADO[st] || '';
   el.setAttribute('aria-label', ESTADO_GUARDADO[st] || '');
+}
+
+/** Anota que hoy se abrió el plan (solo la fecha; queda en el dispositivo). */
+function anotarUso() {
+  const antes = E.meta.dias || [];
+  const despues = registrarDia(antes, E.hoy);
+  if (despues !== antes) {
+    E.meta.dias = despues;
+    guardar();
+  }
 }
 
 function necesitaCopia() {
@@ -280,15 +291,15 @@ function verEjemplo() {
 
 async function exportar() {
   if (repo) await repo.ahora();
-  descargar(`telar-${isoDe(E.hoy)}.json`, aJSON(E.plan), 'application/json');
+  if (!(await descargar(`telar-${isoDe(E.hoy)}.json`, aJSON(E.plan), 'application/json'))) return;
   E.meta.ultimaCopia = new Date().toISOString();
   guardar();
   puntoDelMenu();
   toast('Copia descargada. Guardala donde guardes tus archivos.');
 }
 
-function exportarCSV() {
-  descargar(`telar-${isoDe(E.hoy)}.csv`, aCSV(E.plan), 'text/csv;charset=utf-8');
+async function exportarCSV() {
+  if (!(await descargar(`telar-${isoDe(E.hoy)}.csv`, aCSV(E.plan), 'text/csv;charset=utf-8'))) return;
   toast('Planilla descargada');
 }
 
@@ -389,6 +400,10 @@ function armarMenu() {
     <button data-m="atajos" role="menuitem">${ic.teclado}Atajos de teclado</button>
     ${promptInstalar ? `<button data-m="instalar" role="menuitem">${ic.instalar}Instalar Telar</button>` : ''}
     <hr>
+    <div class="nota">${(() => {
+      const u = semanasVivas(E.meta.dias, E.hoy);
+      return `Semanas con plan vivo (3 días o más): ${u.vivas} de las últimas ${u.de}.`;
+    })()}</div>
     <div class="nota">Tus datos quedan en este dispositivo. Versión ${esc(VERSION)}.</div>`;
 }
 
@@ -698,6 +713,7 @@ async function arrancar() {
     guardarUI();
     guardar();
   }
+  anotarUso();
   render();
   requestAnimationFrame(() => cronograma.irAHoy(false));
 
@@ -714,6 +730,7 @@ async function arrancar() {
       const h = hoyLocal();
       if (h !== E.hoy) {
         E.hoy = h;
+        anotarUso();
         render();
       }
     }

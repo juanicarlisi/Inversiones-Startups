@@ -35,7 +35,7 @@ function renderPildora(it) {
   const s = dn(t.s);
   const e = dn(t.e);
   pildora.style.setProperty('--c', a ? a.color : GRIS);
-  pildora.innerHTML = `<div class="tx"><b>${esc(t.n)}</b><small>${t.ty === 'hito' ? 'Fecha clave · ' + fechaCorta(s) : `${fechaCorta(s)} → ${fechaCorta(e)} · ${dias(e - s + 1)}`}</small></div>
+  pildora.innerHTML = `<div class="tx"><b>${esc(t.n)}</b><small>${t.ty === 'hito' ? 'Fecha clave · ' + fechaCorta(s) : `${fechaCorta(s)} → ${fechaCorta(e)}`}</small></div>
     <button class="btn" data-pil="detalle">Detalle</button>
     <button class="btn icono" data-pil="hecha" aria-pressed="${t.st === 'done'}" aria-label="${t.st === 'done' ? 'Marcar como pendiente' : 'Marcar como hecha'}" title="Hecha">${ic.check}</button>
     <button class="btn icono" data-pil="cerrar" aria-label="Dejar de elegir">${ic.x}</button>`;
