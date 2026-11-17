@@ -563,6 +563,16 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - la auditoría de textos se corre con `--solo pantallas` (sin eso recorre también las 1.625 lecciones y las preguntas, y tarda horas);
     las capturas del manual se sacan con región Argentina (con región de EE. UU. la sala en vivo no aparece).
 
+- **Datos del 17-11-2026 (Senda, tienda):**
+  - salida gradual (DEC-2026-11-17-1): en la tienda, al lanzar, Jugar tiene el Espadeo, la Trivia de la iglesia, los torneos de trivia
+    y la sala en vivo; un juego nuevo cada tres semanas y, en la Travesía, 15 rutas de entrada y una ruta más por área cada lunes desde
+    el 28-12; fechas en `contenido/liberacion.json` de la app y la tabla `liberaciones` de Supabase; métricas `leccion_terminada` (con
+    ruta, área y avance) y `ruta_terminada`;
+  - las capturas y el gráfico de la tienda le parecieron «espantosos» («lo hiciste rápido y para sacártelo de encima»): se rehicieron
+    con titular, teléfono con marco, Lany entera en alta (nunca cortada), ruleta y festejo, y temas claro y oscuro (`scripts/tienda/`);
+  - la descripción de la tienda tiene que vender («la app al servicio de las iglesias», «aprende jugando»), sin sonar a IA ni a
+    básica, y sin prometer lo que no está el día uno (`tienda/ficha_es.md` de la app).
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**

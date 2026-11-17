@@ -1750,3 +1750,15 @@ interruptor y bloquearía también los anuncios cristianos. Mensajes RGPD (con �
 EE. UU. publicados. Perfil de pagos particular con la dirección del DNI (9 de Julio). **Regla de corte:** si aparece un anuncio que no
 encaja con Senda, se bloquea puntual desde la revisión de anuncios; si con gente real el ingreso por mil impresiones es muy bajo, se
 revisan los bloqueos con datos. `docs/ANUNCIOS.md` de la app.
+
+## DEC-2026-11-17-1 — Senda: salida gradual (pocos juegos y rutas al principio, se liberan de a poco)
+**Pedido del fundador (17-11-2026):** «en juegos, al principio solo aparezca la trivia; en las travesías, algunos por travesía, para
+que la persona no se sienta abrumada; luego vamos liberando». Aprobó la propuesta («va así», «sí, está bien») y pidió los juegos más
+espaciados, «una nueva ruta más por área por semana» y métricas de avance. **Decisión:** en la versión de la tienda, al lanzar, Jugar
+muestra el Espadeo, la Trivia de la iglesia, los torneos de trivia y la sala en vivo; un juego nuevo cada tres semanas (¿Quién es? 11-01,
+Antes o después 01-02, Vivir la historia 22-02, Nombres por letra 15-03, En la frente 05-04-2027); la Travesía abre con 15 rutas de
+entrada (463 niveles) y, desde el 28-12, una ruta más por área cada lunes; cada área anuncia sus próximas tres rutas con su día. Las
+fechas viven en `contenido/liberacion.json` de la app y la tabla `liberaciones` de Supabase las adelanta o atrasa sin sacar otra versión.
+Los APK de prueba muestran todo. Métricas anónimas nuevas: `leccion_terminada` con ruta, área y avance, y `ruta_terminada`. **Regla de
+corte:** si a las tres semanas menos del 20 % de quienes terminan su primera lección termina una ruta, se abren antes las rutas
+cortas; si los juegos nuevos no suben la vuelta semanal, se espacian menos. Commit 3a13945 de la app.
