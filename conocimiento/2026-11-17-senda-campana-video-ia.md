@@ -156,3 +156,27 @@ Total de las dos primeras versiones: **~USD 59 de USD 330**.
 - v3: 64 s de video y 33 imágenes → ~USD 27;
 - toda la campaña: 208 s y 62 imágenes → **~USD 86 de USD 330**.
 Hay que confirmarlo en la consola de facturación de Google Cloud.
+
+## Versión 3b: 30 s, resumen de la app (17-11-2026 a la noche)
+
+**Qué pidió el fundador después de la v3:**
+- Lany «sigue moviéndose rapidísimo»;
+- que se vea más de la app y dure 30 s, como un resumen («si veo el video no entiendo bien si es una app o qué»).
+
+**Lany rápida, causa raíz (HECHO, medido):**
+- El reloj falso de Playwright maneja la hora, pero los cuadros de animación (`requestAnimationFrame`) llegaban con el tiempo real.
+- Rive calcula cuánto avanzar con el tiempo de esos cuadros. Entonces, en cada cuadro grabado, Lany avanzaba lo que tardaba la
+  captura (100 ms o más).
+- Medición: el baile de la app tiene un ciclo de 0,96 s. En las tomas viejas daba la vuelta cada 7 cuadros; en las nuevas, cada 29
+  (a 30 cuadros por segundo).
+- La «media velocidad» de la v3 no cambiaba nada, porque el problema no era la velocidad pedida sino el reloj. Lo que se le dijo al
+  fundador en la v3 («ahora va a la mitad de la velocidad») era incorrecto.
+- Arreglo: `requestAnimationFrame` propio, que avanza con el reloj falso (`scripts/campana2/code/lany2.cjs` y `grabar2.cjs` de la app).
+
+**Aprendizaje:** una animación grabada se verifica midiendo su ciclo contra el original (cuántos cuadros tarda en repetirse), no
+mirando una hoja de contactos. La hoja no muestra la velocidad.
+
+**Para que se entienda que es una app:**
+- se toca el ícono de Senda en una pantalla de inicio sin marcas y la app se abre;
+- un texto corto dice qué es cada parte;
+- el cierre dice «Descárgala gratis» y cómo buscarla en la tienda.
