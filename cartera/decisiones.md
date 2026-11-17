@@ -1800,3 +1800,13 @@ y Age signals en Play, impuestos en AdMob, publicar el sitio en inglés y el age
 edad no andan en un iPhone y un Android reales, EE. UU. pasa a enero sin atrasar Latinoamérica). Cierra DEC-2026-11-14-2.
 
 **Actualización DEC-2026-11-15-3 (17-11):** el fundador eligió el dominio del ministerio: la Pantalla queda en senda.ministerionuevageneracion.com/pantalla (CNAME «senda» → senda-1zw.pages.dev, DNS only, cargado en su cuenta de Cloudflare; la app ya la muestra).
+
+### DEC-2026-11-17-4 · Prepago de USD 30 para la prueba gratis de Google Cloud (campaña «Una sola Palabra»)
+
+**Decisión del fundador (17-11):** «quiero pagarlo». Google pide un prepago único de USD 30 para activar la prueba gratis de USD 300
+(90 días) en la cuenta de facturación 011594-17AD87-1282AF, vinculada solo al proyecto senda-campana (nunca a senda-fafc8, el de
+Firebase). Según Google, el prepago se devuelve al cerrar la cuenta de facturación; los USD 300 de la prueba se usan primero. El pago
+lo hace el fundador. **Para qué:** las 18 tomas con personas fotorrealistas del comercial (paquete:
+https://claude.ai/artifact/3EqgE6K3akXLFQWf2Q5gEw). **Al terminar:** cerrar la cuenta de facturación y pedir el reembolso del prepago
+(antes de los 90 días). **Regla de corte:** si la prueba no habilita los modelos de video, se cierra la cuenta, se pide el reembolso y
+se sigue con modelos abiertos.
