@@ -54,8 +54,8 @@ Indicadores:
 - capital_dic30_p10: 13.003
 - capital_fin_p50: 109.054
 - acum_36_p10: -9.363
-- horas_max: 12,3
-- horas_prom_2027: 11,3
+- horas_max: 12,4
+- horas_prom_2027: 11,4
 - inversion_total: 3.845
 
 Secundarios del backlog (esperado, USD/mes): 2026: 0 · 2027: 0 · 2028: -0 · 2029: 14 · 2030: 152 · 2031: 410

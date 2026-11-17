@@ -3,6 +3,20 @@
 > Datos obtenidos vía motor de búsqueda (resúmenes de resultados); verificar en fuente primaria antes de decisiones de capital.
 > Próxima actualización: con el IPC de septiembre (mediados de octubre 2026) o ante un evento mayor.
 
+## Actualización del 17-11-2026 (re-verificada en la investigación inmobiliaria)
+
+| Variable | Dato | Fecha | Fuente |
+|---|---|---|---|
+| Dólar MEP (venta) | $1.592,8 | 17-11-2026 | dolarapi.com |
+| Dólar oficial / mayorista | $1.575 / $1.552 | 17-11-2026 | dolarapi.com |
+| Contado con liquidación | $1.690,9 | 17-11-2026 | dolarapi.com |
+| Riesgo país | 855 pb (16-11); 939 pb (06-11); 405 pb (13-07) | 2026 | api.argentinadatos.com (serie EMBI) |
+| Bonos soberanos en dólares | AN29 15,8%, AO29 15,6%, AE38 14,7% de TIR | 06-11-2026 | Forbes Argentina |
+| Inflación | 2,2% en octubre; 33,1% interanual; 26,3% en el año | INDEC, 12-11-2026 | Forbes, Rankia |
+| Alquiler de vivienda | Exento de Ganancias desde el 01-01-2026 (no el temporario turístico) | 2026 | Ley 27.802 y Decreto 406/2026 |
+
+Detalle y fuentes: `conocimiento/2026-11-17-inmobiliario-argentina.md` §1. La tabla de abajo es la foto del 26-09-2026.
+
 ## Argentina
 
 | Variable | Dato | Fecha | Fuente |

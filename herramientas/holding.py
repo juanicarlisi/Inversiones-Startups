@@ -335,6 +335,8 @@ def resumen(datos: dict) -> dict:
         hp = horas_proyecto(p)
         out["horas"][p["id"]] = hp
         horas_total += hp
+        if tipo == "renta" and any(x["tipo"] == "renta" for x in out["proyectos"]):
+            continue   # la renta es un solo pozo (Cimiento); Ladrillo (P12) es un sub-balde suyo: no se cuenta dos veces en la tabla
         if tipo == "renta":
             esperado = sim["renta"].mean(axis=0)
             normal = np.median(sim["renta"], axis=0)

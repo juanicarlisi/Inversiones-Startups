@@ -132,6 +132,8 @@ def armar() -> dict:
             p["cortes_ficha"] = f.get("cortes", [])
             if p["ficha"] in mod:
                 p.update(mod[p["ficha"]])
+            if (f.get("caso") or {}).get("tipo", f.get("tipo")) == "renta":   # la renta no es ingreso operativo: sin caso «si funciona»
+                p.pop("caso", None); p.pop("chances", None)
         if not p.get("camino") and p.get("gantt"):   # sin camino propio: el gantt de la ficha hace de camino
             hoy = date.today().isoformat()[:7]
             p["camino"] = [{"fase": g["que"], "cuando": f"{g['desde']} → {g['hasta']}",

@@ -1,38 +1,28 @@
 /* ============ AJUSTES ============ */
 function vAjustes() {
   const c = cfg(); let h = '<div class="grid two">';
-  h += `<div class="card"><h2>Personas</h2><div class="grid3" style="grid-template-columns:1fr 1fr">${c.usuarios.map((u, i) => `<div class="field"><label for="st-u${i}">Persona ${i + 1}</label><input class="inp" id="st-u${i}" data-f="st-user" data-i="${i}" value="${esc(u)}"></div>`).join('')}</div></div>`;
+  const us = [c.usuarios[0] || '', c.usuarios[1] || ''];
+  h += `<div class="card"><h2>Quiénes cargan</h2><div class="grid3" style="grid-template-columns:1fr 1fr">${us.map((u, i) => `<div class="field"><label for="st-u${i}">Persona ${i + 1}${i ? ' (opcional)' : ''}</label><input class="inp" id="st-u${i}" data-f="st-user" data-i="${i}" value="${esc(u)}" maxlength="24" placeholder="${i ? 'Ej: tu pareja' : 'Tu nombre'}" autocomplete="off"></div>`).join('')}</div><div class="hint" style="margin-top:8px">Sirve para saber quién cargó cada cosa. Con una sola persona, arriba no aparece el selector.</div></div>`;
   h += `<div class="card"><h2>Parámetros</h2><div class="grid3" style="grid-template-columns:1fr 1fr">
-    <div class="field"><label for="st-tc">Dólar de referencia ($)</label><input class="inp num" id="st-tc" data-f="st-tc" inputmode="decimal" value="${fmtInput(c.tc)}"></div>
+    <div class="field"><label for="st-tc">Dólar de referencia ($, opcional)</label><input class="inp num" id="st-tc" data-f="st-tc" inputmode="decimal" value="${fmtInput(c.tc)}" placeholder="Sin cargar"></div>
     <div class="field"><label for="st-rend">Rendimiento mensual estimado de los fondos %</label><input class="inp num" id="st-rend" data-f="st-rend" inputmode="decimal" value="${String(c.rendMensual === undefined ? 1.6 : c.rendMensual).replace('.', ',')}"></div>
     <div class="field"><label for="st-caja">Plata disponible al empezar ($)</label><input class="inp num" id="st-caja" data-f="st-caja" inputmode="decimal" value="${fmtInput(c.caja)}"></div>
     <div class="field"><label for="st-ini">Empezamos en</label><input class="inp" type="month" id="st-ini" data-f="st-ini" value="${c.inicio}"></div></div>
-    <div class="hint" style="margin-top:8px">“Plata disponible al empezar” es lo que tenían líquido (cuenta, efectivo) al comienzo del mes de arranque. Con eso se calcula el disponible de hoy.</div></div>`;
+    <div class="hint" style="margin-top:8px">“Plata disponible al empezar” es lo que tenían líquido (cuenta, efectivo) al comienzo del mes de arranque. Con eso se calcula el disponible de hoy. El dólar solo se usa para mostrar equivalencias.</div></div>`;
   h += `<div class="card"><h2>Presupuestos <button class="more" data-act="bolsa-edit" data-id="">Agregar</button></h2><div class="hint" style="margin-bottom:6px">Un tope mensual para varios rubros juntos. Lo que cargues en esos rubros se descuenta solo.</div>${(c.bolsas || []).map(b => `<button class="set-row" data-act="bolsa-edit" data-id="${b.id}"><span class="ico sm">🛒</span><span class="grow"><div class="ell">${esc(b.n)}</div><div class="hint ell">${(b.cats || []).map(id => esc(catOf(id).n)).join(' + ')}${b.desde ? ' · desde ' + ymShort(b.desde) + ' ' + b.desde.slice(2, 4) : ''}</div></span><span class="num hint">${money(b.monto)}</span>${IC.chev}</button>`).join('') || '<div class="hint">Todavía no tenés ninguno.</div>'}</div>`;
   h += `<div class="card"><h2>Rubros <button class="more" data-act="cat-edit" data-id="">Agregar</button></h2>${c.cats.map(x => `<button class="set-row" data-act="cat-edit" data-id="${x.id}"><span class="ico sm" style="background:${x.c}22">${x.e}</span><span class="grow ell">${esc(x.n)}</span><span class="hint">${x.pres > 0 ? 'presup. ' + compact(x.pres) + (x.presDesde ? ' desde ' + ymShort(x.presDesde) + ' ' + x.presDesde.slice(2, 4) : '') : ''}</span>${IC.chev}</button>`).join('')}</div>`;
   h += `<div class="card"><h2>Plan mensual <button class="more" data-act="plan-edit" data-id="">Agregar</button></h2><div class="hint" style="margin-bottom:6px">Lo que cobran y pagan todos los meses. Aparece en Inicio para confirmarlo con un toque.</div>
     ${['ingreso', 'gasto'].map(t => `<div class="group-h">${t === 'ingreso' ? 'Cobros' : 'Pagos'}</div>${S.plan.items.filter(i => i.tipo === t).map(i => `<button class="set-row" data-act="plan-edit" data-id="${i.id}"><span class="ico sm">${t === 'ingreso' ? ingCatOf(i.cat).e : catOf(i.cat).e}</span><span class="grow ell">${esc(i.n)}${i.unico ? ' <span class="muted">· solo ' + ymShort(i.desde) + ' ' + i.desde.slice(2, 4) + '</span>' : ''}</span><span class="num hint">${i.pct ? i.pct + '%' : money(i.base)}</span>${IC.chev}</button>`).join('') || '<div class="hint">Nada todavía.</div>'}`).join('')}</div>`;
-  h += `<div class="card"><h2>Tarjetas</h2>${c.tarjetas.map((t, i) => `<div class="set-row"><span class="ico sm">💳</span><span class="grow ell">${esc(t.n)}</span><label class="hint" for="st-ci${i}">cierra el día</label><input class="inp num" style="width:64px;min-height:38px;padding:6px 8px" id="st-ci${i}" data-f="st-cierre" data-i="${i}" inputmode="numeric" value="${t.cierre || ''}" placeholder="—"></div>`).join('')}
+  h += `<div class="card"><h2>Tarjetas de crédito <button class="more" data-act="tj-add">Agregar</button></h2>${c.tarjetas.map((t, i) => `<div class="set-row"><span class="ico sm">💳</span><input class="inp grow" style="min-height:38px;padding:6px 10px" data-f="st-tjn" data-i="${i}" value="${esc(t.n)}" aria-label="Nombre de la tarjeta ${i + 1}" maxlength="30"><label class="hint nowrap" for="st-ci${i}">cierra el</label><input class="inp num" style="width:58px;min-height:38px;padding:6px 8px" id="st-ci${i}" data-f="st-cierre" data-i="${i}" inputmode="numeric" value="${t.cierre || ''}" placeholder="—"><button class="icon-btn" data-act="tj-del" data-i="${i}" aria-label="Quitar ${esc(t.n)}">${IC.trash}</button></div>`).join('') || '<div class="hint">No cargaste tarjetas. Si pagás con crédito, agregalas: así cada compra cuenta en el mes en que pagás el resumen.</div>'}
     <div class="hint" style="margin-top:6px">Sin día de cierre, todo lo que pagás con tarjeta cuenta en el mes siguiente. Si cargás el día, lo comprado después del cierre pasa al segundo mes.</div></div>`;
-  h += `<div class="card"><h2>Esta app</h2><div class="set-row"><span class="grow ink2">Versión</span><b class="num">${APP_BUILD}</b></div><div class="hint">Si acá no dice la versión que te avisé, el teléfono tiene una copia vieja guardada: cerrá del todo el navegador o la app y volvé a abrir el link.</div><div class="sp"></div><button class="btn block" data-act="recargar">Recargar la app</button></div>`;
-  const dg = S.cap.diag || {}; const ok = v => `<span class="pill ${v ? 'pos' : 'warn'}">${v ? 'sí' : 'no'}</span>`;
-  h += `<div class="card"><h2>Diagnóstico de esta cuenta</h2>
-    <div class="set-row"><span class="grow ink2">Conectada a Claude</span>${ok(dg.claude)}</div>
-    <div class="set-row"><span class="grow ink2">Base compartida</span>${ok(dg.db)}</div>
-    <div class="set-row"><span class="grow ink2">Puede cargar y editar datos</span><span class="pill ${S.canWrite === false ? 'warn' : 'pos'}">${S.canWrite === false ? 'no (solo lectura)' : S.canWrite === true ? 'sí' : 'sin confirmar'}</span></div>
-    <div class="set-row"><span class="grow ink2">Lectura de tickets con Claude</span>${ok(dg.sample)}</div>
-    <div class="set-row"><span class="grow ink2">Guardar fotos</span>${ok(dg.assets)}</div>
-    <div class="hint" style="margin-top:6px">Si algo dice “no”, es una función que Claude no le habilitó a esta cuenta o visor. Sacale captura a esta tarjeta si necesitás avisarme.</div></div>`;
-  h += `<div class="card"><h2>Confirmaciones</h2>
-    <label class="switch"><span>Confirmación al guardar<div class="hint">Una tarjeta breve al pagar, cobrar o cargar</div></span><button class="tg ${pref('cele', '1') ? 'on' : ''}" data-act="tg-pref" data-k="cele" role="switch" aria-checked="${pref('cele', '1')}"></button></label>
-    <label class="switch"><span>Vibración suave<div class="hint">Solo en celulares que la permiten</div></span><button class="tg ${pref('hap', '1') ? 'on' : ''}" data-act="tg-pref" data-k="hap" role="switch" aria-checked="${pref('hap', '1')}"></button></label>
-    <label class="switch"><span>Sonido de confirmación<div class="hint">Un “ding” corto, bajito</div></span><button class="tg ${pref('snd', '0') ? 'on' : ''}" data-act="tg-pref" data-k="snd" role="switch" aria-checked="${pref('snd', '0')}"></button></label></div>`;
-  h += `<div class="card"><h2>Datos</h2><button class="set-row" data-act="export-csv"><span class="grow">Exportar movimientos (CSV)</span>${IC.chev}</button>
-    <div class="set-row"><span class="grow ink2">Reglas aprendidas</span><span class="num hint">${Object.keys(S.apr).length} ítems</span></div>
-    <div class="set-row"><span class="grow ink2">Conexión</span><span class="pill ${S.mode === 'cloud' ? 'pos' : 'warn'}">${S.mode === 'cloud' ? 'compartida' : 'solo este teléfono'}</span></div>
-    <div class="set-row"><span class="grow ink2">Lectura de fotos con Claude</span><span class="pill ${S.cap.sample ? 'pos' : 'warn'}">${S.cap.sample ? (S.cap.images ? 'disponible' : 'a probar') : 'no disponible'}</span></div>
-    <a class="set-row" href="https://claude.ai/artifact/UTnbTJ1fUtcaYskFkDWApQ" target="_blank" rel="noopener" style="color:inherit;text-decoration:none"><span class="grow">Abrir en el navegador del celular</span>${IC.chev}</a>
-    <div class="set-row"><span class="grow ink2">Guardar fotos de tickets</span><span class="pill ${S.cap.assets ? 'pos' : 'warn'}">${S.cap.assets ? 'sí' : 'solo mientras cargás'}</span></div></div>`;
+  h += `<div class="card"><h2>Mayordomía</h2><label class="switch"><span>Diezmo y ofrendas<div class="hint">Suma el rubro y permite calcular un porcentaje de los ingresos. Viene apagado: es un dato personal.</div></span><button class="tg ${mayordomia() ? 'on' : ''}" data-act="tg-mayordomia" role="switch" aria-checked="${mayordomia()}" aria-label="Diezmo y ofrendas"></button></label></div>`;
+  const tema = lsGet('nido_tema', 'auto');
+  h += `<div class="card"><h2>Apariencia y avisos</h2><div class="field"><label>Tema</label><div class="seg">${[['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([k, l]) => `<button class="${tema === k ? 'on' : ''}" data-act="tema" data-k="${k}" aria-pressed="${tema === k}">${l}</button>`).join('')}</div></div>
+    <label class="switch"><span>Confirmación al guardar<div class="hint">Una tarjeta breve al pagar, cobrar o cargar</div></span><button class="tg ${pref('cele', '1') ? 'on' : ''}" data-act="tg-pref" data-k="cele" role="switch" aria-checked="${pref('cele', '1')}" aria-label="Confirmación al guardar"></button></label>
+    <label class="switch"><span>Vibración suave<div class="hint">Solo en celulares que la permiten</div></span><button class="tg ${pref('hap', '1') ? 'on' : ''}" data-act="tg-pref" data-k="hap" role="switch" aria-checked="${pref('hap', '1')}" aria-label="Vibración suave"></button></label>
+    <label class="switch"><span>Sonido de confirmación<div class="hint">Un “ding” corto, bajito</div></span><button class="tg ${pref('snd', '0') ? 'on' : ''}" data-act="tg-pref" data-k="snd" role="switch" aria-checked="${pref('snd', '0')}" aria-label="Sonido de confirmación"></button></label></div>`;
+  h += cardDatos();
+  h += cardApp();
   return h + '</div>';
 }
 function abrirBolsa(id) {
@@ -69,7 +59,7 @@ function abrirPlanEdit(id) {
       return `<div class="seg"><button class="${it.tipo === 'ingreso' ? 'on' : ''}" data-act="pe-tipo" data-k="ingreso">Cobro</button><button class="${it.tipo === 'gasto' ? 'on' : ''}" data-act="pe-tipo" data-k="gasto">Pago</button></div>
       <div class="field"><label for="pe-n">Nombre</label><input class="inp" id="pe-n" data-f="pe-n" value="${esc(it.n)}" placeholder="Ej: Expensas"></div>
       <div class="field"><label for="pe-c">Rubro</label><select class="inp" id="pe-c" data-f="pe-c">${cats.map(c => `<option value="${c.id}" ${c.id === it.cat ? 'selected' : ''}>${c.e} ${esc(c.n)}</option>`).join('')}</select></div>
-      ${it.tipo === 'gasto' ? `<label class="switch"><span>Es un porcentaje de los ingresos que cuentan para el diezmo</span><button class="tg ${it.pct ? 'on' : ''}" data-act="pe-pct" role="switch" aria-checked="${!!it.pct}"></button></label>` : `<div class="hint">El diezmo se calcula solo: 10% de todos los ingresos del mes, menos el plazo fijo (rubro Rendimientos).</div>`}
+      ${!mayordomia() && !it.pct ? '' : it.tipo === 'gasto' ? `<label class="switch"><span>Es un porcentaje de los ingresos del mes (sin contar Rendimientos), como el diezmo</span><button class="tg ${it.pct ? 'on' : ''}" data-act="pe-pct" role="switch" aria-checked="${!!it.pct}"></button></label>` : `<div class="hint">Si usás el diezmo como porcentaje, se calcula solo sobre todos los ingresos del mes menos los del rubro Rendimientos.</div>`}
       <label class="switch"><span>Recordármelo todos los meses, aunque no tenga monto (ej: luz, internet, celulares)</span><button class="tg ${it.recordar ? 'on' : ''}" data-act="pe-recordar" role="switch" aria-checked="${!!it.recordar}"></button></label>
       ${it.pct ? `<div class="field"><label for="pe-pct">Porcentaje</label><input class="inp num" id="pe-pct" data-f="pe-pct" inputmode="decimal" value="${it.pct}"></div>` : `<div class="field"><label for="pe-b">Monto mensual ($)</label><input class="inp num" id="pe-b" data-f="pe-b" inputmode="decimal" value="${fmtInput(it.base)}"></div>`}
       <div class="grid3" style="grid-template-columns:1fr 1fr"><div class="field"><label for="pe-d">Desde</label><input class="inp" type="month" id="pe-d" data-f="pe-d" value="${it.desde || ''}"></div><div class="field"><label for="pe-h">Hasta (opcional)</label><input class="inp" type="month" id="pe-h" data-f="pe-h" value="${it.hasta || ''}"></div></div>
@@ -91,18 +81,7 @@ function abrirMeta(id) {
 function pickCat(cb, actual) {
   openSheet({ title: 'Elegir rubro', body: () => `<div class="cats">${catsOrdenadas().map(c => `<button class="cat-b ${actual === c.id ? 'on' : ''}" data-act="pick-cat" data-k="${c.id}"><span class="e">${c.e}</span>${esc(c.n.replace(/ \(.*\)/, ''))}</button>`).join('')}</div>`, cb });
 }
-async function exportCSV() {
-  const rows = [['fecha', 'mes_de_pago', 'tipo', 'comercio', 'item', 'rubro', 'monto', 'medio', 'cargo', 'cuota']];
-  const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-  S.movs.slice().sort((a, b) => a.fecha.localeCompare(b.fecha)).forEach(m => {
-    const cu = m.cuota ? `${m.cuota.i}/${m.cuota.n}` : '';
-    if (m.tipo === 'gasto') (m.items || []).forEach(i => rows.push([m.fecha, m.mes, 'gasto', m.com || '', i.n, catOf(i.cat).n, i.monto, medioOf(m.medio).n + (m.pagoFondo ? ' (fondo)' : ''), m.por || '', cu]));
-    else rows.push([m.fecha, m.mes, m.tipo, m.com || (destOf(m.fondo) || {}).n || '', m.tipo === 'ingreso' ? ingCatOf(m.cat).n : '', '', m.total, '', m.por || '', '']);
-  });
-  const csv = '﻿' + rows.map(r => r.map(q).join(',')).join('\n');
-  if (S.cap.downloads) { try { await S.cap.downloads.save({ filename: `economia-familiar-${hoy()}.csv`, data: csv }); } catch (e) { if (e && e.code !== 'declined') toast('No se pudo exportar.', null, true); } }
-  else toast('Exportar no está disponible en esta vista.', null, true);
-}
+function exportCSV() { descargar(`${MARCA.archivo}-movimientos-${hoy()}.csv`, movimientosCSV(), 'text/csv;charset=utf-8'); }
 
 function abrirEditarMov(m) {
   const its = m.items || []; const simple = m.tipo === 'gasto' && its.length === 1;
@@ -119,6 +98,7 @@ const ACT = {
   'mes-pick': () => abrirMesPick(), 'mes-set': el => { S.mes = el.dataset.k; closeSheet(); render(); },
   yr: (el, e, d) => d.yr(+el.dataset.k),
   user: el => { S.user = el.dataset.u; lsSet('nido_user', S.user); render(); },
+  ...ACT_NIDO,
   nuevo: () => abrirComposer('gasto'), explicar: () => abrirExplicar(),
   'sheet-close': el => closeSheet(sheetOf(el)),
   mfiltro: el => { S.ui.movFiltro = el.dataset.k; render(); }, mvista: el => { S.ui.movVista = el.dataset.k; render(); },
@@ -150,7 +130,6 @@ const ACT = {
   'pl-omitir': async (el, e, d) => { const x = S.plan.items.find(i => i.id === d.it.id); if (!x) return; const antes = x.ov ? { ...x.ov } : null; x.ov = { ...(x.ov || {}), [d.ym]: 0 }; if (await guardar(savePlan)) { closeSheet(d); toast('Omitido en ' + ymName(d.ym).toLowerCase(), async () => { x.ov = antes || {}; if (!antes) Reflect.deleteProperty(x, 'ov'); await guardar(savePlan); }); } },
   'pl-editar-plan': (el, e, d) => { const id = d.it.id; closeSheet(d); abrirPlanEdit(id); },
   'pl-editar-mov': (el, e, d) => { const m = d.row.real.movs[0]; closeSheet(d); abrirEditarMov(m); },
-  recargar: () => { toast('Actualizando…'); setTimeout(() => { try { location.reload(); } catch (err) { toast('Cerrá y volvé a abrir el link.', null, true); } }, 200); },
   'pl-ok': (el, e, d) => planOk(d), 'pt-ok': (el, e, d) => planTodoOk(d),
   'pl-undo': async (el, e, d) => { const ms = d.row.real.movs; const cp = clone(ms); const ok = await guardar(async () => { for (const m of ms) await Store.del('mov', m.id); }); if (ok) { closeSheet(d); toast('Deshecho', async () => { await guardar(async () => { for (const m of cp) await Store.set('mov', m.id, m); }); }); } },
   'fondo-open': el => abrirFondo(el.dataset.id), 'fondo-nuevo': () => abrirFondoEdit(null), 'fondo-edit': (el, e, d) => { closeSheet(d); abrirFondoEdit(el.dataset.id); },
@@ -281,8 +260,9 @@ document.addEventListener('change', async e => {
   if (f === 'fecha' && d && d.id === 'cp') { cpInput('fecha', el.value, el); if (esTarjeta(CP.medio)) cpRefresh(); return; }
   if (!f || !f.startsWith('st-')) return;
   const c = cfg();
-  if (f === 'st-user') c.usuarios[+el.dataset.i] = el.value.trim() || c.usuarios[+el.dataset.i];
-  else if (f === 'st-tc') c.tc = parseMonto(el.value) || c.tc; else if (f === 'st-rend') c.rendMensual = Math.max(0, Math.min(30, parseMonto(String(el.value).replace(',', '.')) || 0));
+  if (f === 'st-user') { const us = [0, 1].map(i => i === +el.dataset.i ? el.value.trim().slice(0, 24) : (c.usuarios[i] || '')); const ok = us.filter(Boolean); if (!ok.length) { el.value = c.usuarios[0]; return; } c.usuarios = [...new Set(ok)]; }
+  else if (f === 'st-tjn') { const t = c.tarjetas[+el.dataset.i]; if (t && el.value.trim()) t.n = el.value.trim().slice(0, 30); else { el.value = t ? t.n : ''; return; } }
+  else if (f === 'st-tc') c.tc = Math.max(0, parseMonto(el.value) || 0); else if (f === 'st-rend') c.rendMensual = Math.max(0, Math.min(30, parseMonto(String(el.value).replace(',', '.')) || 0));
   else if (f === 'st-caja') c.caja = parseMonto(el.value); else if (f === 'st-ini') c.inicio = el.value || c.inicio;
   else if (f === 'st-cierre') c.tarjetas[+el.dataset.i].cierre = Math.min(31, parseInt(el.value) || 0);
   if (await guardar(saveCfg)) { if (S.user && !c.usuarios.includes(S.user)) S.user = c.usuarios[0]; render(); }
@@ -293,11 +273,6 @@ document.addEventListener('paste', e => {
   e.preventDefault(); if (!f) { toast('No encontré una imagen copiada. Copiá la captura primero.', null, true); return; }
   const d = sheetOf(z); if (d) closeSheet(d); if (CP) adjuntarFoto([f]);
 });
-(function () {
-  let y0 = null;
-  document.addEventListener('touchstart', e => { y0 = (window.scrollY <= 0 && !SHEETS.length && e.touches.length === 1) ? e.touches[0].clientY : null; }, { passive: true });
-  document.addEventListener('touchend', e => { if (y0 != null && e.changedTouches[0].clientY - y0 > 140) ACT.recargar(); y0 = null; }, { passive: true });
-})();
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && SHEETS.length) closeSheet(); });
 
 /* ============ Render y arranque ============ */
@@ -305,6 +280,8 @@ const VIEWS = { inicio: vInicio, movs: vMovs, analisis: vAnalisis, fondos: vFond
 function render() {
   if (!S.ready) return;
   const y = window.scrollY;
+  if (necesitaBienvenida()) { $('#app').innerHTML = vBienvenida(); $('#nav').innerHTML = ''; document.body.classList.add('ob'); return; }
+  document.body.classList.remove('ob');
   try { $('#app').innerHTML = header() + (VIEWS[S.vista] || vInicio)(); }
   catch (err) { console.error(err); $('#app').innerHTML = `<div class="card">${emptyState('⚠️', 'Algo salió mal al mostrar esta pantalla', esc(String(err.message || err)), '<button class="btn" data-act="go" data-v="inicio">Volver al inicio</button>')}</div>`; }
   paintNav(); window.scrollTo(0, y); animNums();
@@ -313,11 +290,14 @@ function renderKeep(el) {
   const id = el.id, pos = el.selectionStart; render(); const n = document.getElementById(id); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) { } }
 }
 function onData() {
-  if (!S.ready) { if (S.loaded.mov && S.loaded.cfg) { S.ready = true; const b = $('#boot'); if (b) b.remove(); route(); render(); autoMes(); } return; }
+  if (!S.ready) { if (S.loaded.mov && S.loaded.cfg) { S.ready = true; const b = $('#boot'); if (b) b.remove(); route(); render(); autoMes(); atajo(); } return; }
   render();
 }
-function autoMes() { if (S.mes < cfg().inicio && S.mes === ymNow()) S.mes = ymNow(); }
+function autoMes() { if (S.mes < cfg().inicio && S.mes === ymNow()) S.mes = ymNow(); metrica('abrir'); }
+/* Atajo del ícono instalado («Cargar un gasto»): abre la carga rápida. */
+function atajo() {
+  try { const q = new URLSearchParams(location.search); if (q.get('accion') === 'gasto' && !necesitaBienvenida()) { history.replaceState(null, '', location.pathname + location.hash); abrirComposer('gasto', { quick: true }); } } catch (e) { }
+}
 function route() { const h = (location.hash || '').replace('#', ''); if (VIEWS[h]) S.vista = h; }
 window.addEventListener('hashchange', () => { route(); render(); });
-setTimeout(() => { if (S.ready) render(); }, 3300);
-Store.init().catch(e => { console.error(e); $('#boot').innerHTML = '<div class="card">No se pudo iniciar la app. Recargá la página.</div>'; });
+arrancar();
