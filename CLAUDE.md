@@ -592,6 +592,18 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     elige;
   - el APK de prueba viene como la tienda (salida gradual); «Ver todo lo que todavía no salió» solo en las de prueba;
   - nada interno a la vista del usuario («sin scroll infinito» salió); el líder puede eliminar su grupo.
+- **Datos del 18-11-2026 (Senda, Talentos y video de capacitación):**
+  - Talentos que sirven (DEC-2026-11-18-1; capítulo 83), la idea del fundador en su mejor versión:
+    - las 15 rutas de entrada, abiertas; las demás, con una llave de Talentos al llegar su día (la primera de regalo, +50 al terminar
+      la ruta; una ruta empezada nunca se traba);
+    - un video opcional duplica el cofre (+10, 3 por día, solo plan gratis);
+    - el sobre del álbum, a la vista (sin azar);
+    - los Talentos nunca se venden, nada al azar se paga y la Biblia, las lecciones de una ruta abierta, los juegos y la comunidad nunca
+      piden Talentos;
+    - interruptores `llaves` y `video_talentos`; regla de corte con la métrica `talentos_semana`;
+  - anuncios con el trato por edad nuevo de AdMob (TFAT: adolescente de 13 a 17); TFCD y TFUA salieron;
+  - el video de capacitación es corto (~80 s) y rápido: «entendible a la primera»; quien no entiende algo, lo pausa. Las personas se ven
+    menos de un segundo por plano «para que no se note la IA».
 
 ## 2. Reglas no negociables
 

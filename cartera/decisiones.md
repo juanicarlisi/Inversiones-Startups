@@ -1810,3 +1810,40 @@ lo hace el fundador. **Para qué:** las 18 tomas con personas fotorrealistas del
 https://claude.ai/artifact/3EqgE6K3akXLFQWf2Q5gEw). **Al terminar:** cerrar la cuenta de facturación y pedir el reembolso del prepago
 (antes de los 90 días). **Regla de corte:** si la prueba no habilita los modelos de video, se cierra la cuenta, se pide el reembolso y
 se sigue con modelos abiertos.
+
+## DEC-2026-11-18-1 — Senda: Talentos que sirven (llaves de ruta, sobre a la vista, video que duplica el cofre)
+**Pedido del fundador (18-11-2026):** «quizás estaría bueno que para abrir una travesía nueva necesites talentos. O mirás videos o con
+algún juego conseguís monedas. No quiero que la persona llegue a acumular un montón de talentos y no les sirvan para nada. VE
+EXHAUSTIVAMENTE ESTO!». **El problema, medido** (ESTIMACIÓN, `herramientas/simulacion_talentos.py`): con las reglas anteriores se usaba
+~3 a 20 % de lo ganado.
+
+**Lo que se hizo (su idea, en su mejor versión; capítulo 83):**
+- **Llaves de ruta:**
+  - las 15 rutas de entrada, siempre abiertas;
+  - las otras 87 se abren con Talentos al llegar su día: 200 a 600 según el largo, 200 más si se abre antes;
+  - la primera llave es de regalo y terminar una ruta devuelve 50;
+  - una ruta empezada nunca se traba.
+- **Video que duplica el cofre:** +10, hasta 3 por día, solo con el plan gratis; con límites de edad y región.
+- **Sobre del álbum a la vista,** sin azar: ★ 80, ★★ 120, ★★★ 160.
+- **Una luz más con Talentos** solo en la práctica contra Lany.
+- **Ganancias ajustadas.**
+
+**Lo que no cambia:**
+- los Talentos nunca se venden;
+- nada al azar se paga;
+- nada da ventaja en duelos, torneos ni copas;
+- la Biblia, las lecciones de una ruta abierta, los juegos y la comunidad nunca piden Talentos.
+
+**Lo que se espera** (ESTIMACIÓN): se usa ~57 a 83 % de lo ganado en un año y nadie queda esperando.
+
+**Interruptores remotos:** `llaves` y `video_talentos`. **Métrica:** `talentos_semana`.
+
+**Regla de corte** (se apaga `llaves` o bajan los precios), con una sola de estas:
+- cae la cantidad de gente que termina su primera ruta;
+- más del 10 % de las reseñas de 1 o 2 estrellas hablan de pagar o de anuncios para avanzar;
+- la vuelta semanal cae 2 puntos.
+
+Se lee a los 30, 60 y 90 días.
+
+**Del fundador:** al encender las llaves, rehacer los cuestionarios de edad de Play (IARC: «sin ítems al azar») y de Apple («Loot
+boxes: No»).
