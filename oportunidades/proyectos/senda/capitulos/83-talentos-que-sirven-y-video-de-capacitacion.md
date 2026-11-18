@@ -191,5 +191,10 @@ El guion está en `oportunidades/proyectos/senda/campana/capacitacion/guion.md`.
 ## 8. Pruebas
 
 - Arranque: 59 de 59 (8 de Talentos). Tipos: sin errores.
+- Base (`pruebas/nube`): la prueba de los interruptores ahora mira las claves (antes contaba 3); la migración de `llaves` y
+  `video_talentos` quedó aplicada en Supabase.
+- **APK 57c** (18-11-2026, 131 MB, compilado con el validador y la prueba de arranque en orden):
+  https://github.com/juanicarlisi/senda-app/releases/tag/prueba-57c. Trae todo lo del 57 y el 57b más los Talentos y el trato por
+  edad nuevo. El iPhone sigue en la 57b; los Talentos le llegan con la próxima compilación.
 - Simulación: `SEMANAS=20 python3 herramientas/simulacion_talentos.py` y `SEMANAS=52 …`.
 - Video: revisado cuadro a cuadro (hojas de contacto de cada toma y de cada tramo del render) y el audio sin silencios.
