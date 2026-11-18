@@ -112,7 +112,7 @@ Se mide a los 30, 60 y 90 días. **Metas a 90 días:**
 
 ## 4. El video de capacitación (pedido 2)
 
-### 4.1 La decisión: ~80 segundos
+### 4.1 La decisión: 79 segundos
 
 - **Siete bloques:** Tu día, la Biblia, la Travesía, Jugar, Torneos y la Trivia de la iglesia, la sala en vivo y Comunidad, más el
   cierre.
@@ -139,6 +139,11 @@ El guion está en `oportunidades/proyectos/senda/campana/capacitacion/guion.md`.
   - el dedo se marca con un círculo de luz donde tocó de verdad.
 - **Lany a su velocidad real:** el grabador ahora hace avanzar los cuadros de animación con el reloj falso, como en el comercial
   (capítulo 82).
+- **Los botones de vidrio que se volvían blancos:** con la placa de video simulada (SwiftShader), el degradé translúcido se iba
+  aclarando cuadro a cuadro hasta quedar blanco.
+  - Se reprodujo y se comprobó que el estilo no cambiaba.
+  - Se grabó todo de nuevo con composición por software (`--disable-gpu`).
+  - En el teléfono no pasa.
 - **El recuadro negro de Lany:** en la vista previa web, el lienzo de Lany recién creado salía negro unos dos segundos (medido: 9.523
   de 10.165 píxeles negros).
   - Solo pasa en la vista previa web; el teléfono usa el Rive nativo.
@@ -154,7 +159,8 @@ El guion está en `oportunidades/proyectos/senda/campana/capacitacion/guion.md`.
 
 ### 4.3 Dónde está
 
-- `oportunidades/proyectos/senda/campana/senda_capacitacion_16x9.mp4`
+- `oportunidades/proyectos/senda/campana/senda_capacitacion_16x9.mp4`: 78,7 s, 1920 × 1080, 29 MB, audio a −14 LUFS.
+- El código, en `scripts/campana2/` de la app (`capacitacion/`, `remotion/src/Capacitacion.tsx` y `remotion/src/cap/`).
 - Al publicarlo en redes: marcarlo como hecho con IA (las personas).
 
 ## 5. Herramientas (regla 10)
@@ -186,4 +192,4 @@ El guion está en `oportunidades/proyectos/senda/campana/capacitacion/guion.md`.
 
 - Arranque: 59 de 59 (8 de Talentos). Tipos: sin errores.
 - Simulación: `SEMANAS=20 python3 herramientas/simulacion_talentos.py` y `SEMANAS=52 …`.
-- Video: revisado cuadro a cuadro (hojas de contacto de cada toma y del montaje).
+- Video: revisado cuadro a cuadro (hojas de contacto de cada toma y de cada tramo del render) y el audio sin silencios.
