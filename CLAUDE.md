@@ -579,6 +579,19 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - «palabra clave primero» tiene dos mitades: ni palabra vieja a la vista ni perder la palabra clave de la RVR1960 («Bástate mi
     gracia»: la que dice «amor» pierde); cada ejercicio lleva `version`, el validador la exige y el versículo del día sigue la misma
     tabla (`python3 scripts/autor/versiones_por_versiculo.py` después de regenerar el contenido).
+- **Datos del 18-11-2026 (Senda, prueba 57):**
+  - «No pueden haber errores de este tipo» (una cita corrida, Jeremías 31:26 por 31:25): todo se revisó dato por dato (trivia,
+    Travesía, En la frente, Antes o después, Vivir la historia, ¿Quién es?) y la guardia de citas del validador
+    (`scripts/autor/guardia_citas.py` de la app) frena toda pregunta nueva o cambiada cuya respuesta no se lea en su versículo;
+  - «¿Ves un error? Avísanos» en la hoja del pasaje y en cada versículo, sin cuenta; los reportes llegan a Admin;
+  - las láminas dibujadas con código que no se entienden se reemplazan por escenas pintadas con Gemini (Vertex AI): Jesús nunca se
+    dibuja, nada de aureolas ni íconos, y la imagen de una pregunta nunca regala la respuesta; cada escena se mira antes de entrar,
+    también de cerca (nada que parezca una cruz, ningún ángel ni persona con la imagen de Jesús, firmas falsas borradas con
+    `ilustraciones.py --limpiar`);
+  - música propia con Lyria (Vertex AI): las candidatas van a la Consola al mismo volumen y entran a la app solo cuando el fundador
+    elige;
+  - el APK de prueba viene como la tienda (salida gradual); «Ver todo lo que todavía no salió» solo en las de prueba;
+  - nada interno a la vista del usuario («sin scroll infinito» salió); el líder puede eliminar su grupo.
 
 ## 2. Reglas no negociables
 
