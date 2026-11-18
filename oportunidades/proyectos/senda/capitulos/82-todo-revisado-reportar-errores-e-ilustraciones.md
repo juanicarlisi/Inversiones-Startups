@@ -169,3 +169,6 @@ estén ABSOLUTAMENTE TODOS LOS ERRORES CORREGIDOS Y PODAMOS SALIR EXCELENTE».
   cerrada, eliminar un grupo solo el líder).
 - Arranque: 48 de 48. Tipos: sin errores. Validador: en orden (con la guardia de citas).
 - La vista previa: Torneos y la Travesía de Sombras de Cristo, revisadas en capturas.
+- La vista previa: Vivir la historia con las escenas pintadas (intro, paso y «lo que pasó»), sin errores en la consola.
+- **APK 57** (18-11-2026, 125 MB): https://github.com/juanicarlisi/senda-app/releases/tag/prueba-57 — compilado con el validador y la
+  prueba de arranque en orden. **iPhone 57:** subido a la rama «testflight»; Expo lo compila y lo manda a TestFlight.
