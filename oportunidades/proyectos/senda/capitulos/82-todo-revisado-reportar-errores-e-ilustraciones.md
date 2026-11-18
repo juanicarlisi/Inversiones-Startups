@@ -104,10 +104,31 @@ estén ABSOLUTAMENTE TODOS LOS ERRORES CORREGIDOS Y PODAMOS SALIR EXCELENTE».
 - **Avatares:** ojos, cejas y boca por separado (252 caras amables), remera con dibujo y más colores de pelo y de fondo.
 - **Eliminar grupos:** el líder, con confirmación (`borrar_grupo`; probado que un miembro no puede).
 - **Nombres por letra:**
-  - el cierre en iPhone: el sonido del acierto le cambiaba la sesión de audio al micrófono en pleno uso;
+  - el cierre (fue en el iPhone, las dos veces: el «error inesperado» y «cuando nombro algún personaje me saca»; el fundador lo
+    aclaró el 18-11). Primera versión: callar el sonido del acierto mientras escucha el micrófono; no alcanzaba (§2.4b);
   - el micrófono se pide una sola vez, antes de empezar;
-  - Miriam, Santiago, Rajab, Nemrod, Ozías, Betsabée y Eutiquio, con la grafía de hoy (también en la base);
-  - el «error inesperado» en Android no se pudo reproducir (§5).
+  - Miriam, Santiago, Rajab, Nemrod, Ozías, Betsabée y Eutiquio, con la grafía de hoy (también en la base).
+
+### 2.4b El cierre en el iPhone, de raíz (versión 57b)
+
+- **Causa (leída en el código de las dos librerías nativas):**
+  - react-native-audio-api, el motor de sonidos, escucha los cambios de configuración de cualquier motor de audio del teléfono, no
+    solo del suyo (`AVAudioEngineConfigurationChangeNotification` con `object: nil`);
+  - si su motor estaba corriendo, lo reinicia y le devuelve a la sesión de audio la categoría que tiene guardada: «ambient», sin
+    micrófono;
+  - el reconocedor de voz (expo-speech-recognition) pasa la sesión a «playAndRecord» cada vez que arranca y cada vez que se
+    reinicia, después de cada frase;
+  - el motor de sonidos le sacaba el micrófono en pleno armado, el reconocedor instalaba su toma con un formato que ya no valía e
+    iOS cerraba la app. Es una excepción nativa: no llega a la pantalla de fallo de Senda;
+  - callar el sonido del acierto no alcanzaba: el motor seguía corriendo por la ruleta y «revela», que suenan justo antes de la
+    ronda, y se suspende recién a los 30 segundos.
+- **Arreglo:**
+  - al abrir el micrófono en el iPhone se calla todo, el motor de sonidos se suspende y guarda la misma sesión que pide el
+    reconocedor. Si se reinicia, ya no cambia nada;
+  - al cerrarlo, la sesión vuelve a «ambient» medio segundo después y la música del juego vuelve sola.
+- **Prueba:** `pruebas/arranque/microfono.test.tsx` simula el iPhone. Falla con el código anterior y pasa con el arreglo. También
+  compara la sesión del motor con la del reconocedor, para que no se separen.
+- **Qué falta:** acá no hay un iPhone. Falta que el fundador lo pruebe en el suyo con la versión 57b (TestFlight).
 - **Avisos de Android:** el ícono de Senda a color al lado del texto, como en el iPhone. Se hizo un complemento propio, porque el de
   Expo no lo escribe.
 - **Música:** suena solo con el juego a la vista; al cambiar de pestaña o salir, se corta.
@@ -151,12 +172,15 @@ estén ABSOLUTAMENTE TODOS LOS ERRORES CORREGIDOS Y PODAMOS SALIR EXCELENTE».
 
 1. **Probar el APK 57** (y la versión del iPhone en TestFlight): trae todo.
 2. **Elegir la música** en la Consola (Sala de sonidos): una por momento, o «ninguna». Lyria no tiene la indemnidad de Google (§2.5).
-3. **El cierre de Nombres por letra en Android:** después de que pase, Ajustes → «Último fallo registrado» → copiar y pegarlo en el chat.
+3. **Nombres por letra con voz en el iPhone (versión 57b de TestFlight):** decir varios nombres, esperar y decir más, en dos o tres
+   rondas. Si se cierra igual, avisar en qué momento.
 4. **El aviso de TAD:** pegar el texto (o una captura) de la notificación que llegó.
 
 ## 5. Riesgos y lo que no se pudo verificar
 
-- **El cierre de Nombres por letra en Android** no se reprodujo; la app lo registra en «Último fallo registrado».
+- **El cierre de Nombres por letra en el iPhone:** la causa se encontró en el código y está cubierta por una prueba, pero no se pudo
+  probar en un iPhone real (§2.4b). Un cierre nativo no queda en «Último fallo registrado»: si vuelve a pasar, hay que contar en qué
+  momento.
 - **La música** no se escuchó acá: se midió (volumen, silencios, empalme) y se eligió por los pedidos. El oído del fundador manda.
 - **Las ilustraciones en el teléfono:** se miraron en la computadora. Falta verlas en un teléfono chico y con letra grande.
 - **Los generadores viejos** (`antes_despues.py`, `quien_soy.py`) ya no reconstruyen el JSON publicado, porque la RVR1960 como vara se
