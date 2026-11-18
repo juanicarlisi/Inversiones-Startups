@@ -14,7 +14,7 @@
 - Más o menos un minuto, o un minuto y medio: la duración sigue al estilo y no a mostrar todo en detalle.
 - Las personas se ven muy poco tiempo, para que no se note la IA.
 
-## La decisión: 90 segundos
+## La decisión: unos 80 segundos
 
 **El ritmo:**
 - Siete bloques de 8 a 18 segundos.
@@ -59,13 +59,13 @@ En cada bloque, arriba a la izquierda, una miga con las cinco pestañas marca d�
 
 | Tiempo | Bloque | Persona (menos de 1 s) | La app (real) | Rótulos |
 |---|---|---|---|---|
-| 0:00–0:06 | Apertura | Casa, a la mañana: alguien agarra el teléfono del sillón | Ícono → entrada con Lany → «TOCA PARA ENTRAR» | «Así se usa Senda» |
-| 0:06–0:14 | Tu día | — | Inicio: «Seguir tu senda»; los contadores de vidas, racha y talentos | «Lo de hoy, en un toque» · «Vidas» · «Racha» · «Talentos» |
-| 0:14–0:30 | La Biblia | Plaza, banco bajo un árbol | Juan 3 → **el versículo 16 sale del teléfono** → el «+» → «Estudio · Juan 3:16» → «Escribir tu nota» → «Planes y versiones» | «Elige libro y capítulo» · «El + de cada versículo» · «Tus notas» · «Planes de lectura» |
-| 0:30–0:48 | La Travesía | — | Mapa (**se agranda fuera del teléfono**) → área → ruta (con su llave) → nivel → la lección → «COMPROBAR» → los talentos; la prueba del capítulo | «13 áreas» · «Rutas paso a paso» · «Abre rutas con talentos» · «Cada capítulo cierra con una prueba» |
-| 0:48–1:02 | Jugar | Mesa de un bar: dos amigas se ríen | Espadeo: «Practicar con Lany» → **la ruleta sale del teléfono** → pregunta → acierto → la pieza de la armadura; «Duelo al azar» y «Con amigos» | «Completa la armadura» · «Solo, al azar o con amigos» |
-| 1:02–1:16 | Torneos y tu iglesia | Escalinata de la iglesia; salón con proyector | «CREAR UN TORNEO» → **el código y el QR vuelan** → «Te toca»; «Trivia de la iglesia» → el PDF del sermón → las preguntas; **La Pantalla en el proyector** | «Torneos con amigos» · «Del sermón a una trivia» · «En vivo, con el proyector» |
-| 1:16–1:24 | Comunidad | Casa, a la noche | Grupos («Líder · Guitarra»), el avatar y «Abrir un sobre» del álbum | «Tu grupo» · «Tu avatar» · «Tu álbum» |
-| 1:24–1:30 | Cierre | — | El festejo de Lany con la armadura → el cierre del logo | «Descárgala gratis» · «Senda · Biblia y juegos» |
+| 0:00–0:04 | Apertura y Tu día | Casa, a la tarde, en el sillón | Inicio: «Seguir tu senda», vidas, racha y talentos, «Te esperan» | «Así se usa Senda» · «Lo de hoy, en un toque» · «Vidas, racha y talentos» · «Te esperan» |
+| 0:04–0:17 | La Biblia | Plaza, banco bajo un árbol | Juan 3 → **el versículo 16 sale del teléfono** → el «+» → «Estudio · Juan 3:16» → «Escribir tu nota» → «Planes y versiones» | «Elige libro y capítulo» · «Lee con letra cómoda» · «El + de cada versículo» · «Escribe tu nota» · «Planes de lectura» |
+| 0:17–0:34 | La Travesía | — (tarjeta) | El mapa (**sale del teléfono**) → Personajes → «Moisés y su generación»: «¿No quieres esperar?» con la llave de regalo → la lección → «COMPROBAR» → la prueba del capítulo → «¡Lección perfecta!» | «13 áreas, un mapa» · «Cada área, sus rutas» · «Rutas nuevas: con talentos» · «Lecciones cortas» · «Comprueba» · «Cada capítulo cierra con una prueba» · «Ganas talentos» |
+| 0:34–0:47 | Jugar | Mesa: dos amigas | «Practicar con Lany» → **la ruleta sale del teléfono** → la pregunta → la pieza de la armadura → Duelos | «Seis piezas, seis temas» · «Practica con Lany» · «Gira la ruleta» · «Responde» · «Gana la pieza» · «Solo, al azar o con amigos» |
+| 0:47–0:57 | Torneos y la Trivia de la iglesia | Escalinata de la iglesia | «CREAR UN TORNEO» → con quién → «CREAR Y AVISAR»; «Trivia de la iglesia» → «Crear» → revisar las preguntas del sermón | «Crea un torneo» · «Elige con quién» · «Les avisa a todos» · «Trivia de la iglesia» · «Tú revisas las preguntas» |
+| 0:57–0:59 | La sala en vivo | Salón con proyector (1,7 s) | **La Pantalla en el proyector** | «En vivo, con el proyector» |
+| 0:59–1:11 | Comunidad | Casa, a la noche | El grupo (roles, calendario, torneos), el avatar y «Abrir un sobre» del álbum | «Tu grupo» · «Tu avatar» · «Tu álbum de personajes» |
+| 1:11–1:19 | Cierre | Sierra | Lany con la armadura completa → el logo | «¡Terminaste la guía!» · «Empieza por «La buena noticia»» · «Descárgala gratis» |
 
 **Créditos al final (dos segundos):** «Música: Kevin MacLeod (incompetech.com), CC BY 4.0» · «Escenas con personas generadas con IA».
