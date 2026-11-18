@@ -67,9 +67,16 @@ Pillow (HPND). Usar herramientas GPL para producir audio no impone licencia sobr
 No re-codificar una hora con `-preset slow` (~2 h de CPU): codificar una vez el ciclo con el título ya puesto y concatenarlo con
 copia de flujo (`-f concat -c copy`) más el audio; tarda segundos.
 
-## Ronda 2: generar mucho con Stable Audio 3 y elegir con un oído medible (17-11-2026)
+## Ronda 2: generar mucho con Stable Audio 3, descartar lo roto y dejar que el oído del fundador elija (17 y 18-11-2026)
 
-Resultados, puntajes y evaluación: `conocimiento/2026-11-17-musica-ia-ronda2.md`. Todo corre en CPU, gratis, sin cuentas.
+Resultados, calibración y evaluación: `conocimiento/2026-11-18-musica-ia-ronda2.md`. Todo corre en CPU, gratis, sin cuentas.
+
+**Regla que dejó la calibración (18-11-2026):** el evaluador automático (Audiobox Aesthetics + CLAP) **no coincide con el oído del
+fundador** (en la ronda 1 puso primero los clips compuestos nota por nota, que el fundador puso últimos). Se usa **solo para
+descartar** lo roto o flojo de verdad y para elegir el tramo de 45 s dentro de un clip, **nunca para decidir cuál es mejor**.
+La elección final es del fundador: 3 candidatos por estilo, uno por forma de pedir. La postproducción de limpieza (v1-v3)
+**agrega artefactos** (escalón en 5 kHz, franjas oscuras en el agudo): los clips van crudos con solo nivelación (v0), salvo la
+imagen estéreo cuando la correlación L/R es negativa (v4).
 
 | Archivo | Qué hace |
 |---|---|
@@ -78,9 +85,11 @@ Resultados, puntajes y evaluación: `conocimiento/2026-11-17-musica-ia-ronda2.md
 | `ronda2_generar.py` | Grilla de Stable Audio 3 medium + SAME-L: etapa 1 (4 formas x 2 semillas) y etapa 2 (6 semillas más de la mejor forma) |
 | `ronda2_puntuar.py` | Puntaje de cada clip: estética, estilo con CLAP (laion/clap-htsat-unfused, Apache 2.0) y artefactos por señal (silbidos agudos, soplido, huecos, imagen estéreo) |
 | `ronda2_resumen.py` | Tabla por estilo y forma de pedir |
-| `ronda2_post.py` | Postproducción en 4 versiones del mismo tramo (v0 solo master; v1 limpieza; v2 + EQ e imagen; v3 + compresión paralela y sala), todas a -14 LUFS y -1 dBTP |
-| `ronda2_curar.py` | Finalistas por estilo: mejor tramo de 45 s, la versión de postproducción que sube el puntaje (o ninguna) y espectrograma para revisar a ojo |
-| `ronda2_pagina.py` | Página de escucha a ciegas (copia de `informes/escucha-musica/`), letras nuevas barajadas, MP3 320 kbps verificados a -14 LUFS ±0,3; la correspondencia queda aparte |
+| `ronda2_post.py` | Postproducción en 5 versiones del mismo tramo, todas a -14 LUFS y -1 dBTP: v0 solo master (la que se usa); v4 solo imagen estéreo sobre el crudo (cuando la correlación L/R es negativa); v1 limpieza, v2 + EQ e imagen, v3 + compresión paralela y sala quedan como registro: v1 agrega artefactos y v2-v3 se apoyan en v1 |
+| `ronda2_elegir.py` | (18-11) Los 3 candidatos por estilo: descarta lo roto con motivo escrito (estilo no reconocido, mono puro, fase invertida, flojo a 1,5 desvíos, todos los tramos con una ventana rota), elige uno por forma de pedir, desempata por parecido CLAP con el clip mejor votado de la ronda 1 y elige el tramo; guarda las medidas en `medidas_elegir.json` y el porqué en `seleccion_r2_informe.json` |
+| `ronda2_revisar.py` | (18-11) Revisión a ojo: espectrogramas de a 9 por imagen y medidas de silbido (banda de 15,6 kHz, líneas finas); lo que se descarta va a `excluir_ojo.json` con su motivo y se vuelve a correr `ronda2_elegir.py --excluir` (usa las medidas guardadas: tarda segundos) |
+| `ronda2_curar.py` | Con `--seleccion`: postproducción del tramo elegido, regla `elegir_version()` (crudo salvo defecto medido) y espectrograma para revisar a ojo; `--redecidir` vuelve a aplicar la regla sin medir. El modo `--top` del 17-11 (por puntaje) queda solo como registro |
+| `ronda2_pagina.py` | Página de escucha a ciegas (copia de `informes/escucha-musica/`): cinco grupos, el mejor clip de la ronda 1 mezclado en piano y café, letras barajadas, MP3 224 kbps verificados a -14 LUFS ±0,3, votos en la colección `votos2`, tope de 40 MB; la correspondencia queda en `correspondencia.json` (no se publica) |
 | `lyria.py` | Lyria 3.5 por la API de Gemini para los mismos estilos. **Listo y sin correr**: sin `GEMINI_API_KEY` solo muestra plan y costo |
 
 ### Cómo correrlo
@@ -101,9 +110,16 @@ $R2_DIR/aesvenv/bin/python herramientas/musica/ronda2_puntuar.py $R2_DIR/gen/man
 python3 herramientas/musica/ronda2_resumen.py $R2_DIR/puntajes.jsonl          # elegir la mejor forma por estilo -> mejores.json
 python3 herramientas/musica/ronda2_generar.py --etapa 2 --mejores mejores.json
 $R2_DIR/aesvenv/bin/python herramientas/musica/ronda2_puntuar.py $R2_DIR/gen/manifiesto.jsonl $R2_DIR/puntajes.jsonl
-TALLER_PY=$TALLER/venv/bin/python $R2_DIR/aesvenv/bin/python herramientas/musica/ronda2_curar.py $R2_DIR/puntajes.jsonl --top 3 --salida $R2_DIR/curado
-$TALLER/venv/bin/python herramientas/musica/ronda2_pagina.py seleccion.json $R2_DIR/escucha2/sitio
+$R2_DIR/aesvenv/bin/python herramientas/musica/ronda2_elegir.py $R2_DIR/puntajes.jsonl $R2_DIR/gen/manifiesto.jsonl --salida $R2_DIR/seleccion_r2.json   # ~25 min la primera vez
+TALLER_PY=$TALLER/venv/bin/python $R2_DIR/aesvenv/bin/python herramientas/musica/ronda2_curar.py $R2_DIR/puntajes.jsonl --seleccion $R2_DIR/seleccion_r2.json --salida $R2_DIR/curado   # ~1,5 min por clip
+$TALLER/venv/bin/python herramientas/musica/ronda2_revisar.py $R2_DIR/curado/curado_r2.jsonl $R2_DIR/seleccion_r2.json $R2_DIR/revisar
+# mirar las imágenes; si algo sale, anotarlo en $R2_DIR/excluir_ojo.json ({"id": "motivo"}) y repetir elegir (--excluir) y curar
+$TALLER/venv/bin/python herramientas/musica/ronda2_pagina.py $R2_DIR/curado/curado_r2.jsonl $R2_DIR/seleccion_r2.json $ESCUCHA2   # no publica
 ```
+
+Las referencias de la ronda 1 (`$R2_DIR/ref/ronda1_p3.wav` y `ronda1_c2.wav`, que van a la página, y `ronda1_c3.wav`, solo para la
+comparación CLAP) son los MP3 de la ronda 1 decodificados a WAV 48 kHz; los dos primeros, nivelados a -14 LUFS. Copia de la página (sin audio) y de los datos que hacen falta para leer los votos (correspondencia,
+selección con motivos, curado, puntajes, manifiesto con prompts y semillas): `informes/escucha-musica-2/`.
 
 Tiempos medidos en esta máquina (4 núcleos, sin GPU): un clip de 75 s tarda ~45 s solo (cfg 1) y ~75 s con guía (cfg 3); con
 el oído y la curaduría corriendo a la par, ~100 s. Puntuar un clip, ~30 s. **Cómo apagarlo:** no queda nada corriendo; borrar

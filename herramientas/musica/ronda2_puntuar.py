@@ -78,6 +78,7 @@ class Oido:
         out = {k: round(v, 3) for k, v in r.items()}
         if ventanas:
             out["_ventanas"] = [(i * 10, float(por["CE"][i] + por["PQ"][i])) for i in completas]
+            out["_pq"] = [(i * 10, float(por["PQ"][i])) for i in completas]
         return out
 
     def estilo(self, mono48, estilo):

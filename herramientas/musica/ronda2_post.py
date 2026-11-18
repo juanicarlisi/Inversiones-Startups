@@ -9,7 +9,12 @@ Deja tres versiones del mismo tramo, todas a -14 LUFS y pico real <= -1 dBTP, pa
                        del agudo (solo > 5 kHz, división de fase lineal)
   SALIDA_BASE__v2.wav  + EQ suave del estilo e imagen estéreo corregida (graves en mono, lados según la correlación L/R)
   SALIDA_BASE__v3.wav  + v2 con compresión paralela leve (café y española) y reverb por convolución acorde al estilo
-La postproducción se usa solo si sube el puntaje (lo decide ronda2_curar.py).
+  SALIDA_BASE__v4.wav  (18-11) solo imagen estéreo sobre el crudo: graves en mono y lados según la correlación L/R
+La postproducción se usa solo si corrige un defecto medido y no agrega artefactos (lo decide ronda2_curar.elegir_version).
+HALLAZGO del 18-11-2026 (espectrogramas v0 contra v1): la limpieza de v1 AGREGA artefactos: noisereduce sobre la banda de
+más de 5 kHz deja un escalón duro en 5 kHz en los pasajes suaves (se apaga el aire) y los notch de «silbidos», varios juntos
+entre 11 y 21 kHz, abren franjas oscuras que en el crudo no había (los «silbidos» detectados no se ven como líneas en el crudo).
+Por eso v1, v2 y v3 (que se apoyan en v1) no se usan.
 """
 import argparse, json, os, sys
 from pathlib import Path
@@ -138,7 +143,9 @@ if __name__ == "__main__":
     v1 = limpiar_agudo(v1, prop=a.prop)
     v2, info["imagen"] = mezclar(v1, a.estilo, sala=False)
     v3, _ = mezclar(v1, a.estilo, sala=True)
-    for nombre, señal in (("v0", x), ("v1", v1), ("v2", v2), ("v3", v3)):
+    v4, c4, k4 = imagen(pasa_altos(x))   # 18-11: solo la imagen estéreo sobre el crudo (sin limpieza ni EQ)
+    info["imagen_v4"] = {"corr_antes": round(c4, 3), "lados": k4}
+    for nombre, señal in (("v0", x), ("v1", v1), ("v2", v2), ("v3", v3), ("v4", v4)):
         z, d = master(recorte(señal, a.inicio, a.dur))
         sf.write(f"{a.salida}__{nombre}.wav", z, SR, subtype="PCM_24")
         info[nombre] = d
