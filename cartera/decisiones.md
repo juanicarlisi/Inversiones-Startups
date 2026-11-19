@@ -1887,3 +1887,20 @@ creadas después del 13-11-2023: 12 testers con opt-in 14 días seguidos antes d
 paneles con bots, por eso uno con testers reales y garantía. **Orden:** crear la app y la prueba cerrada en Play Console y subir la
 versión 1.0.3 → Google revisa esa versión (horas o días) → pagar el servicio y darle el enlace de la prueba → 14 días → pedir
 producción. **Fecha límite para que arranquen:** 02-12.
+
+## DEC-2026-11-19-3 — Senda: anuncios y vidas (PROPUESTA en parte, a decidir)
+
+**Pedido del fundador (19-11-2026):** «¿están bien seteados para que la recaudación sea buena? […] 5 vidas quizás es un montón. Podemos
+bajarlo a 3. Y poner más anuncios […] cada 2 veces que perdés en una trivia […] en la travesía, luego de completar 2 niveles […]
+benchmark exhaustivo, análisis profundo». Informe: `conocimiento/2026-11-19-senda-anuncios-y-vidas.md`; modelo:
+`herramientas/simulacion_anuncios.py`; capítulo 84 §6.
+
+**Hecho (técnico, de Claude; commit a2a5906 de `senda-app`):** contador del día guardado (antes se perdían ~28 % de los anuncios), día
+de instalación sin intersticiales, tope de 12 por día, un intersticial al mandar cada 2 turnos en los duelos con personas, el video con
+premio reinicia el reloj, tabla `parametros` en Supabase para ajustar vidas y anuncios sin otra versión, y «Reportar un anuncio»
+(Apple 2.5.18). ESTIMACIÓN: de USD 1,57 a ~2,30 por día cada 1.000 activos en Latinoamérica (+47 %).
+
+**Propuesta (a decidir):** las vidas siguen en 5 (bajar a 3 no suma plata y corta lecciones); en la Travesía, la lección gasta 1 vida
+al empezar y los errores no; prueba «intensa» al 20 % de los nuevos cuando haya volumen. **Regla de corte:** retroceder si D7 cae 1,5
+puntos (o D1 2), si más del 20 % de los intersticiales de un lugar cortan la sesión, si más del 10 % de las reseñas de 1-2 estrellas
+hablan de anuncios o vidas, o si la nota baja de 4,5.

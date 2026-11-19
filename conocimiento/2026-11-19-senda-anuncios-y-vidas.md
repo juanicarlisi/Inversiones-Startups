@@ -203,7 +203,7 @@ dejarla configurable a distancia y probar con datos.
 
 ### 3.4 El tope: 1 cada 4 minutos y 2 libres por día
 
-- **4 minutos se queda.** Es la mitad de frecuente que lo que Google usa por defecto en juegos web (2 min) y entre 3 y 8 veces más
+- **4 minutos se queda.** Es la mitad de frecuente que lo que Google usa por defecto en juegos web (2 min) y entre 2 y 4 veces más
   prudente que lo que Facebook recomienda para juegos casuales y puzzles (60 a 120 s). Calza con «uno por lección» de Duolingo. Para
   una app de fe con adolescentes, es el punto justo. Bajarlo a 3 se prueba con una parte de la gente (§5.4), no para todos.
 - **2 libres por día se quedan, pero de verdad por día** (hoy se reinician al reabrir).
