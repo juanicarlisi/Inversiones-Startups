@@ -1851,3 +1851,39 @@ Se lee a los 30, 60 y 90 días.
 
 **Del fundador:** al encender las llaves, rehacer los cuestionarios de edad de Play (IARC: «sin ítems al azar») y de Apple («Loot
 boxes: No»).
+
+## DEC-2026-11-19-1 — Senda: el sobre del álbum vuelve a ser sorpresa y los torneos de Senda piden Talentos
+
+**Decisión del fundador (19-11-2026):** «como que muestra a quién trae antes de abrirlo? malísimo. tenés que comprar el sobre con
+talentos y de ahí ves quién es […] ni extremadamente fácil completarlo, tipo que lo hagas en 15 días, ni recontra difícil […] y te
+lleve 1 año»; «la inscripción a algún torneo capaz también se podría hacer con talentos […] más bien fácil […] a los de Senda, no a
+los de la igle». Corrige la parte del sobre de DEC-2026-11-18-1.
+
+**Lo que se hizo** (commit bf5a5a2 de `senda-app`; `docs/ECONOMIA.md` §6):
+- sobre sorpresa: se compra con Talentos y al abrirlo se ve quién trae; nunca una repetida; los más importantes salen menos;
+- 100 Talentos, uno por día; el primero de cada página, gratis. ESTIMACIÓN (simulación, 300 corridas): ~9 semanas quien juega
+  seguido, ~7 quien juega mucho, ~6 meses quien entra de vez en cuando;
+- en Brasil el sobre se ve antes de abrirlo (ECA Digital art. 20; Brasil entra el 01-03-2027);
+- torneos de Senda para todos: anotarse cuesta 30 Talentos (dos partidas ganadas), se devuelven al desanotarse; si no alcanzan, la
+  app dice cuánto falta y lleva a jugar. Los de la iglesia y los de amigos, gratis.
+
+**Regla de corte:** a los 60 días, si menos del 10 % de quienes abren el álbum completan una página en 30 días, el sobre baja a 80; si
+más del 30 % completa el álbum en menos de 45 días, sube a 120. Los cuestionarios de Play y Apple siguen en «no» (los ítems al azar
+no se compran con plata); se confirma en la sesión legal.
+
+## DEC-2026-11-19-2 — Senda: los 12 testers de Google, con un servicio tercerizado
+
+**Lo que dijo el fundador (19-11-2026):** «te acordás que lo íbamos a hacer con un tercerizado? por qué siempre me repetís lo mismo de
+buscar gente». No estaba escrito en ningún lado del repositorio: por eso volvía la propuesta de juntar personas. Queda escrito acá, en
+`estado.yaml` y en CLAUDE.md.
+
+**Recomendación (a confirmar por el fundador, porque es un pago):** **Testers Community, plan Pro, USD 25 una sola vez** (25 testers
+durante los 14 días, 13 de margen sobre los 12 que pide Google; informe de pruebas y respuestas para el formulario de acceso a
+producción; garantía de devolución). HECHO, leído en testerscommunity.com el 19-11-2026: Starter USD 15 (15 testers), Pro USD 25 (25
+testers), «testing starts within 6 hours», 4,9/5 en Trustpilot con más de 2.000 reseñas (dato de la propia página). Alternativa:
+PrimeTestLab, Enterprise USD 29,49 (25 testers; primetestlab.com/pricing-plan, 19-11-2026). El requisito de Google (cuentas personales
+creadas después del 13-11-2023: 12 testers con opt-in 14 días seguidos antes de pedir producción) está en la ayuda oficial de Play
+(support.google.com/googleplay/android-developer/answer/14151465). **INFERENCIA:** Google no prohíbe estos servicios; el riesgo son los
+paneles con bots, por eso uno con testers reales y garantía. **Orden:** crear la app y la prueba cerrada en Play Console y subir la
+versión 1.0.3 → Google revisa esa versión (horas o días) → pagar el servicio y darle el enlace de la prueba → 14 días → pedir
+producción. **Fecha límite para que arranquen:** 02-12.

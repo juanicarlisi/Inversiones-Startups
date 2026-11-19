@@ -604,6 +604,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - anuncios con el trato por edad nuevo de AdMob (TFAT: adolescente de 13 a 17); TFCD y TFUA salieron;
   - el video de capacitación es corto (~80 s) y rápido: «entendible a la primera»; quien no entiende algo, lo pausa. Las personas se ven
     menos de un segundo por plano «para que no se note la IA».
+- **Datos del 19-11-2026 (Senda):**
+  - **los 12 testers de Google se consiguen con un servicio tercerizado** (DEC-2026-11-19-2; recomendado Testers Community Pro, USD 25
+    con su OK): nunca volver a proponerle juntar gente; la prueba cerrada tiene que arrancar antes del 02-12;
+  - el sobre del álbum es sorpresa (se compra con Talentos y al abrirlo se ve quién trae), sin repetidas, 100 Talentos y uno por día;
+    ni 15 días ni un año para completarlo (DEC-2026-11-19-1); los torneos de Senda piden 30 Talentos para anotarse (fácil), nunca los
+    de la iglesia;
+  - en un video, todo texto de la app que se lee tiene que edificar a primera vista (salieron «les amargó la vida», la chica en la
+    cama y «hurtar, matar y destruir»); la Copa de Verano va sin premios; el iPhone se prueba con el enlace público de TestFlight;
+  - pidió un análisis a fondo de anuncios y vidas (¿3 vidas?, ¿más anuncios?) con la mejor sinergia entre experiencia e ingresos.
 
 ## 2. Reglas no negociables
 
