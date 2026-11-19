@@ -1673,6 +1673,10 @@ Concurso de habilidad, gratis, sin compra y con bases públicas (HIPÓTESIS a va
 en Latinoamérica, empezando por Argentina; a un menor, el premio se entrega a su adulto responsable. Presupuesto de premios: USD 150 a 250
 (ESTIMACIÓN, a aprobar). **Falta:** el sí del fundador y el presupuesto; Claude hace la tabla por grupo y las bases. Capítulo 80 §2.10.
 
+**Decisión del fundador (19-11-2026):** «dejemos la copa, por ahora sin premios». La Gran Copa de Verano va en las fechas propuestas
+(clasificatorias el 9, 16 y 23 de enero; final el sábado 30-01-2027 a las 20 h; tabla por grupo), **sin premios** por ahora: sin
+presupuesto ni bases de concurso con premio. Si más adelante se suman premios, vuelve la sesión legal (bases, Latinoamérica, menores).
+
 ## DEC-2026-11-14-2 — Senda: la salida en EE. UU., Brasil y la UE (PROPUESTA, a decidir)
 **Pedido del fundador (14-11-2026):** «para la primer salida también cubramos EEUU, BRASIL, UE… recopilá absolutamente todo lo que haya
 que hacer». Tres informes con fuentes primarias (`conocimiento/2026-11-14-senda-lanzamiento-eeuu.md`, `-brasil.md`, `-ue.md`).
