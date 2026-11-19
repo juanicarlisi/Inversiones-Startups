@@ -57,15 +57,20 @@ En cada bloque, arriba a la izquierda, una miga con las cinco pestañas marca d�
 
 ## Los bloques
 
+**Cambios del 19-11-2026 (pedido del fundador):** el versículo de Juan 3:16 se queda 3 s (antes desaparecía enseguida); la lección
+es «La zarza que ardía» (la de «les amargó la vida» no va en una publicidad); Comunidad abre con amigos en un patio (la escena de una
+chica en la cama salió: nadie acostado en una publicidad cristiana); la Trivia de la iglesia termina antes de la pregunta del ladrón que
+viene «a hurtar, matar y destruir». Para elegir textos de la app que salen en un video: solo los que edifican a primera vista.
+
 | Tiempo | Bloque | Persona (menos de 1 s) | La app (real) | Rótulos |
 |---|---|---|---|---|
 | 0:00–0:04 | Apertura y Tu día | Casa, a la tarde, en el sillón | Inicio: «Seguir tu senda», vidas, racha y talentos, «Te esperan» | «Así se usa Senda» · «Lo de hoy, en un toque» · «Vidas, racha y talentos» · «Te esperan» |
-| 0:04–0:17 | La Biblia | Plaza, banco bajo un árbol | Juan 3 → **el versículo 16 sale del teléfono** → el «+» → «Estudio · Juan 3:16» → «Escribir tu nota» → «Planes y versiones» | «Elige libro y capítulo» · «Lee con letra cómoda» · «El + de cada versículo» · «Escribe tu nota» · «Planes de lectura» |
-| 0:17–0:34 | La Travesía | — (tarjeta) | El mapa (**sale del teléfono**) → Personajes → «Moisés y su generación»: «¿No quieres esperar?» con la llave de regalo → la lección → «COMPROBAR» → la prueba del capítulo → «¡Lección perfecta!» | «13 áreas, un mapa» · «Cada área, sus rutas» · «Rutas nuevas: con talentos» · «Lecciones cortas» · «Comprueba» · «Cada capítulo cierra con una prueba» · «Ganas talentos» |
-| 0:34–0:47 | Jugar | Mesa: dos amigas | «Practicar con Lany» → **la ruleta sale del teléfono** → la pregunta → la pieza de la armadura → Duelos | «Seis piezas, seis temas» · «Practica con Lany» · «Gira la ruleta» · «Responde» · «Gana la pieza» · «Solo, al azar o con amigos» |
-| 0:47–0:57 | Torneos y la Trivia de la iglesia | Escalinata de la iglesia | «CREAR UN TORNEO» → con quién → «CREAR Y AVISAR»; «Trivia de la iglesia» → «Crear» → revisar las preguntas del sermón | «Crea un torneo» · «Elige con quién» · «Les avisa a todos» · «Trivia de la iglesia» · «Tú revisas las preguntas» |
-| 0:57–0:59 | La sala en vivo | Salón con proyector (1,7 s) | **La Pantalla en el proyector** | «En vivo, con el proyector» |
-| 0:59–1:11 | Comunidad | Casa, a la noche | El grupo (roles, calendario, torneos), el avatar y «Abrir un sobre» del álbum | «Tu grupo» · «Tu avatar» · «Tu álbum de personajes» |
-| 1:11–1:19 | Cierre | Sierra | Lany con la armadura completa → el logo | «¡Terminaste la guía!» · «Empieza por «La buena noticia»» · «Descárgala gratis» |
+| 0:04–0:20 | La Biblia | Plaza, banco bajo un árbol | Juan 3 → **el versículo 16 sale del teléfono y se queda 3 s para leerlo** → el «+» → «Estudio · Juan 3:16» → «Escribir tu nota» → «Planes y versiones» | «Elige libro y capítulo» · «Lee con letra cómoda» · «El + de cada versículo» · «Escribe tu nota» · «Planes de lectura» |
+| 0:20–0:37 | La Travesía | — (tarjeta) | El mapa (**sale del teléfono**) → Personajes → «Moisés y su generación»: «¿No quieres esperar?» con la llave de regalo → la lección «La zarza que ardía» → «COMPROBAR» → la prueba del capítulo → «¡Lección perfecta!» | «13 áreas, un mapa» · «Cada área, sus rutas» · «Rutas nuevas: con talentos» · «Lecciones cortas» · «Comprueba» · «Cada capítulo cierra con una prueba» · «Ganas talentos» |
+| 0:37–0:50 | Jugar | Mesa: dos amigas | «Practicar con Lany» → **la ruleta sale del teléfono** → la pregunta → la pieza de la armadura → Duelos | «Seis piezas, seis temas» · «Practica con Lany» · «Gira la ruleta» · «Responde» · «Gana la pieza» · «Solo, al azar o con amigos» |
+| 0:50–0:59 | Torneos y la Trivia de la iglesia | Escalinata de la iglesia | «CREAR UN TORNEO» → con quién → «CREAR Y AVISAR»; «Trivia de la iglesia» → «Crear» → revisar las preguntas del sermón (hasta la tercera) | «Crea un torneo» · «Elige con quién» · «Les avisa a todos» · «Trivia de la iglesia» · «Tú revisas las preguntas» |
+| 0:59–1:00 | La sala en vivo | Salón con proyector (1,7 s) | **La Pantalla en el proyector** | «En vivo, con el proyector» |
+| 1:00–1:12 | Comunidad | Patio con amigos y mate | El grupo (roles, calendario, torneos), el avatar y «Abrir un sobre» del álbum | «Tu grupo» · «Tu avatar» · «Tu álbum de personajes» |
+| 1:12–1:20 | Cierre | Sierra | Lany con la armadura completa → el logo | «¡Terminaste la guía!» · «Empieza por «La buena noticia»» · «Descárgala gratis» |
 
 **Créditos al final (dos segundos):** «Música: Kevin MacLeod (incompetech.com), CC BY 4.0» · «Escenas con personas generadas con IA».

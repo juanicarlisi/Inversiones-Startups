@@ -112,13 +112,13 @@ Se mide a los 30, 60 y 90 días. **Metas a 90 días:**
 
 ## 4. El video de capacitación (pedido 2)
 
-### 4.1 La decisión: 79 segundos
+### 4.1 La decisión: 80 segundos
 
 - **Siete bloques:** Tu día, la Biblia, la Travesía, Jugar, Torneos y la Trivia de la iglesia, la sala en vivo y Comunidad, más el
   cierre.
 - **El ritmo:** cada toque se ve y cada pantalla dura lo justo para leer un rótulo corto. Quien no entiende algo, pausa.
 - **Las personas:** menos de un segundo por plano. Solo marcan el paso entre bloques: la casa, la plaza, la mesa, la escalinata de la
-  iglesia, el salón con el proyector, la noche y la sierra.
+  iglesia, el salón con el proyector, el patio con amigos y la sierra.
   - Nunca hablan ni miran a cámara, y nunca se ven de cerca.
   - El proyector dura un poco más (1,7 s) porque lo que se mira es La Pantalla.
 - **El formato:**
@@ -159,9 +159,22 @@ El guion está en `oportunidades/proyectos/senda/campana/capacitacion/guion.md`.
 
 ### 4.3 Dónde está
 
-- `oportunidades/proyectos/senda/campana/senda_capacitacion_16x9.mp4`: 78,7 s, 1920 × 1080, 29 MB, audio a −14 LUFS.
+- `oportunidades/proyectos/senda/campana/senda_capacitacion_16x9.mp4`: 80,5 s, 1920 × 1080, audio a −14 LUFS (versión del 19-11, §4.4).
 - El código, en `scripts/campana2/` de la app (`capacitacion/`, `remotion/src/Capacitacion.tsx` y `remotion/src/cap/`).
 - Al publicarlo en redes: marcarlo como hecho con IA (las personas).
+
+### 4.4 Lo que corrigió el fundador (19-11-2026)
+
+| Lo que dijo | Qué se hizo |
+|---|---|
+| «Un versículo que aparece al principio aparece y desaparece rapidísimo» | Juan 3:16 se queda 3 s: la pantalla del lector se congela en el versículo (un corte nuevo, `quieto`) mientras el texto se lee a la izquierda. |
+| «La chica acostada no da para una publicidad cristiana» | Comunidad abre con cuatro amigos tomando mate en un patio (Veo 3.1, revisada cuadro por cuadro). La escena se borró de las indicaciones para no volver a usarla. |
+| «El versículo que dice "les amargó la vida" no da para usarlo en la publicidad» | La lección es ahora «La zarza que ardía» (Éxodo 3): «¿Qué tenía de raro la zarza…?» → «Ardía en fuego y no se consumía». |
+
+- **Lo que se revisó además, con la misma vara:** la Trivia de la iglesia bajaba hasta «¿Quién viene para hurtar, matar y destruir?»; el
+  corte termina ahora en la tercera pregunta («Vida, y en abundancia»).
+- **La regla que queda:** en un video, cada texto de la app que se lee tiene que edificar a primera vista; nada de pasajes duros sacados de
+  contexto, nadie acostado ni en situaciones que se presten a otra lectura.
 
 ## 5. Herramientas (regla 10)
 
