@@ -159,7 +159,7 @@ El guion está en `oportunidades/proyectos/senda/campana/capacitacion/guion.md`.
 
 ### 4.3 Dónde está
 
-- `oportunidades/proyectos/senda/campana/senda_capacitacion_16x9.mp4`: 80,5 s, 1920 × 1080, audio a −14 LUFS (versión del 19-11, §4.4).
+- `oportunidades/proyectos/senda/campana/senda_capacitacion_16x9.mp4`: 80,5 s, 1920 × 1080, 33 MB, audio a −14 LUFS (versión del 19-11, §4.4).
 - El código, en `scripts/campana2/` de la app (`capacitacion/`, `remotion/src/Capacitacion.tsx` y `remotion/src/cap/`).
 - Al publicarlo en redes: marcarlo como hecho con IA (las personas).
 
