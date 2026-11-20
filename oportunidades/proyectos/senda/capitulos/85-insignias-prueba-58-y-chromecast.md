@@ -116,10 +116,24 @@ Pruebas: arranque (84 en verde), tipos, validador de contenido («Todo en orden�
   - developers.google.com/cast/docs/registration.
   - react-native-google-cast.github.io/docs (plugin de Expo y canales propios).
 
+## 4b. Chromecast: decidido y hecho para el lanzamiento (20-11, a la tarde)
+
+- El fundador: «quiero lo del chromecast y quiero q esté a la salida de la app ya».
+- Herramienta (regla 10): `react-native-google-cast` 4.9.1 (MIT, estable; la 5.0 es beta), con su plugin de Expo verificado en el
+  prebuild (MainActivity en Kotlin, manifiesto y dependencia de Cast). El receptor es una página propia (`web/tele/`) que carga el
+  framework oficial de Google desde gstatic; se publica sola con el sitio (Cloudflare Pages).
+- Qué se ve en la tele: la pregunta y las opciones en grande con el reloj, la respuesta (verde la correcta, rojo la elegida si falló) y
+  dónde está en la Biblia, la tabla del torneo, la portada de la lección, el festejo y la sala en vivo (la misma Pantalla del
+  proyector). Si en la Trivia de la iglesia se pasan el teléfono, la tele no muestra la correcta hasta que respondan todos.
+- La tele es un extra: si se corta, el juego sigue en el teléfono. iOS pide el permiso de red local recién al tocar el botón.
+- Pruebas: tipos, 87 pruebas (una nueva: la app y el receptor usan el mismo canal), vista previa web y capturas de las seis vistas.
+- Falta: el registro en la consola de Google Cast (tarea del fundador, USD 5) y su ID en `app.json` (`receiverAppId`); hasta entonces
+  el botón usa el ID de prueba de Google y la tele no recibe las vistas de Senda.
+
 ## 5. Próximos
 
 1. Recibir lo que salga del APK 58 y del iPhone 58.
 2. La tarea siguiente de Play Console del fundador (prueba cerrada antes del 02-12).
 3. Las compras reales de la tienda y «Restaurar compras», junto con la cuenta de Play.
-4. Si el fundador da el OK al Chromecast: el registro de USD 5, y la construcción en enero.
+4. Con el ID de Google Cast: compilar la versión con el ID de Senda y probarla en una tele.
 5. Compilar el iPhone con Xcode 27 antes de abril de 2027.

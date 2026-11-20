@@ -617,8 +617,9 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - las insignias son los desafíos con fecha, con su lectura y su travesía del día (Navidad, 1 de enero, Pascua, la historia en una
     línea); Jugar muestra solo lo abierto y cierra con «Próximamente más juegos», sin nombrar cuáles;
   - el plan pago nunca se pierde al borrar todo (se respalda aparte); las compras reales de la tienda y «Restaurar compras» siguen pendientes;
-  - ver Senda en la tele por Chromecast: hoy con duplicar la pantalla o la Pantalla web; lo propio (receptor que reutiliza la Pantalla,
-    USD 5 de registro con su OK) espera su decisión para enero (DEC-2026-11-20-1; capítulo 85 §4);
+  - **ver Senda en la tele por Chromecast sale con el lanzamiento** («quiero q esté a la salida de la app ya», DEC-2026-11-20-1): receptor
+    propio `web/tele/` de la app, `react-native-google-cast` 4.9.1 y el botón en Espadeo, lección, copas y torneos, Trivia de la iglesia
+    y sala en vivo; falta su registro en Google Cast (USD 5) y el ID en `app.json` (capítulo 85 §4b);
   - el correo de Apple ITMS-90725 no frena nada: compilar con Xcode 27 antes de abril de 2027.
 
 ## 2. Reglas no negociables

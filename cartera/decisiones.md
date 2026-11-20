@@ -1905,7 +1905,7 @@ al empezar y los errores no; prueba «intensa» al 20 % de los nuevos cuando hay
 puntos (o D1 2), si más del 20 % de los intersticiales de un lugar cortan la sesión, si más del 10 % de las reseñas de 1-2 estrellas
 hablan de anuncios o vidas, o si la nota baja de 4,5.
 
-## DEC-2026-11-20-1 — Senda: ver Senda en la tele por Chromecast (PROPUESTA, a decidir)
+## DEC-2026-11-20-1 — Senda: ver Senda en la tele por Chromecast (DECIDIDO 20-11: sí, y en el lanzamiento)
 
 **Pedido del fundador (20-11-2026):** «Que se pueda compartir por Chromecast. Tipo estamos jugando un torneo, y se puede compartir.
 Estamos con una trivia o travesía, y que también se pueda […] para que sea grupal, o individual, se pueda visualizar en tele. ¿Eso se
@@ -1920,3 +1920,9 @@ control. Android y iPhone; sin servidores nuevos. **Costo:** registro de desarro
 support.google.com/cast-developer/answer/4512496, 20-11-2026; paga el fundador con su OK) y ESTIMACIÓN dos o tres sesiones de Claude.
 **Cuándo:** enero de 2027, para la Gran Copa de Verano y la Pascua; no antes del lanzamiento. **Regla de corte:** si a las 6 semanas
 menos del 3 % de las salas y torneos usan «Ver en la tele», no se suman más vistas.
+
+**Decisión del fundador (20-11-2026):** «quiero lo del chromecast y quiero q esté a la salida de la app ya». Se adelanta de enero al
+lanzamiento del 18-12. Hecho el mismo día (commits 9705031 y siguiente de `senda-app`): receptor propio en
+`senda.ministerionuevageneracion.com/tele/` (en línea), `react-native-google-cast` 4.9.1 con plugin de Expo, botón de la tele en el
+Espadeo, la lección de la Travesía, copas y torneos, la Trivia de la iglesia y la sala en vivo. Falta del fundador: el registro en la
+consola de Google Cast (USD 5, con su cuenta) y pasar el ID de la aplicación; con eso se compila la versión con el ID de Senda.
