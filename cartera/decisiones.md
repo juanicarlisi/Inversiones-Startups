@@ -1888,6 +1888,12 @@ paneles con bots, por eso uno con testers reales y garantía. **Orden:** crear l
 versión 1.0.3 → Google revisa esa versión (horas o días) → pagar el servicio y darle el enlace de la prueba → 14 días → pedir
 producción. **Fecha límite para que arranquen:** 02-12.
 
+**Decisión del fundador (20-11-2026):** «voy con plan starter por ahora»: **Testers Community Starter, USD 15** (15 testers, 3 de
+margen sobre los 12). Se comparó el 20-11 contra PrimeTestLab (USD 21,49, 12), RealAppTesters (USD 20, 12), bysho2 (USD 25, 12) y
+12-testers-for-14-days (USD 39); precios leídos en sus páginas, sin confirmar en otra fuente. **Riesgo aceptado:** con 3 de margen,
+si se bajan 4 testers el período no sirve; **regla de corte:** si a los 7 días quedan menos de 13 anotados, pasar a Pro (o pedir
+reposición al servicio) sin esperar al día 14. La prueba cerrada quedó abierta en 178 países (solo la prueba, no producción).
+
 ## DEC-2026-11-19-3 — Senda: anuncios y vidas (PROPUESTA en parte, a decidir)
 
 **Pedido del fundador (19-11-2026):** «¿están bien seteados para que la recaudación sea buena? […] 5 vidas quizás es un montón. Podemos
