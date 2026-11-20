@@ -621,6 +621,16 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     propio `web/tele/` de la app, `react-native-google-cast` 4.9.1 y el botón en Espadeo, lección, copas y torneos, Trivia de la iglesia
     y sala en vivo; falta su registro en Google Cast (USD 5) y el ID en `app.json` (capítulo 85 §4b);
   - el correo de Apple ITMS-90725 no frena nada: compilar con Xcode 27 antes de abril de 2027.
+- **Datos del 20-11-2026 a la noche (Senda, prueba 59):**
+  - las preguntas tienen que ser CLARAS (no más fáciles): nada de lógica invertida, oraciones anidadas ni la palabra que pregunta al
+    final; ocho revisores releyeron la trivia (392 reescritas, `scripts/autor/trivia_revision59.py`) y dos, las 395 marcadas de la
+    Travesía (`parches_claridad59.py`); cada cambio va con su portugués y su inglés;
+  - lo que se muestra fuera de los ejercicios se abre en la versión libre con menos palabras difíciles (`palabras_raras.py`, wordfreq),
+    sin perder la palabra clave de la RVR1960; el versículo del día tiene su propia tabla («no estribes» salió);
+  - los textitos grises debajo de los títulos que no suman, fuera de toda la app (capítulo 86 §2); Biblia: un botón «Planes e
+    insignias» con dos puertas; para pasar un nivel hace falta el 70 %;
+  - la sala en vivo también con preguntas propias o de un PDF; jugar desde la computadora queda listo (docs/WEB_JUGAR.md de la app;
+    falta la cuenta de AdSense y Cloudflare, después del lanzamiento); la sala no cuesta nada hasta ~5.700 personas activas por mes.
 
 ## 2. Reglas no negociables
 
