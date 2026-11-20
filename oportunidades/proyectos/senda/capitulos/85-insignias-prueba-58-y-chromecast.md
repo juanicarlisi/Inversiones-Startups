@@ -51,6 +51,9 @@ Un mensaje largo con 23 puntos («hacé tranqui, no hay apuro, mejor despacio pe
 - **Guía para testers**: una página con los colores de Senda, publicada en https://claude.ai/artifact/Sqr6XSiLgCu9kybZ9voNdn. Es
   privada hasta que el fundador la comparta. Copia en `testers/guia-testers.html`.
 
+**APK 58** (20-11-2026): https://github.com/juanicarlisi/senda-app/releases/tag/prueba-58. Lo compiló GitHub con el validador, la
+prueba de arranque y la prueba de lo social en verde. El iPhone 58 se mandó a TestFlight.
+
 Pruebas: arranque (84 en verde), tipos, validador de contenido («Todo en orden») y la prueba de la nube.
 
 ## 3. Respuestas del 20-11
