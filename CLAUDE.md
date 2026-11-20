@@ -613,6 +613,13 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - en un video, todo texto de la app que se lee tiene que edificar a primera vista (salieron «les amargó la vida», la chica en la
     cama y «hurtar, matar y destruir»); la Copa de Verano va sin premios; el iPhone se prueba con el enlace público de TestFlight;
   - pidió un análisis a fondo de anuncios y vidas (¿3 vidas?, ¿más anuncios?) con la mejor sinergia entre experiencia e ingresos.
+- **Datos del 20-11-2026 (Senda, prueba 58):**
+  - las insignias son los desafíos con fecha, con su lectura y su travesía del día (Navidad, 1 de enero, Pascua, la historia en una
+    línea); Jugar muestra solo lo abierto y cierra con «Próximamente más juegos», sin nombrar cuáles;
+  - el plan pago nunca se pierde al borrar todo (se respalda aparte); las compras reales de la tienda y «Restaurar compras» siguen pendientes;
+  - ver Senda en la tele por Chromecast: hoy con duplicar la pantalla o la Pantalla web; lo propio (receptor que reutiliza la Pantalla,
+    USD 5 de registro con su OK) espera su decisión para enero (DEC-2026-11-20-1; capítulo 85 §4);
+  - el correo de Apple ITMS-90725 no frena nada: compilar con Xcode 27 antes de abril de 2027.
 
 ## 2. Reglas no negociables
 

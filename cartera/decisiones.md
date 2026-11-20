@@ -1904,3 +1904,19 @@ premio reinicia el reloj, tabla `parametros` en Supabase para ajustar vidas y an
 al empezar y los errores no; prueba «intensa» al 20 % de los nuevos cuando haya volumen. **Regla de corte:** retroceder si D7 cae 1,5
 puntos (o D1 2), si más del 20 % de los intersticiales de un lugar cortan la sesión, si más del 10 % de las reseñas de 1-2 estrellas
 hablan de anuncios o vidas, o si la nota baja de 4,5.
+
+## DEC-2026-11-20-1 — Senda: ver Senda en la tele por Chromecast (PROPUESTA, a decidir)
+
+**Pedido del fundador (20-11-2026):** «Que se pueda compartir por Chromecast. Tipo estamos jugando un torneo, y se puede compartir.
+Estamos con una trivia o travesía, y que también se pueda […] para que sea grupal, o individual, se pueda visualizar en tele. ¿Eso se
+puede?». Detalle: capítulo 85 §4.
+
+**Hoy, sin cambios (HECHO):** Android duplica la pantalla en un Chromecast o Google TV («Transmitir»), el iPhone por AirPlay, y la
+Pantalla web (`web/pantalla/` de la app) se abre en el navegador de la tele o de una compu con el código de la sala.
+
+**Propuesta:** botón «Ver en la tele» con `react-native-google-cast` (plugin de Expo) y un receptor web propio que reutiliza la Pantalla:
+la tele muestra en grande la pregunta, el puntaje y la tabla del torneo, la lección de la Travesía o la sala, y el teléfono queda como
+control. Android y iPhone; sin servidores nuevos. **Costo:** registro de desarrollador de Google Cast USD 5 una vez (HECHO:
+support.google.com/cast-developer/answer/4512496, 20-11-2026; paga el fundador con su OK) y ESTIMACIÓN dos o tres sesiones de Claude.
+**Cuándo:** enero de 2027, para la Gran Copa de Verano y la Pascua; no antes del lanzamiento. **Regla de corte:** si a las 6 semanas
+menos del 3 % de las salas y torneos usan «Ver en la tele», no se suman más vistas.
