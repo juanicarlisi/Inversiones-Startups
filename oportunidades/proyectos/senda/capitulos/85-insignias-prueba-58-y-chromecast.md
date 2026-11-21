@@ -127,7 +127,7 @@ Pruebas: arranque (84 en verde), tipos, validador de contenido («Todo en orden�
   proyector). Si en la Trivia de la iglesia se pasan el teléfono, la tele no muestra la correcta hasta que respondan todos.
 - La tele es un extra: si se corta, el juego sigue en el teléfono. iOS pide el permiso de red local recién al tocar el botón.
 - Pruebas: tipos, 87 pruebas (una nueva: la app y el receptor usan el mismo canal), vista previa web y capturas de las seis vistas.
-- Falta: el registro en la consola de Google Cast (tarea del fundador, USD 5) y su ID en `app.json` (`receiverAppId`); hasta entonces
+- 21-11: registro hecho (Application ID `DB9D6987`, Custom Receiver, sin publicar). Falta su ID en `app.json` (`receiverAppId`, hoy el de prueba), un dispositivo de prueba y Publish; hasta entonces
   el botón usa el ID de prueba de Google y la tele no recibe las vistas de Senda.
 
 ## 5. Próximos
