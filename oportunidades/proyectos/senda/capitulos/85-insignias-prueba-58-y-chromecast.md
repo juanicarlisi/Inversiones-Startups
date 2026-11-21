@@ -129,6 +129,11 @@ Pruebas: arranque (84 en verde), tipos, validador de contenido («Todo en orden�
 - Pruebas: tipos, 87 pruebas (una nueva: la app y el receptor usan el mismo canal), vista previa web y capturas de las seis vistas.
 - Falta: el registro en la consola de Google Cast (tarea del fundador, USD 5) y su ID en `app.json` (`receiverAppId`); hasta entonces
   el botón usa el ID de prueba de Google y la tele no recibe las vistas de Senda.
+- **Hecho el 21-11-2026:** el fundador registró Senda en la consola de Google Cast. El Application ID es **DB9D6987** (Custom Receiver,
+  `https://senda.ministerionuevageneracion.com/tele/`; senders Android e iOS `com.sendaapp.biblia`). Quedó en `app.json` (senda-app
+  8006365), y el prebuild lo lleva a la meta-data de Cast en Android y a `_DB9D6987._googlecast._tcp` en los NSBonjourServices de
+  iOS. La prueba `pruebas/arranque/tele.test.tsx` falla si vuelve el ID de prueba (CC1AD845). Va en el APK 61, el AAB 1.0.7 (el
+  primero que sube a la prueba cerrada) y la versión 1.0.7 de TestFlight.
 
 ## 5. Próximos
 

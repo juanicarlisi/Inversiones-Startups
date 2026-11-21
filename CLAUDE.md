@@ -641,6 +641,14 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     («pésimo»), música en el estilo «Funk electrónico» de Lyria y anuncios en ministerionuevageneracion.com (repositorio mng-cerebro);
   - testers de Google: Testers Community Starter (USD 15), después de que Google apruebe la versión de la prueba cerrada.
 
+- **Datos del 21-11-2026 a la tarde (Senda, prueba 61):**
+  - la Biblia arriba tiene solo «Planes e insignias» y «Notas y marcadores»; esta sección es un diferencial: todo lo marcado con su
+    texto, buscador, colores con nombre y «Guardar en el corazón» (repaso espaciado de versículos para aprenderlos de memoria)
+    (capítulo 88);
+  - las insignias se abren día a día al completar el anterior (se pueden hacer varias el mismo día; recomendado uno por día);
+  - las correcciones se juntan y salen en una sola compilación (cada AAB tarda ~2 h); la prueba cerrada de Play sube con el AAB 1.0.7;
+  - Chromecast: receptor propio de Senda, Application ID DB9D6987, en todas las compilaciones desde el APK 61 y el AAB 1.0.7.
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
