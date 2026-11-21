@@ -632,6 +632,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - la sala en vivo también con preguntas propias o de un PDF; jugar desde la computadora queda listo (docs/WEB_JUGAR.md de la app;
     falta la cuenta de AdSense y Cloudflare, después del lanzamiento); la sala no cuesta nada hasta ~5.700 personas activas por mes.
 
+- **Datos del 21-11-2026 (Senda, prueba 60):**
+  - «bendíjelo no se usa en ninguna parte del mundo»: toda cita escrita dentro del contenido (entre «», en explicaciones, trivia, línea
+    de tiempo y juegos) y todo texto de ejercicio, enunciado y opción va sin palabras que nadie usa, en la versión libre más clara que
+    diga lo mismo (PDT, NBV o BES, con su nombre), sin cambiar el significado; 1.851 textos cambiados, 40 ejercicios rehechos con versión
+    fija y la guardia `scripts/autor/citas_claras.py` en el validador (capítulo 87);
+  - pendientes que pidió para la próxima sesión: el progreso de la Travesía que no se guarda al salir y volver, el desmayo de Lany
+    («pésimo»), música en el estilo «Funk electrónico» de Lyria y anuncios en ministerionuevageneracion.com (repositorio mng-cerebro);
+  - testers de Google: Testers Community Starter (USD 15), después de que Google apruebe la versión de la prueba cerrada.
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
